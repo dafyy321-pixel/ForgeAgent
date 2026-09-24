@@ -1,0 +1,47 @@
+import type { Run, Approval, Artifact, Skill, Memory } from './types';
+export const seedRuns:Run[] = [
+ {id:'RUN-0843',title:'为认证接口补充边界测试',project:'forge-api',status:'ACTIVE',phase:'编写边界测试',progress:42,model:'Claude Sonnet',cost:0.27,tokens:8200,started:'14:40',duration:'03m 12s',steps:8,budget:5,description:'补充 token 失效、空值与并发刷新场景的测试。仅修改 tests/auth，并保留现有接口行为。'},
+ {id:'RUN-0842',title:'修复认证模块的并发刷新问题',project:'forge-api',status:'ACTIVE',phase:'执行与验证',progress:68,model:'Claude Sonnet',cost:0.84,tokens:24860,started:'14:32',duration:'08m 42s',steps:17,budget:5,description:'定位 token refresh 在并发请求下的竞态条件，修复状态更新逻辑，并补充回归测试。仅修改 src/auth 和 tests/auth。'},
+ {id:'RUN-0841',title:'升级 React 19 并验证组件兼容性',project:'console-web',status:'WAITING',phase:'等待发布审批',progress:92,model:'GPT-5',cost:1.26,tokens:38420,started:'14:18',duration:'21m 16s',steps:28,budget:5,description:'完成依赖升级、修复类型不兼容，运行单元与浏览器测试。发布 patch 前需要审批。'},
+ {id:'RUN-0840',title:'分析数据管道的内存增长',project:'data-pipeline',status:'PAUSED',phase:'Worker 中断',progress:46,model:'Claude Sonnet',cost:0.62,tokens:18940,started:'13:56',duration:'12m 03s',steps:11,budget:3,description:'检查批量处理任务中的内存增长。在 checkpoint #11 已保存完整工作区，等待恢复执行。'},
+ {id:'RUN-0839',title:'为支付 API 增加幂等校验',project:'forge-api',status:'SUCCEEDED',phase:'证据验证通过',progress:100,model:'GPT-5',cost:0.73,tokens:22140,started:'13:42',duration:'06m 28s',steps:14,budget:5,description:'在请求入口添加幂等键校验，完成 24 项测试并输出可应用的 patch。'},
+ {id:'RUN-0838',title:'优化搜索索引的增量更新',project:'search-service',status:'SUCCEEDED',phase:'产物已交付',progress:100,model:'Claude Sonnet',cost:0.48,tokens:14320,started:'13:20',duration:'04m 51s',steps:10,budget:3,description:'优化索引批量写入，保留 existing document 的一致性和重试行为。'},
+ {id:'RUN-0837',title:'验证 Webhook 签名与过期窗口',project:'forge-api',status:'FAILED',phase:'环境依赖不可用',progress:35,model:'GPT-5',cost:0.31,tokens:9200,started:'12:54',duration:'03m 17s',steps:7,budget:3,description:'隔离环境缺少测试依赖。工作区变更已保存，可从 checkpoint 重新运行。'}
+];
+export const seedApprovals:Approval[] = [
+ {id:'APR-0128',runId:'RUN-0841',title:'发布 React 19 升级补丁',tool:'github.create_pull_request',target:'console-web / feature/react-19',risk:'外部写入',status:'pending',digest:'sha256:8fb2c914...2e0a'},
+ {id:'APR-0127',runId:'RUN-0842',title:'允许下载测试依赖',tool:'sandbox.network.allow',target:'pypi.org / pytest-asyncio',risk:'网络访问',status:'pending',digest:'sha256:4ac9d1ff...981b'},
+ {id:'APR-0126',runId:'RUN-0838',title:'应用搜索索引配置',tool:'repo.apply_patch',target:'search-service / config/index.yml',risk:'工作区写入',status:'approved',digest:'sha256:210aba91...c62f'}
+];
+export const seedArtifacts:Artifact[] = [
+ {id:'ART-001',runId:'RUN-0839',name:'payment-idempotency.patch',type:'代码补丁',size:'4.8 KB',verified:true,content:'diff --git a/src/payments/handler.py b/src/payments/handler.py\n--- a/src/payments/handler.py\n+++ b/src/payments/handler.py\n@@ -42,3 +42,8 @@\n+    key = request.headers.get("Idempotency-Key")\n+    if not key:\n+        raise ValidationError("Idempotency-Key is required")\n+    existing = await ledger.find(key)\n+    if existing:\n+        return existing.response\n     return await process_payment(request)\n'},
+ {id:'ART-002',runId:'RUN-0839',name:'verification-report.json',type:'验证报告',size:'2.1 KB',verified:true,content:JSON.stringify({run_id:'RUN-0839',verdict:'PASS',tests:{passed:24,failed:0},artifact_digest:'sha256:291e7bf0c24d',verifier:'pytest@8.3',environment:'python:3.12',demo:true},null,2)},
+ {id:'ART-003',runId:'RUN-0841',name:'react-19-migration.patch',type:'代码补丁',size:'12.6 KB',verified:false,content:'diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n@@ dependencies @@\n-  "react": "^18.3.0"\n+  "react": "^19.0.0"\n\n# Demo artifact: await final verification before publication.\n'},
+ {id:'ART-004',runId:'RUN-0838',name:'index-performance.md',type:'分析报告',size:'6.2 KB',verified:true,content:'# 索引性能分析\n\n本地演示报告。\n\n批量索引写入：\n- 基线 P95：142ms\n- 优化 P95：86ms\n- 回归测试：18/18\n\n以上是用于界面展示的模拟数据，不是实际测量结果。'}
+];
+export const seedSkills:Skill[] = [
+ {id:'s1',name:'Python Debugging',description:'从失败测试追踪根因，生成最小修复与回归测试。',version:'2.4.0',enabled:true,calls:142,category:'开发'},
+ {id:'s2',name:'Code Review',description:'围绕边界条件、兼容性和风险审查代码变更。',version:'1.8.2',enabled:true,calls:98,category:'质量'},
+ {id:'s3',name:'Security Audit',description:'验证权限边界、敏感数据与依赖安全。',version:'1.3.0',enabled:true,calls:64,category:'安全'},
+ {id:'s4',name:'React Migration',description:'依赖升级、组件迁移和交互回归检查。',version:'1.2.1',enabled:false,calls:38,category:'开发'},
+ {id:'s5',name:'Performance Lab',description:'基准测量、性能剖析与可解释的优化建议。',version:'0.9.0',enabled:false,calls:27,category:'质量'},
+ {id:'s6',name:'Documentation',description:'从代码事实生成清晰、可维护的项目文档。',version:'2.0.0',enabled:true,calls:81,category:'知识'}
+];
+export const seedMemories:Memory[] = [
+ {id:'m1',title:'依赖管理规范',content:'forge-api 使用 uv 管理 Python 依赖，变更依赖时同时更新 uv.lock。',kind:'项目约定',source:'RUN-0839 · 已验证'},
+ {id:'m2',title:'认证测试入口',content:'认证模块回归命令：uv run pytest tests/auth -q。并发测试需 pytest-asyncio。',kind:'执行经验',source:'RUN-0842 · 任务观察'},
+ {id:'m3',title:'API 幂等约定',content:'写入接口从 Idempotency-Key header 获取业务键；重试应复用同一 key。',kind:'项目约定',source:'RUN-0839 · 已验证'}
+];
+export const statusLabels:Record<string,string>={QUEUED:'排队中',CANCELLING:'正在取消',ACTIVE:'运行中',WAITING:'等待中',PAUSED:'已暂停',SUCCEEDED:'已完成',FAILED:'失败',CANCELLED:'已取消'};
+export const navGroups = [
+ {label:'工作空间',pages:['overview','runs','approvals','recovery']},
+ {label:'能力与知识',pages:['artifacts','context','skills','memory','tools']},
+ {label:'洞察',pages:['evaluations','observability','settings']}
+] as const;
+export const toolsData = [
+ {name:'GitHub',type:'MCP',description:'代码仓库、分支与 Pull Request',icon:'github',count:12},
+ {name:'Sandbox',type:'LOCAL',description:'隔离的代码执行与文件操作',icon:'terminal',count:8},
+ {name:'PostgreSQL',type:'MCP',description:'只读数据库查询与 schema 检索',icon:'database',count:5},
+ {name:'Research Agent',type:'A2A',description:'外部研究 Agent 与结构化证据交付',icon:'network',count:3}
+];
+

@@ -1,0 +1,48 @@
+name: Runtime Contracts
+on: [push, pull_request]
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_PASSWORD: test-admin
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      FORGE_DATABASE_URL: postgresql+psycopg://forge:forge-local@127.0.0.1:55432/forge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - run: npm ci
+      - name: Provision non-superuser database
+        env:
+          PGPASSWORD: test-admin
+        run: psql -h 127.0.0.1 -p 55432 -U postgres -f infra/init.sql
+      - run: uv run alembic upgrade head
+      - run: uv run ruff check backend tests/backend migrations
+      - run: docker build -t forgeagent-sandbox:local sandbox
+      - run: uv run pytest tests/backend -q
+        env:
+          FORGE_TEST_DOCKER: "1"
+      - run: npm run build
+      - name: Start runtime
+        run: |
+          uv run uvicorn forgeagent.api:app --host 127.0.0.1 --port 8000 > /tmp/forge-api.log 2>&1 &
+          uv run forge-worker > /tmp/forge-worker.log 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/health/ready && break; sleep 1; done
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:ui
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-report
+          path: playwright-report/

@@ -1,0 +1,138 @@
+[
+  {
+    "id": "empirical",
+    "url": "https://arxiv.org/abs/2609.20804"
+  },
+  {
+    "id": "anatomy",
+    "url": "https://arxiv.org/abs/2609.00006"
+  },
+  {
+    "id": "solpi",
+    "url": "https://github.com/NVlabs/SoL-Pi"
+  },
+  {
+    "id": "mcp",
+    "url": "https://blog.modelcontextprotocol.io/posts/2026-07-28/"
+  },
+  {
+    "id": "longrunning",
+    "url": "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
+  },
+  {
+    "id": "context",
+    "url": "https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents"
+  },
+  {
+    "id": "memskill",
+    "url": "https://arxiv.org/abs/2602.02474"
+  },
+  {
+    "id": "mce",
+    "url": "https://arxiv.org/abs/2601.21557"
+  },
+  {
+    "id": "evoskills",
+    "url": "https://arxiv.org/abs/2604.01687"
+  },
+  {
+    "id": "wikiskill",
+    "url": "https://arxiv.org/abs/2608.27454"
+  },
+  {
+    "id": "semantic",
+    "url": "https://arxiv.org/abs/2608.05412"
+  },
+  {
+    "id": "commitauth",
+    "url": "https://arxiv.org/abs/2607.10487"
+  },
+  {
+    "id": "langgraph",
+    "url": "https://docs.langchain.com/oss/python/langgraph/durable-execution"
+  },
+  {
+    "id": "temporal",
+    "url": "https://docs.temporal.io/workflow-execution"
+  },
+  {
+    "id": "mcp-tasks",
+    "url": "https://tasks.extensions.modelcontextprotocol.io/specification/draft/tasks"
+  },
+  {
+    "id": "a2a",
+    "url": "https://github.com/a2aproject/A2A/blob/main/docs/whats-new-v1.md"
+  },
+  {
+    "id": "skills",
+    "url": "https://agentskills.io/specification"
+  },
+  {
+    "id": "otel",
+    "url": "https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/"
+  },
+  {
+    "id": "containment",
+    "url": "https://www.anthropic.com/engineering/how-we-contain-claude"
+  },
+  {
+    "id": "evals",
+    "url": "https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents"
+  },
+  {
+    "id": "openhands",
+    "url": "https://github.com/OpenHands/software-agent-sdk"
+  },
+  {
+    "id": "gvisor",
+    "url": "https://gvisor.dev/docs/"
+  },
+  {
+    "id": "terminal",
+    "url": "https://github.com/harbor-framework/terminal-bench-2-1"
+  },
+  {
+    "id": "otel-current",
+    "url": "https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-agent-spans.md"
+  },
+  {
+    "id": "pg-locking",
+    "url": "https://www.postgresql.org/docs/current/sql-select.html"
+  },
+  {
+    "id": "temporal-activities",
+    "url": "https://docs.temporal.io/activity-definition"
+  },
+  {
+    "id": "langgraph-durability",
+    "url": "https://raw.githubusercontent.com/langchain-ai/docs/main/src/oss/langgraph/durable-execution.mdx"
+  },
+  {
+    "id": "empirical-full",
+    "url": "https://arxiv.org/html/2609.20804v1"
+  },
+  {
+    "id": "agents-api",
+    "url": "https://developers.openai.com/api/docs/guides/agents-api/architecture"
+  },
+  {
+    "id": "skillsbench",
+    "url": "https://arxiv.org/abs/2602.12670"
+  },
+  {
+    "id": "solpi-paper",
+    "url": "https://arxiv.org/abs/2609.20519"
+  },
+  {
+    "id": "azure-context",
+    "url": "https://techcommunity.microsoft.com/blog/appsonazureblog/context-engineering-lessons-from-building-azure-sre-agent/4481200/"
+  },
+  {
+    "id": "dbos",
+    "url": "https://docs.dbos.dev/python/tutorials/workflow-tutorial"
+  },
+  {
+    "id": "swebench",
+    "url": "https://www.swebench.com/SWE-bench/"
+  }
+]

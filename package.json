@@ -1,0 +1,35 @@
+{
+  "name": "forgeagent",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "start:local": "node scripts/start-local.mjs",
+    "build": "npm run icons:export && tsc -b && vite build",
+    "icons:export": "node scripts/export-icons.mjs",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "playwright test",
+    "db:local": "node scripts/postgres.mjs",
+    "db:migrate": "uv run alembic upgrade head",
+    "api": "uv run uvicorn forgeagent.api:app --host 127.0.0.1 --port 8000",
+    "worker": "uv run forge-worker",
+    "test:backend": "uv run pytest tests/backend -q",
+    "test:ui": "playwright test",
+    "check": "uv run ruff check backend tests/backend",
+    "sandbox:build": "docker build -t forgeagent-sandbox:local sandbox"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "embedded-postgres": "^18.4.0-beta.17",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.5"
+  }
+}

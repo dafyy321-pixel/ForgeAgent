@@ -1,0 +1,352 @@
+[
+  {
+    "id": "empirical",
+    "source_url": "https://arxiv.org/abs/2609.20804",
+    "retrieved_date": "2026-09-22",
+    "file": "empirical.md",
+    "bytes": 8234,
+    "sha256": "4e83d78dadc05ba11e9f7c633b4912c693c38e2b5ea3c22d5737259336912c49",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "anatomy",
+    "source_url": "https://arxiv.org/abs/2609.00006",
+    "retrieved_date": "2026-09-22",
+    "file": "anatomy.md",
+    "bytes": 8283,
+    "sha256": "cb835fc532fa477bfe49d75ebd565608755a3c85bfdd4d94b5a3560f4d9795f1",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "solpi",
+    "source_url": "https://github.com/NVlabs/SoL-Pi",
+    "retrieved_date": "2026-09-22",
+    "file": "solpi.md",
+    "bytes": 14490,
+    "sha256": "59df1c6591ff559c472970802b3bd792b5be77b6e476a04ec95a144b5063223e",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "mcp",
+    "source_url": "https://blog.modelcontextprotocol.io/posts/2026-07-28/",
+    "retrieved_date": "2026-09-22",
+    "file": "mcp.md",
+    "bytes": 19390,
+    "sha256": "fe527a428d4f28d5fc1cb45155d7a1cfbeaf4a8ce492fac015b63c997988ca1b",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "longrunning",
+    "source_url": "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents",
+    "retrieved_date": "2026-09-22",
+    "file": "longrunning.md",
+    "bytes": 14259,
+    "sha256": "30ab46d78ea036d62df87027d1af6b59e41753ecaf63068dcc7a4cb5b6694a8e",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "context",
+    "source_url": "https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents",
+    "retrieved_date": "2026-09-22",
+    "file": "context.md",
+    "bytes": 22806,
+    "sha256": "c7fa1a7a203aaabf7a6adda66f770873b5d0bba3594028428f1bbc74e8879578",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "memskill",
+    "source_url": "https://arxiv.org/abs/2602.02474",
+    "retrieved_date": "2026-09-22",
+    "file": "memskill.md",
+    "bytes": 7840,
+    "sha256": "b8bfe050eeb39c900966d3987953159985e0fc3f882fbc69c6d56358fdef1064",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "mce",
+    "source_url": "https://arxiv.org/abs/2601.21557",
+    "retrieved_date": "2026-09-22",
+    "file": "mce.md",
+    "bytes": 7256,
+    "sha256": "dd9115405b938357a1d0ef35db9e0bc5f1fc6d95741718d90af836e155b0c7e0",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "evoskills",
+    "source_url": "https://arxiv.org/abs/2604.01687",
+    "retrieved_date": "2026-09-22",
+    "file": "evoskills.md",
+    "bytes": 7984,
+    "sha256": "397e62015ab06810d1428949e73f3e42c05f91a13759b47c1773b7f217cb726f",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "wikiskill",
+    "source_url": "https://arxiv.org/abs/2608.27454",
+    "retrieved_date": "2026-09-22",
+    "file": "wikiskill.md",
+    "bytes": 7658,
+    "sha256": "1fb69f5841fb46f08574f49f8309070109d7025fc5c3fa7cb201151874bafff0",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "semantic",
+    "source_url": "https://arxiv.org/abs/2608.05412",
+    "retrieved_date": "2026-09-22",
+    "file": "semantic.md",
+    "bytes": 7130,
+    "sha256": "08ba644776cad4d2e2a993c952b7e17ee8a2da0f73ca23c71ce782091bb2c304",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "commitauth",
+    "source_url": "https://arxiv.org/abs/2607.10487",
+    "retrieved_date": "2026-09-22",
+    "file": "commitauth.md",
+    "bytes": 7316,
+    "sha256": "1d658c62e4fd23769278ccba344fdfddf9a44f4ebad1ab8ac9b3db49baa5fe41",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "langgraph",
+    "source_url": "https://docs.langchain.com/oss/python/langgraph/durable-execution",
+    "retrieved_date": "2026-09-22",
+    "file": "langgraph.md",
+    "bytes": 6235,
+    "sha256": "cc0b0f4858fee2fe9959635963d348e65c3988a4136815bbe49409232be89b95",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "temporal",
+    "source_url": "https://docs.temporal.io/workflow-execution",
+    "retrieved_date": "2026-09-22",
+    "file": "temporal.md",
+    "bytes": 13184,
+    "sha256": "acbfce582a0c1991170b7edee61b4854dba39e38171acbee7979fdfbf640a005",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "mcp-tasks",
+    "source_url": "https://tasks.extensions.modelcontextprotocol.io/specification/draft/tasks",
+    "retrieved_date": "2026-09-22",
+    "file": "mcp-tasks.md",
+    "bytes": 33658,
+    "sha256": "7b6616b8f703d46bfa547678a0d2d99a6a402cf9e297eca840f1bef89877e9e7",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "a2a",
+    "source_url": "https://github.com/a2aproject/A2A/blob/main/docs/whats-new-v1.md",
+    "retrieved_date": "2026-09-22",
+    "file": "a2a.md",
+    "bytes": 34283,
+    "sha256": "80a4c1e8e017021713b7f9d4d9266519fec045ff158233b417d314d91226d6de",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "skills",
+    "source_url": "https://agentskills.io/specification",
+    "retrieved_date": "2026-09-22",
+    "file": "skills.md",
+    "bytes": 8126,
+    "sha256": "b159ee64ffd7aca4e15209f63e7f0041f7f071799bae3b500df913d42d4fb59e",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "otel",
+    "source_url": "https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/",
+    "retrieved_date": "2026-09-22",
+    "file": "otel.md",
+    "bytes": 590,
+    "sha256": "36faa5581bfd535064e4c13990493175ca87115f1858abe50b2d1a5a409d253d",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "containment",
+    "source_url": "https://www.anthropic.com/engineering/how-we-contain-claude",
+    "retrieved_date": "2026-09-22",
+    "file": "containment.md",
+    "bytes": 30130,
+    "sha256": "19dc8fb490b91b5c6cbcc0ea7a746667d3b18fcf5ba23887aa0a01a40dc32df4",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "evals",
+    "source_url": "https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents",
+    "retrieved_date": "2026-09-22",
+    "file": "evals.md",
+    "bytes": 42291,
+    "sha256": "b73e34b600a0e7b611e1f5cae06ead98792f7414e8463ae879122de623319eb2",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "openhands",
+    "source_url": "https://github.com/OpenHands/software-agent-sdk",
+    "retrieved_date": "2026-09-22",
+    "file": "openhands.md",
+    "bytes": 14799,
+    "sha256": "208fac0b371c0e6e3bafaaf89a835bca56b9e76783e29351798bd1f433ecb6d4",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "gvisor",
+    "source_url": "https://gvisor.dev/docs/",
+    "retrieved_date": "2026-09-22",
+    "file": "gvisor.md",
+    "bytes": 8539,
+    "sha256": "62fc61da5624180ad3893f3611941aa416c659bac1a83c678edcc8033217f63b",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "terminal",
+    "source_url": "https://github.com/harbor-framework/terminal-bench-2-1",
+    "retrieved_date": "2026-09-22",
+    "file": "terminal.md",
+    "bytes": 9026,
+    "sha256": "9acda0538bcfe3cd16689aa051b5ac7d98c33afb9fd28fc876c3a8f3088a9342",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "otel-current",
+    "source_url": "https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-agent-spans.md",
+    "retrieved_date": "2026-09-22",
+    "file": "otel-current.md",
+    "bytes": 50242,
+    "sha256": "3b64a74747941c0e3260ff8411a8bdedcd391d57a8dc4c61ffbbb942d63888be",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "pg-locking",
+    "source_url": "https://www.postgresql.org/docs/current/sql-select.html",
+    "retrieved_date": "2026-09-22",
+    "file": "pg-locking.md",
+    "bytes": 50263,
+    "sha256": "6eabb3ad3c902957424a480eebd6c5658002cd8f6a457809fdf1b77b532160c5",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "temporal-activities",
+    "source_url": "https://docs.temporal.io/activity-definition",
+    "retrieved_date": "2026-09-22",
+    "file": "temporal-activities.md",
+    "bytes": 14933,
+    "sha256": "c02c6a91dc1f5e017954f0ef20fe8fbe7eb1bf0bad7398ed5efc566a5dc67b6f",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "langgraph-durability",
+    "source_url": "https://raw.githubusercontent.com/langchain-ai/docs/main/src/oss/langgraph/durable-execution.mdx",
+    "retrieved_date": "2026-09-22",
+    "file": "langgraph-durability.md",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "status": "extraction_failed",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "empirical-full",
+    "source_url": "https://arxiv.org/html/2609.20804v1",
+    "retrieved_date": "2026-09-22",
+    "file": "empirical-full.md",
+    "bytes": 50370,
+    "sha256": "f1473e03091977dc02482454f2e6477413fca6a2b93abb59f2108c245e25375e",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "agents-api",
+    "source_url": "https://developers.openai.com/api/docs/guides/agents-api/architecture",
+    "retrieved_date": "2026-09-22",
+    "file": "agents-api.md",
+    "bytes": 6096,
+    "sha256": "af90c14826de4c544fb19dc4e31b3d99007e392b5aa70651d624cfb04e3f6f2e",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "skillsbench",
+    "source_url": "https://arxiv.org/abs/2602.12670",
+    "retrieved_date": "2026-09-22",
+    "file": "skillsbench.md",
+    "bytes": 12567,
+    "sha256": "c26b657931457f3a1dd3a933db2099d917342867f64f497e1f46eef9ee0283cf",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "solpi-paper",
+    "source_url": "https://arxiv.org/abs/2609.20519",
+    "retrieved_date": "2026-09-22",
+    "file": "solpi-paper.md",
+    "bytes": 7797,
+    "sha256": "07adc1fb91bb2ce1a1292fa8fbb3f1c744f2606ed7046cf824bba2896d2a3e4b",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "azure-context",
+    "source_url": "https://techcommunity.microsoft.com/blog/appsonazureblog/context-engineering-lessons-from-building-azure-sre-agent/4481200/",
+    "retrieved_date": "2026-09-22",
+    "file": "azure-context.md",
+    "bytes": 50479,
+    "sha256": "a2576989297e86c4c99ef154d66b58411e0357506ceed295bf55ecfd9006f80f",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "dbos",
+    "source_url": "https://docs.dbos.dev/python/tutorials/workflow-tutorial",
+    "retrieved_date": "2026-09-22",
+    "file": "dbos.md",
+    "bytes": 14215,
+    "sha256": "89115325958cc79b3323fadc8f0a8d3b26a258916f4e23289ad9bab80ce18e32",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "swebench",
+    "source_url": "https://www.swebench.com/SWE-bench/",
+    "retrieved_date": "2026-09-22",
+    "file": "swebench.md",
+    "bytes": 5383,
+    "sha256": "c6d7a10eee20a74dfd56cbb3c072744b4fe8e4d596083b4a122fc96185b04983",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  },
+  {
+    "id": "agents-guide",
+    "source_url": "https://developers.openai.com/api/docs/guides/agents",
+    "retrieved_date": "2026-09-22",
+    "file": "agents-guide.md",
+    "bytes": 5666,
+    "sha256": "489df11dd71233bb67f5604e48d4ab7218ee3b9f280443e3f6b1c4dd7f2f8663",
+    "status": "extracted_text",
+    "note": "May be truncated; not a complete or independently authenticated publisher archive"
+  }
+]

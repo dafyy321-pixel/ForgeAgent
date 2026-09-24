@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:17.6
+    environment:
+      POSTGRES_PASSWORD: forge-admin-local
+    ports: ["127.0.0.1:55432:5432"]
+    volumes:
+      - forge-postgres:/var/lib/postgresql/data
+      - ./infra/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      retries: 20
+volumes:
+  forge-postgres:
+
