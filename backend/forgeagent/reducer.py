@@ -1,10 +1,8 @@
 """Pure, versioned event reduction and verified checkpoint-based reconstruction."""
 
-import json
 from copy import deepcopy
 
 from .domain import Fault, digest
-from .storage import objects
 
 
 class EventReducer:
@@ -62,7 +60,9 @@ def rebuild(s, tenant, run_id, through_seq=None, checkpoint_id=None):
     checkpoint = max(compatible, key=lambda c: c.data["event_seq"], default=None)
     projection, seq = {}, 0
     if checkpoint:
-        manifest = json.loads(objects.get(tenant, checkpoint.data["manifest_ref"]))
+        from .service import checkpoint_manifest
+
+        manifest = checkpoint_manifest(tenant, checkpoint)
         if digest(manifest["state"]) != manifest["state_digest"] or manifest["projection"]["state"] != manifest["state"]:
             raise Fault("CHECKPOINT_CORRUPT", "Checkpoint projection or state digest mismatch")
         if manifest["event_seq"] != checkpoint.data["event_seq"]:

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +27,9 @@ class Settings(BaseSettings):
     sandbox_runtime: str = "runc"
     lease_seconds: int = 30
     worker_tenants: str = ""
+    worker_slots: int = Field(4, ge=1, le=32)
+    provider_concurrency: int = Field(2, ge=1, le=32)
+    sandbox_concurrency: int = Field(4, ge=1, le=32)
     s3_endpoint: str = ""
     s3_bucket: str = "forgeagent"
     s3_access_key: str = ""

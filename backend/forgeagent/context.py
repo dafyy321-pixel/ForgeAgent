@@ -12,12 +12,20 @@ Do not delete or weaken tests. Produce the smallest justified change. Summaries 
 """
 
 
+def compact_schema(value):
+    if isinstance(value, dict):
+        return {k: compact_schema(v) for k, v in value.items() if k != "title"}
+    if isinstance(value, list):
+        return [compact_schema(v) for v in value]
+    return value
+
+
 def compile_context(task, state, observations, skills, memories, window, output):
     harness = state.get("semantic", {}).get("harness", {})
     if not harness.get("memory", True):
         memories = []
     budget = window - output - 2048
-    system = SYSTEM + "\nJSON decision schema:\n" + canonical(Decision.model_json_schema()).decode()
+    system = SYSTEM + "\nJSON decision schema:\n" + canonical(compact_schema(Decision.model_json_schema())).decode()
     mandatory = [
         {"type": "constraints", "content": system, "trust": "system"},
         {"type": "task", "content": task, "trust": "user"},

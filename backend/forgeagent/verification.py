@@ -1,4 +1,5 @@
 import ast
+import asyncio
 
 from .domain import digest
 from .sandbox import sandbox
@@ -45,13 +46,17 @@ async def verify(tenant, run_id, epoch, baseline, current, contract, allowed_pat
             "truncated": False,
         }
     elif contract.get("argv") and image:
-        root = sandbox.restore(tenant, run_id, f"verify-{epoch}", current)
-        for name, content in contract.get("protected_tests", {}).items():
-            from .sandbox import safe_path
+        def prepare_workspace():
+            root = sandbox.restore(tenant, run_id, f"verify-{epoch}", current)
+            for name, content in contract.get("protected_tests", {}).items():
+                from .sandbox import safe_path
 
-            path = safe_path(root, name)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
+                path = safe_path(root, name)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+            return root
+
+        root = await asyncio.to_thread(prepare_workspace)
         result = await sandbox.execute(root, contract["argv"], image, contract.get("timeout", 120), readonly=True)
         # Verification runs in a read-only copy; no generated code can alter the accepted artifact.
     if result:

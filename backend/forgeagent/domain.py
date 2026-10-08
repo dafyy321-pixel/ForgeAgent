@@ -45,6 +45,8 @@ class Budget(Strict):
     max_tool_calls: int = Field(300, ge=1, le=3000)
     max_tokens: int = Field(500000, ge=1, le=10000000)
     max_repair_attempts: int = Field(2, ge=0, le=10)
+    max_no_progress_turns: int = Field(12, ge=3, le=100)
+    max_concurrent_runs: int = Field(2, ge=1, le=32)
 
 
 class Task(Strict):
@@ -69,6 +71,13 @@ class Harness(Strict):
     observation_recall: bool = True
 
 
+class ChildContract(Strict):
+    required: bool = True
+    deadline_seconds: int | None = Field(None, ge=1, le=86400)
+    join: Literal["report", "integrate"] = "report"
+    deliverables: list[Literal["patch", "test_report", "summary"]] = Field(default_factory=lambda: ["summary"])
+
+
 class CreateRun(Strict):
     project_id: str
     title: str = Field("", max_length=160)
@@ -79,6 +88,7 @@ class CreateRun(Strict):
     model: str = "configured"
     skills: list[str] = Field(default_factory=list)
     harness: Harness = Field(default_factory=Harness)
+    child_contract: ChildContract = Field(default_factory=ChildContract)
 
     @model_validator(mode="after")
     def caps(self):
@@ -91,6 +101,7 @@ class Control(Strict):
     expected_version: int = Field(ge=1)
     reason: str = Field("User request", max_length=2000)
     checkpoint_id: str | None = None
+    executor: Literal["current", "archived"] = "current"
 
 
 class ApprovalDecision(Control):

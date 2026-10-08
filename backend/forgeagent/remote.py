@@ -207,39 +207,45 @@ async def dispatch_remote(tenant, run_id, action_id, args):
 
 
 async def poll_remote(tenant, run_id, action_id, owner, epoch):
-    with db.transaction(tenant) as s:
-        run = db.fence(s, tenant, run_id, owner, epoch)
-        action = db.get(s, db.Action, tenant, action_id)
-        connection, receipt = action.args["connection"], action.receipt
-        task_id = receipt["remote_task_id"]
-        cancel = run.cancel_requested and not receipt.get("cancel_sent")
-        uncertain_inputs = [
-            o
-            for o in db.rows(s, db.Outbox, tenant)
-            if o.status in {"dispatching", "unknown"} and o.data.get("action_id") == action_id
-        ]
-        if uncertain_inputs:
-            for job in uncertain_inputs:
-                job.status = "unknown"
-            action.status = "UNKNOWN"
-            db.emit(s, run, "REMOTE_INPUT_UNKNOWN", "Interrupted remote input delivery requires reconciliation")
-            return
-        input_jobs = [
-            o for o in db.rows(s, db.Outbox, tenant) if o.status == "pending" and o.data.get("action_id") == action_id
-        ]
-        approved_inputs = []
-        for job in input_jobs:
-            auth = service.authorization(s, run, "external.write")
-            if cancel or job.data["policy_epoch"] != auth.data["epoch"]:
-                job.status = "cancelled"
-            else:
-                job.status = "dispatching"
-                approved_inputs.append((job.id, job.data["params"]))
-        deadline = run.created_at + timedelta(seconds=run.state["budget"]["max_wall_seconds"])
-        if db.clock(s) > deadline:
-            action.status = "UNKNOWN"
-            db.emit(s, run, "REMOTE_DEADLINE", "Remote task exceeded deadline; explicit reconciliation required")
-            return
+    def prepare_poll():
+        with db.transaction(tenant) as s:
+            run = db.fence(s, tenant, run_id, owner, epoch)
+            action = db.get(s, db.Action, tenant, action_id)
+            connection, receipt = action.args["connection"], action.receipt
+            task_id = receipt["remote_task_id"]
+            cancel = run.cancel_requested and not receipt.get("cancel_sent")
+            uncertain_inputs = [
+                o
+                for o in db.rows(s, db.Outbox, tenant)
+                if o.status in {"dispatching", "unknown"} and o.data.get("action_id") == action_id
+            ]
+            if uncertain_inputs:
+                for job in uncertain_inputs:
+                    job.status = "unknown"
+                action.status = "UNKNOWN"
+                db.emit(s, run, "REMOTE_INPUT_UNKNOWN", "Interrupted remote input delivery requires reconciliation")
+                return None
+            input_jobs = [
+                o for o in db.rows(s, db.Outbox, tenant) if o.status == "pending" and o.data.get("action_id") == action_id
+            ]
+            approved_inputs = []
+            for job in input_jobs:
+                auth = service.authorization(s, run, "external.write")
+                if cancel or job.data["policy_epoch"] != auth.data["epoch"]:
+                    job.status = "cancelled"
+                else:
+                    job.status = "dispatching"
+                    approved_inputs.append((job.id, job.data["params"]))
+            deadline = run.created_at + timedelta(seconds=run.state["budget"]["max_wall_seconds"])
+            if db.clock(s) > deadline:
+                action.status = "UNKNOWN"
+                db.emit(s, run, "REMOTE_DEADLINE", "Remote task exceeded deadline; explicit reconciliation required")
+                return None
+        return approved_inputs, cancel, connection, receipt, task_id
+    prepared = await asyncio.to_thread(prepare_poll)
+    if prepared is None:
+        return
+    approved_inputs, cancel, connection, receipt, task_id = prepared
     is_mcp = connection["kind"] == "mcp"
     is_v1 = connection["protocol"] == "1.0"
     params = {"taskId" if is_mcp else "id": task_id}
@@ -247,71 +253,77 @@ async def poll_remote(tenant, run_id, action_id, owner, epoch):
     try:
         for job_id, input_params in approved_inputs:
             await rpc(connection, "tasks/update", input_params, job_id)
-            with db.transaction(tenant) as s:
-                run = db.fence(s, tenant, run_id, owner, epoch)
-                job = db.get(s, db.Outbox, tenant, job_id, True)
-                job.status = "sent"
-                db.emit(s, run, "REMOTE_INPUT_DELIVERED", "Reviewed remote input acknowledged", outbox_id=job_id)
+            def acknowledge_input():
+                with db.transaction(tenant) as s:
+                    run = db.fence(s, tenant, run_id, owner, epoch)
+                    job = db.get(s, db.Outbox, tenant, job_id, True)
+                    job.status = "sent"
+                    db.emit(s, run, "REMOTE_INPUT_DELIVERED", "Reviewed remote input acknowledged", outbox_id=job_id)
+            await asyncio.to_thread(acknowledge_input)
         if cancel:
             await rpc(connection, "tasks/cancel" if is_mcp or not is_v1 else "CancelTask", params)
             cancel_sent = True
         result = await rpc(connection, "tasks/get" if is_mcp or not is_v1 else "GetTask", params)
         result = remote_result(connection, result)
         result["cancel_sent"] = cancel_sent
-        result_ref = objects.put(tenant, run_id, result)
+        result_ref = await asyncio.to_thread(objects.put, tenant, run_id, result)
     except Exception:
+        def record_poll_failure():
+            with db.transaction(tenant) as s:
+                run = db.fence(s, tenant, run_id, owner, epoch)
+                uncertain = False
+                for job_id, _ in approved_inputs:
+                    job = db.get(s, db.Outbox, tenant, job_id, True)
+                    if job.status == "dispatching":
+                        job.status = "unknown"
+                        uncertain = True
+                if uncertain:
+                    action = db.get(s, db.Action, tenant, action_id, True)
+                    action.status = "UNKNOWN"
+                    db.emit(s, run, "REMOTE_INPUT_UNKNOWN", "Remote input may have been delivered; reconciliation required")
+                    return None
+                db.schedule(s, run, 10)
+                db.emit(s, run, "REMOTE_POLL_DELAYED", "Remote status query failed; no effect was repeated")
+        await asyncio.to_thread(record_poll_failure)
+        return
+    def commit_poll():
         with db.transaction(tenant) as s:
             run = db.fence(s, tenant, run_id, owner, epoch)
-            uncertain = False
-            for job_id, _ in approved_inputs:
-                job = db.get(s, db.Outbox, tenant, job_id, True)
-                if job.status == "dispatching":
-                    job.status = "unknown"
-                    uncertain = True
-            if uncertain:
-                action = db.get(s, db.Action, tenant, action_id, True)
-                action.status = "UNKNOWN"
-                db.emit(s, run, "REMOTE_INPUT_UNKNOWN", "Remote input may have been delivered; reconciliation required")
-                return
-            db.schedule(s, run, 10)
-            db.emit(s, run, "REMOTE_POLL_DELAYED", "Remote status query failed; no effect was repeated")
-        return
-    with db.transaction(tenant) as s:
-        run = db.fence(s, tenant, run_id, owner, epoch)
-        action = db.get(s, db.Action, tenant, action_id, True)
-        action.receipt = {**result, "ref": result_ref}
-        action.status = (
-            "RUNNING"
-            if result.get("pending")
-            else "CANCELLED"
-            if result.get("remote_status") in {"cancelled", "canceled"}
-            else "SUCCEEDED"
-            if result["exit_code"] == 0
-            else "FAILED"
-        )
-        run.status, run.wait_reason = (
-            ("WAITING", "TOOL")
-            if result.get("pending")
-            else ("CANCELLING", None)
-            if run.cancel_requested
-            else ("ACTIVE", None)
-        )
-        if result.get("remote_status") in {"input_required", "auth_required"}:
-            run.status = "PAUSED"
-            run.state = {
-                **run.state,
-                "input_required": True,
-                "reason": "Remote task requires reviewed input; see action receipt",
-            }
-        db.emit(
-            s,
-            run,
-            "REMOTE_TASK_OBSERVED",
-            "Remote task state persisted",
-            action_id=action.id,
-            remote_status=result.get("remote_status"),
-        )
-        db.schedule(s, run, result.get("poll_seconds", 5) if result.get("pending") else 0)
+            action = db.get(s, db.Action, tenant, action_id, True)
+            action.receipt = {**result, "ref": result_ref}
+            action.status = (
+                "RUNNING"
+                if result.get("pending")
+                else "CANCELLED"
+                if result.get("remote_status") in {"cancelled", "canceled"}
+                else "SUCCEEDED"
+                if result["exit_code"] == 0
+                else "FAILED"
+            )
+            run.status, run.wait_reason = (
+                ("WAITING", "TOOL")
+                if result.get("pending")
+                else ("CANCELLING", None)
+                if run.cancel_requested
+                else ("ACTIVE", None)
+            )
+            if result.get("remote_status") in {"input_required", "auth_required"}:
+                run.status = "PAUSED"
+                run.state = {
+                    **run.state,
+                    "input_required": True,
+                    "reason": "Remote task requires reviewed input; see action receipt",
+                }
+            db.emit(
+                s,
+                run,
+                "REMOTE_TASK_OBSERVED",
+                "Remote task state persisted",
+                action_id=action.id,
+                remote_status=result.get("remote_status"),
+            )
+            db.schedule(s, run, result.get("poll_seconds", 5) if result.get("pending") else 0)
+    await asyncio.to_thread(commit_poll)
 
 
 def accept_callback(s, tenant, provider, message_id, timestamp, body, signature):

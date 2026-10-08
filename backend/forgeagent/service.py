@@ -1,8 +1,6 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
-from functools import lru_cache
-from pathlib import Path
 
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -47,15 +45,10 @@ def memory_valid(memory, time):
         return False
 
 
-@lru_cache(maxsize=1)
 def implementation_bindings():
-    root = Path(__file__).parent
-    names = sorted(
-        p.name
-        for p in root.glob("*.py")
-        if p.name not in {"__init__.py", "presenters.py", "cli.py", "sdk.py", "telemetry.py"}
-    )
-    return {name: digest((root / name).read_bytes()) for name in names}
+    from .semantic import bindings
+
+    return bindings()
 
 
 # Bind loaded code once per process, so edits on disk cannot relabel an older live worker.
@@ -145,10 +138,14 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
         if len([r for r in db.rows(s, db.Run, tenant, parent_id=parent.id) if r.status not in TERMINAL]) >= 2:
             raise Fault("CHILD_LIMIT", "At most two child tasks may be outstanding", 429)
     run_id = uid()
-    baseline = (
-        json.loads(objects.get(tenant, parent.state["workspace_ref"])) if parent else project.data.get("baseline", {})
-    )
-    baseline_ref = objects.put(tenant, run_id, baseline)
+    from .semantic import store_archive
+
+    executor_ref = parent.state.get("executor_ref") if parent else store_archive(tenant)
+    if parent:
+        allocate_child(s, parent, run_id, spec.budget)
+    # Child baselines are immutable references to the parent's committed snapshot. Reusing
+    # them avoids S3 transfers inside the parent's response-consumption transaction.
+    baseline_ref = parent.state["workspace_ref"] if parent else objects.put(tenant, run_id, project.data.get("baseline", {}))
     skill_data = []
     for skill_id in spec.skills:
         skill = db.get(s, db.SkillVersion, tenant, skill_id)
@@ -161,7 +158,7 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
         if m.status == "active" and m.data.get("project") in (None, spec.project_id) and memory_valid(m, db.clock(s))
     ]
     model = "fixture@1" if spec.model == "fixture" else settings.model_id
-    acceptance = seal_acceptance(tenant, run_id, project.data.get("acceptance", {}))
+    acceptance = parent.state["acceptance"] if parent else seal_acceptance(tenant, run_id, project.data.get("acceptance", {}))
     if spec.task.acceptance_profile and spec.task.acceptance_profile != acceptance.get("id"):
         raise Fault("ACCEPTANCE_PROFILE", "Acceptance profile does not match the registered project", 422)
     semantic = {
@@ -206,8 +203,10 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
             "capabilities": spec.capabilities,
             "baseline_ref": baseline_ref,
             "workspace_ref": baseline_ref,
-            "workspace_digest": digest(baseline),
+            "workspace_digest": parent.state["workspace_digest"] if parent else baseline_ref["digest"],
             "semantic": semantic,
+            "executor_ref": executor_ref,
+            "executor_digest": digest(semantic["implementation"]),
             "skills": skill_data,
             "memories": memories,
             "turn": 0,
@@ -219,6 +218,11 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
             "fixture": spec.model == "fixture",
             "model_errors": 0,
             "evaluation_id": evaluation_id,
+            "child_contract": spec.child_contract.model_dump(),
+            "deadline": (min(
+                parent.created_at + timedelta(seconds=parent.state["budget"]["max_wall_seconds"]),
+                db.clock(s) + timedelta(seconds=spec.child_contract.deadline_seconds or spec.budget.max_wall_seconds),
+            ).isoformat() if parent else None),
         },
     )
     s.add(r)
@@ -249,8 +253,11 @@ def checkpoint(s, run):
         "state": run.state,
         "projection": db.projection(run),
     }
-    ref = objects.put(run.tenant_id, run.id, manifest)
-    cp = db.Checkpoint(tenant_id=run.tenant_id, run_id=run.id, status="READY", data={"manifest_ref": ref, **manifest})
+    # The immutable database checkpoint already stores the complete manifest. Keeping it
+    # here avoids uploading the same state to S3 while holding the decision lock.
+    cp = db.Checkpoint(tenant_id=run.tenant_id, run_id=run.id, status="READY", data={
+        "manifest_digest": digest(manifest), **manifest,
+    })
     s.add(cp)
     s.flush()
     run.state = {**run.state, "checkpoint_id": cp.id}
@@ -260,7 +267,7 @@ def checkpoint(s, run):
         "CHECKPOINT_READY",
         "Logical state and workspace snapshot persisted",
         checkpoint_id=cp.id,
-        manifest_ref=ref,
+        manifest_digest=digest(manifest),
     )
     return cp
 
@@ -274,7 +281,8 @@ def reserve(s, run, operation_id, amount, token_upper=0):
     )
     if existing:
         return existing
-    if amount < 0 or account.spent + account.reserved + amount > account.limit_micros:
+    allocated_cost, allocated_tokens = allocation_holds(s, run.tenant_id, account, exclude=run.id)
+    if amount < 0 or account.spent + account.reserved + allocated_cost + amount > account.limit_micros:
         raise Fault("BUDGET_LIMIT", "Root budget has insufficient unreserved funds")
     if run.parent_id:
         entries = [
@@ -285,10 +293,14 @@ def reserve(s, run, operation_id, amount, token_upper=0):
         allocated = sum(e.actual if e.status == "settled" else e.reserved for e in entries)
         if allocated + amount > int(Decimal(run.state["budget"]["max_cost_usd"]) * 1_000_000):
             raise Fault("CHILD_BUDGET_LIMIT", "Child allocation has insufficient funds")
+        child_tokens = sum(e.data.get("tokens_actual", 0) if e.status == "settled" else
+                           e.data.get("tokens_reserved", 0) for e in entries)
+        if child_tokens + token_upper > run.state["budget"]["max_tokens"]:
+            raise Fault("CHILD_TOKEN_LIMIT", "Child token allocation exhausted")
     root = db.get(s, db.Run, run.tenant_id, run.root_id)
     resources = account.resources or {}
     used = resources.get("tokens_spent", 0) + resources.get("tokens_reserved", 0)
-    if token_upper < 0 or used + token_upper > root.state["budget"].get("max_tokens", 500000):
+    if token_upper < 0 or used + allocated_tokens + token_upper > root.state["budget"].get("max_tokens", 500000):
         raise Fault("TOKEN_BUDGET_LIMIT", "Root token budget has insufficient unreserved capacity")
     account.resources = {**resources, "tokens_reserved": resources.get("tokens_reserved", 0) + token_upper}
     account.reserved += amount
@@ -306,6 +318,75 @@ def reserve(s, run, operation_id, amount, token_upper=0):
     )
     s.add(entry)
     return entry
+
+
+def allocation_holds(s, tenant, account, exclude=None):
+    entries = db.rows(s, db.BudgetEntry, tenant, account_id=account.id)
+    money, tokens = 0, 0
+    for child_id, allocation in (account.resources or {}).get("child_allocations", {}).items():
+        if child_id == exclude or allocation.get("released"):
+            continue
+        child_entries = [e for e in entries if e.data.get("run_id") == child_id]
+        used_money = sum(e.actual if e.status == "settled" else e.reserved for e in child_entries)
+        used_tokens = sum(e.data.get("tokens_actual", 0) if e.status == "settled" else
+                          e.data.get("tokens_reserved", 0) for e in child_entries)
+        money += max(0, allocation["cost_limit"] - used_money)
+        tokens += max(0, allocation["token_limit"] - used_tokens)
+    return money, tokens
+
+
+def allocate_child(s, parent, child_id, budget):
+    account = db.get(s, db.BudgetAccount, parent.tenant_id, parent.root_id, True)
+    root = db.get(s, db.Run, parent.tenant_id, parent.root_id)
+    held_money, held_tokens = allocation_holds(s, parent.tenant_id, account)
+    resources = account.resources or {}
+    amount = int(Decimal(budget.max_cost_usd) * 1_000_000)
+    if amount + held_money + account.spent + account.reserved > account.limit_micros:
+        raise Fault("CHILD_ALLOCATION_LIMIT", "Child cost allocation exceeds unallocated root funds")
+    if (budget.max_tokens + held_tokens + resources.get("tokens_spent", 0) + resources.get("tokens_reserved", 0)
+        > root.state["budget"].get("max_tokens", 500000)):
+        raise Fault("CHILD_ALLOCATION_LIMIT", "Child token allocation exceeds unallocated root capacity")
+    account.resources = {**resources, "child_allocations": {
+        **resources.get("child_allocations", {}), child_id: {"cost_limit": amount, "token_limit": budget.max_tokens,
+                                                         "released": False},
+    }}
+
+
+def release_child_allocation(s, run):
+    if not run.parent_id:
+        return
+    account = db.get(s, db.BudgetAccount, run.tenant_id, run.root_id, True)
+    allocations = (account.resources or {}).get("child_allocations", {})
+    allocation = allocations.get(run.id)
+    if allocation and not allocation.get("released"):
+        account.resources = {**account.resources, "child_allocations": {
+            **allocations, run.id: {**allocation, "released": True},
+        }}
+        db.emit(s, run, "CHILD_ALLOCATION_RELEASED", "Unused child budget returned to the root")
+
+
+def join_children(s, run, children):
+    results, required_pending, required_failed = {}, False, False
+    for child in children:
+        contract = child.state.get("child_contract", {"required": True, "join": "report", "deliverables": []})
+        deadline = child.state.get("deadline")
+        if deadline and datetime.fromisoformat(deadline) <= db.clock(s) and child.status not in TERMINAL:
+            control(s, run.tenant_id, child.id, "cancel", child.version, "Child deadline reached")
+        if child.status in TERMINAL:
+            release_child_allocation(s, child)
+        artifacts = db.rows(s, db.Artifact, run.tenant_id, run_id=child.id)
+        kinds = {a.kind for a in artifacts if a.verified and a.version == child.state["artifact_version"]}
+        delivery_ok = set(contract.get("deliverables", [])) <= kinds
+        required = contract.get("required", True)
+        results[child.id] = {"required": required, "status": child.status, "delivery_ok": delivery_ok,
+                             "joined": child.id in run.state.get("integrated_children", []),
+                             "verdict": (child.state.get("verification") or {}).get("verdict")}
+        required_pending |= required and child.status not in TERMINAL
+        required_failed |= required and child.status in TERMINAL and (child.status != "SUCCEEDED" or not delivery_ok)
+    if results != run.state.get("child_results", {}):
+        run.state = {**run.state, "child_results": results}
+        db.emit(s, run, "CHILD_JOIN_STATUS", "Child outcomes and required delivery contracts updated")
+    return required_pending, required_failed
 
 
 def settle(s, run, operation_id, actual, actual_tokens=None):
@@ -347,7 +428,7 @@ def consume_tool_slot(s, run):
     account.resources = {**resources, "tool_calls": calls + 1}
 
 
-def control(s, tenant, id, command, expected_version, reason):
+def control(s, tenant, id, command, expected_version, reason, executor="current"):
     r = db.get(s, db.Run, tenant, id, True)
     if command == "cancel" and r.cancel_requested:
         if r.status not in TERMINAL:
@@ -380,14 +461,22 @@ def control(s, tenant, id, command, expected_version, reason):
             raise Fault("UNRESOLVED_EFFECT", "Reconcile pending effects first")
         require_settled_usage(s, r)
         authorization(s, r)
-        if digest(TOOLS) != r.state["semantic"]["tools_digest"]:
-            raise Fault("SEMANTIC_DRIFT", "Pinned tool implementation is not available")
-        if r.state["semantic"].get("implementation") != implementation_bindings():
-            raise Fault("SEMANTIC_DRIFT", "Pinned implementation changed; create a new fork using current code")
+        if executor == "archived":
+            import tempfile
+
+            from .semantic import materialize
+
+            with tempfile.TemporaryDirectory(prefix="forge-executor-check-") as directory:
+                materialize(tenant, r, directory)
+        else:
+            if digest(TOOLS) != r.state["semantic"]["tools_digest"]:
+                raise Fault("SEMANTIC_DRIFT", "Pinned tool implementation is not available")
+            if r.state["semantic"].get("implementation") != implementation_bindings():
+                raise Fault("SEMANTIC_DRIFT", "Migrate explicitly, resume with archived executor, or fork")
         objects.get(tenant, r.state["workspace_ref"])
         if r.state.get("checkpoint_id"):
             cp = db.get(s, db.Checkpoint, tenant, r.state["checkpoint_id"])
-            manifest = json.loads(objects.get(tenant, cp.data["manifest_ref"]))
+            manifest = checkpoint_manifest(tenant, cp)
             if digest(manifest["state"]) != manifest["state_digest"]:
                 raise Fault("CHECKPOINT_CORRUPT", "Checkpoint state digest mismatch")
             objects.get(tenant, manifest["workspace"])
@@ -399,6 +488,58 @@ def control(s, tenant, id, command, expected_version, reason):
     db.emit(s, r, command.upper() + "_REQUESTED", reason)
     db.schedule(s, r)
     return r
+
+
+def migrate(s, tenant, id, body):
+    from .domain import Budget
+    from .semantic import store_archive
+
+    run = db.get(s, db.Run, tenant, id, True)
+    if run.version != body.expected_version or run.status != "PAUSED" or run.lease_owner or run.cancel_requested:
+        raise Fault("MIGRATION_CONFLICT", "Migration requires an idle paused task at its reviewed version")
+    require_settled_usage(s, run)
+    if any(a.status in UNSETTLED for a in db.rows(s, db.Action, tenant, run_id=id)):
+        raise Fault("UNSETTLED_ACTION", "Reconcile every dispatched effect before migration")
+    if any(c.status not in TERMINAL for c in db.rows(s, db.Run, tenant, parent_id=id)):
+        raise Fault("UNSETTLED_CHILD", "Settle child contracts before migration")
+    old = run.state["semantic"]
+    new = {**old, "implementation": implementation_bindings(), "tools_digest": digest(TOOLS),
+           "verifier": VERIFIER, "schema_version": 2}
+    if old.get("schema_version", 1) not in {1, 2}:
+        raise Fault("MIGRATION_UNSUPPORTED", "No compatibility migration is registered for this schema")
+    for action in db.rows(s, db.Action, tenant, run_id=id):
+        if action.status in {"READY", "PREPARED", "WAITING_APPROVAL"}:
+            action.status = "CANCELLED"
+            for approval in db.rows(s, db.Approval, tenant, action_id=action.id):
+                if approval.decision == "pending":
+                    approval.decision, approval.reason = "expired", "Superseded by explicit runtime migration"
+    for call in db.rows(s, db.ModelCall, tenant, run_id=id):
+        if call.data.get("receipt_state") == "received":
+            call.data = {**call.data, "receipt_state": "superseded_migration"}
+    for artifact in db.rows(s, db.Artifact, tenant, run_id=id):
+        artifact.verified = False
+    segment = {"from": digest(old), "to": digest(new), "at": db.clock(s).isoformat(),
+               "reason": body.reason, "input_revision": run.state.get("input_revision", 0)}
+    run.state = {**run.state, "semantic": new, "executor_ref": store_archive(tenant),
+                 "executor_digest": digest(new["implementation"]), "budget": Budget(**run.state["budget"]).model_dump(),
+                 "semantic_segments": [*run.state.get("semantic_segments", []), segment],
+                 "completion": None, "verification": None, "verification_feedback": None,
+                 "input_revision": run.state.get("input_revision", 0) + 1,
+                 "artifact_version": run.state["artifact_version"] + 1, "reason": body.reason}
+    s.add(db.SemanticManifest(tenant_id=tenant, run_id=id, data={"bindings": new, "digest": digest(new),
+                                                             "previous": old, "migration": segment}))
+    db.emit(s, run, "SEMANTIC_MIGRATED", body.reason, previous_digest=digest(old), semantic_digest=digest(new))
+    checkpoint(s, run)
+    return run
+
+
+def checkpoint_manifest(tenant, checkpoint):
+    if checkpoint.data.get("manifest_ref"):
+        return json.loads(objects.get(tenant, checkpoint.data["manifest_ref"]))
+    manifest = {k: v for k, v in checkpoint.data.items() if k != "manifest_digest"}
+    if digest(manifest) != checkpoint.data.get("manifest_digest"):
+        raise Fault("CHECKPOINT_CORRUPT", "Embedded checkpoint manifest digest mismatch")
+    return manifest
 
 
 def prepare_action(s, run, call, logical_key):
@@ -448,7 +589,8 @@ def approve(s, tenant, actor, approval_id, body, admin=False):
     if run.version != body.expected_version:
         raise Fault("VERSION_CONFLICT", "Task changed; review its latest version")
     auth = authorization(s, run, "external.write")
-    if approval.decision != "pending" or approval.expires_at <= db.clock(s) or run.cancel_requested:
+    if (approval.decision != "pending" or approval.expires_at <= db.clock(s) or run.cancel_requested
+        or action.status != "WAITING_APPROVAL"):
         raise Fault("APPROVAL_EXPIRED", "Approval is no longer valid")
     if (
         approval.effect_digest != body.effect_digest
@@ -541,5 +683,11 @@ def require_finalizable(s, run):
     if any(a.status not in {"SUCCEEDED", "FAILED", "CANCELLED"}
            for a in db.rows(s, db.Action, run.tenant_id, run_id=run.id)):
         raise Fault("UNSETTLED_ACTION", "Pending actions must settle before verification")
-    if any(c.status != "SUCCEEDED" for c in db.rows(s, db.Run, run.tenant_id, parent_id=run.id)):
-        raise Fault("UNSETTLED_CHILD", "Required child runs must succeed before verification")
+    children = db.rows(s, db.Run, run.tenant_id, parent_id=run.id)
+    pending, failed = join_children(s, run, children)
+    if pending or failed or any(c.status not in TERMINAL for c in children):
+        raise Fault("UNSETTLED_CHILD", "Child calls must settle and required children must deliver successfully")
+    if any(c.state.get("child_contract", {}).get("required", True)
+           and c.state.get("child_contract", {}).get("join") == "integrate"
+           and c.id not in run.state.get("integrated_children", []) for c in children):
+        raise Fault("CHILD_NOT_INTEGRATED", "Required child workspace must be integrated before verification")

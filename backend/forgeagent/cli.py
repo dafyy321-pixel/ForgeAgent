@@ -18,6 +18,14 @@ app.add_typer(project, name="project")
 app.add_typer(admin, name="admin")
 
 
+@admin.command("executor")
+def archived_executor(tenant: str, run_id: str, quanta: int = typer.Option(1, min=1, max=1000)):
+    """Execute only this run with its internally captured source and exact installed dependencies."""
+    from .semantic import execute_archived
+
+    execute_archived(tenant, run_id, quanta)
+
+
 def client():
     return Client(os.getenv("FORGE_API_URL", "http://127.0.0.1:8000"), os.getenv("FORGE_ACCESS_TOKEN"))
 

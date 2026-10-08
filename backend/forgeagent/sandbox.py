@@ -60,6 +60,8 @@ class Sandbox:
         root.parent.mkdir(parents=True, exist_ok=True)
         stage = root.with_name(root.name + ".stage-" + uid())
         backup = root.with_name(root.name + ".backup-" + uid())
+        stale = [p for p in root.parent.iterdir() if p.name.startswith((root.name + ".stage-", root.name + ".backup-"))]
+        installed = False
         try:
             stage.mkdir()
             write_tree(stage, content)
@@ -67,13 +69,21 @@ class Sandbox:
                 os.replace(root, backup)
             try:
                 os.replace(stage, root)
+                installed = True
             except BaseException:
                 if backup.exists():
                     os.replace(backup, root)
                 raise
         finally:
-            for path in (stage, backup):
+            # Preserve the backup if both installation and rollback failed. A later restore
+            # can rebuild the durable snapshot; cleanup must never delete the only old tree.
+            cleanup = [stage, *stale] if installed else [stage]
+            if installed or root.exists():
+                cleanup.append(backup)
+            for path in cleanup:
                 if path.exists():
+                    if path.is_symlink() or path.is_junction():
+                        raise Fault("PATH_DENIED", "Restore residue contains a workspace link", 403)
                     shutil.rmtree(path)
         return root
 
@@ -97,6 +107,14 @@ class Sandbox:
             raise Fault("SANDBOX_UNAVAILABLE", "Docker sandbox is unavailable")
 
     async def execute(self, root, argv, image, timeout=60, readonly=False):
+        from .concurrency import admission
+
+        async with admission("sandbox", settings.sandbox_concurrency) as admitted:
+            if not admitted:
+                raise Fault("SANDBOX_BACKPRESSURE", "Sandbox capacity exhausted; no container was started", retryable=True)
+            return await self.execute_with_slot(root, argv, image, timeout, readonly)
+
+    async def execute_with_slot(self, root, argv, image, timeout=60, readonly=False):
         if not argv or len(argv) > 100 or not all(isinstance(a, str) for a in argv):
             raise Fault("INVALID_COMMAND", "argv must be a nonempty string array", 422)
         name = "forge-" + uid()

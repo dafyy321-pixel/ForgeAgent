@@ -158,8 +158,17 @@ def control(id: str, body: Control, request: Request, actor: Actor):
                 raise Fault("CHECKPOINT_SCOPE", "Checkpoint does not belong to this run", 404)
             if request.url.path.endswith("/resume"):
                 raise Fault("CHECKPOINT_FORK_REQUIRED", "Resume continues current state; use fork to restore a checkpoint", 422)
-        r = service.control(s, actor.tenant, id, request.url.path.rsplit("/", 1)[1], body.expected_version, body.reason)
+        r = service.control(s, actor.tenant, id, request.url.path.rsplit("/", 1)[1], body.expected_version, body.reason,
+                            executor=body.executor)
         return presenters.run_view(s, r)
+
+
+@app.post("/v1/runs/{id}/migrate")
+def migrate(id: str, body: Control, actor: Actor):
+    with db.transaction(actor.tenant) as s:
+        run = db.get(s, db.Run, actor.tenant, id)
+        require_run_access(s, actor, run, "edit")
+        return presenters.run_view(s, service.migrate(s, actor.tenant, id, body))
 
 
 @app.post("/v1/runs/{id}/fork", status_code=202)
@@ -208,27 +217,32 @@ async def events(
             raise ValueError()
     except ValueError:
         raise Fault("INVALID_CURSOR", "Event cursor must be a nonnegative integer", 422)
-    with db.transaction(actor.tenant) as s:
-        r = db.get(s, db.Run, actor.tenant, id)
-        require_run_access(s, actor, r)
-        if cursor > r.seq:
-            raise Fault("INVALID_CURSOR", "Cursor exceeds the latest committed event", 409)
+    def authorize_stream():
+        with db.transaction(actor.tenant) as s:
+            r = db.get(s, db.Run, actor.tenant, id)
+            require_run_access(s, actor, r)
+            if cursor > r.seq:
+                raise Fault("INVALID_CURSOR", "Cursor exceeds the latest committed event", 409)
+    await asyncio.to_thread(authorize_stream)
 
     async def stream():
         nonlocal cursor
         while not await request.is_disconnected():
-            with db.transaction(actor.tenant) as s:
-                r = db.get(s, db.Run, actor.tenant, id)
-                require_run_access(s, actor, r)
-                batch = list(
-                    s.scalars(
-                        select(db.Event)
-                        .where(db.Event.tenant_id == actor.tenant, db.Event.run_id == id, db.Event.seq > cursor)
-                        .order_by(db.Event.seq)
-                        .limit(100)
+            def read_event_batch():
+                with db.transaction(actor.tenant) as s:
+                    r = db.get(s, db.Run, actor.tenant, id)
+                    require_run_access(s, actor, r)
+                    batch = list(
+                        s.scalars(
+                            select(db.Event)
+                            .where(db.Event.tenant_id == actor.tenant, db.Event.run_id == id, db.Event.seq > cursor)
+                            .order_by(db.Event.seq)
+                            .limit(100)
+                        )
                     )
-                )
-                done = r.status in TERMINAL
+                    done = r.status in TERMINAL
+                return batch, done
+            batch, done = await asyncio.to_thread(read_event_batch)
             for e in batch:
                 cursor = e.seq
                 value = service.public_payload({"seq": e.seq, "type": e.type, "payload": e.payload})
@@ -572,21 +586,26 @@ def reapprove(id: str, body: Control, actor: Actor):
 
 @app.post("/v1/runs/{id}/recheck")
 async def recheck(id: str, body: Control, actor: Actor):
-    with db.transaction(actor.tenant) as s:
-        r = db.get(s, db.Run, actor.tenant, id)
-        fixture = r.state["fixture"]
+    def inspect_run():
+        with db.transaction(actor.tenant) as s:
+            r = db.get(s, db.Run, actor.tenant, id)
+            fixture = r.state["fixture"]
+        return fixture
+    fixture = await asyncio.to_thread(inspect_run)
     try:
         image = None if fixture else await sandbox.image_digest()
         available = True
     except Fault:
         image, available = None, False
-    with db.transaction(actor.tenant) as s:
-        r = db.get(s, db.Run, actor.tenant, id, True)
-        if r.version != body.expected_version or r.status in TERMINAL:
-            raise Fault("VERSION_CONFLICT", "Task changed during environment check")
-        r.state = {**r.state, "environment_ready": available, "checked_image": image}
-        db.emit(s, r, "ENVIRONMENT_CHECKED", "Sandbox inspection completed", ready=available, image=image)
-        return presenters.run_view(s, r)
+    def save_environment_check():
+        with db.transaction(actor.tenant) as s:
+            r = db.get(s, db.Run, actor.tenant, id, True)
+            if r.version != body.expected_version or r.status in TERMINAL:
+                raise Fault("VERSION_CONFLICT", "Task changed during environment check")
+            r.state = {**r.state, "environment_ready": available, "checked_image": image}
+            db.emit(s, r, "ENVIRONMENT_CHECKED", "Sandbox inspection completed", ready=available, image=image)
+            return presenters.run_view(s, r)
+    return await asyncio.to_thread(save_environment_check)
 
 
 class ProjectInput(Strict):
@@ -821,11 +840,13 @@ async def connect(body: ConnectionInput, actor: Actor):
     if (body.kind == "a2a") != (body.protocol in {"0.3.0", "1.0"}):
         raise Fault("PROTOCOL", "Protocol does not match adapter", 422)
     await validate_url(body.url)
-    with db.transaction(actor.tenant) as s:
-        c = db.ToolVersion(tenant_id=actor.tenant, data=body.model_dump())
-        s.add(c)
-        s.flush()
-        return {"id": c.id, "status": c.status, **c.data}
+    def register_connection():
+        with db.transaction(actor.tenant) as s:
+            c = db.ToolVersion(tenant_id=actor.tenant, data=body.model_dump())
+            s.add(c)
+            s.flush()
+            return {"id": c.id, "status": c.status, **c.data}
+    return await asyncio.to_thread(register_connection)
 
 
 class RemoteInput(Control):
@@ -854,8 +875,10 @@ async def callback(
     x_signature: Annotated[str, Header()],
 ):
     body = await request.body()
-    with db.transaction(actor.tenant) as s:
-        return accept_callback(s, actor.tenant, provider, x_message_id, x_timestamp, body, x_signature)
+    def receive_callback():
+        with db.transaction(actor.tenant) as s:
+            return accept_callback(s, actor.tenant, provider, x_message_id, x_timestamp, body, x_signature)
+    return await asyncio.to_thread(receive_callback)
 
 
 @app.post("/v1/examples/smoke", status_code=202)

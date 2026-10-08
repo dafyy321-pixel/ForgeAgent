@@ -2,12 +2,14 @@ import asyncio
 import json
 import logging
 import signal
-from datetime import timedelta
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 
 from pydantic import ValidationError
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
+from sqlalchemy.orm import aliased
 
-from . import db, models, service
+from . import db, models, progress, service
 from .config import settings
 from .context import compile_context
 from .domain import TERMINAL, Fault, canonical, digest, uid
@@ -20,10 +22,12 @@ log = logging.getLogger("forge.worker")
 
 
 class Worker:
-    def __init__(self, owner=None, model=None):
+    def __init__(self, owner=None, model=None, target_run=None):
         self.owner = owner or uid()
         self.model = model or models.generate
         self.stopping = False
+        self.target_run = target_run
+        self.provider_slots = asyncio.Semaphore(settings.provider_concurrency)
 
     def claim(self, tenant):
         with db.transaction(tenant) as s:
@@ -37,14 +41,25 @@ class Worker:
             )
             if running >= limit:
                 return None
+            sibling = aliased(db.Run)
+            root = aliased(db.Run)
+            root_active = (select(func.count()).select_from(sibling).where(
+                sibling.tenant_id == tenant, sibling.root_id == db.Run.root_id, sibling.lease_until > time
+            ).correlate(db.Run).scalar_subquery())
             r = s.scalar(
                 select(db.Run)
                 .join(db.Job, and_(db.Job.tenant_id == db.Run.tenant_id, db.Job.run_id == db.Run.id))
+                .join(root, and_(root.tenant_id == db.Run.tenant_id, root.id == db.Run.root_id))
                 .where(
                     db.Run.tenant_id == tenant,
                     db.Run.status.in_(["QUEUED", "ACTIVE", "CANCELLING", "WAITING"]),
                     db.Run.available_at <= time,
                     or_(db.Run.lease_until.is_(None), db.Run.lease_until <= time),
+                    root_active < func.coalesce(root.state["budget"]["max_concurrent_runs"].as_integer(), 2),
+                    db.Run.id == self.target_run if self.target_run else or_(
+                        db.Run.state["executor_digest"].as_string() == digest(service.implementation_bindings()),
+                        db.Run.state["executor_digest"].as_string().is_(None), db.Run.cancel_requested,
+                    ),
                 )
                 .order_by(db.Run.available_at, db.Run.created_at)
                 .with_for_update(of=db.Run, skip_locked=True)
@@ -89,12 +104,15 @@ class Worker:
             db.emit(s, r, "LEASE_CLAIMED", "Worker acquired exclusive decision lease", recovered=prior_epoch > 0)
             return r.id, r.epoch
 
+    def renew(self, tenant, id, epoch):
+        with db.transaction(tenant) as s:
+            r = db.fence(s, tenant, id, self.owner, epoch)
+            r.lease_until = db.clock(s) + timedelta(seconds=settings.lease_seconds)
+
     async def heartbeat(self, tenant, id, epoch):
         while True:
             await asyncio.sleep(max(1, settings.lease_seconds / 3))
-            with db.transaction(tenant) as s:
-                r = db.fence(s, tenant, id, self.owner, epoch)
-                r.lease_until = db.clock(s) + timedelta(seconds=settings.lease_seconds)
+            await asyncio.to_thread(self.renew, tenant, id, epoch)
 
     def pause(self, tenant, id, epoch, reason):
         with db.transaction(tenant) as s:
@@ -105,15 +123,18 @@ class Worker:
                 if call.status == "DISPATCHED":
                     call.status = "UNKNOWN"
                     service.settle(s, r, call.id, None)
+            for action in db.rows(s, db.Action, tenant, run_id=id):
+                if action.status == "DISPATCHED":
+                    action.status = "READY" if action.effect_class in {"read", "workspace_write"} else "UNKNOWN"
             r.status, r.wait_reason = ("CANCELLING", "RECONCILIATION") if r.cancel_requested else ("PAUSED", None)
             if r.cancel_requested:
                 db.schedule(s, r, 30)
             r.state = {**r.state, "reason": reason}
+            progress.failed(s, r, reason.split(":", 1)[0] if ":" in reason else "EXECUTION_FAILED", "worker")
             db.emit(s, r, "RUN_PAUSED", reason)
             service.checkpoint(s, r)
-
     async def once(self, tenant):
-        lease = self.claim(tenant)
+        lease = await asyncio.to_thread(self.claim, tenant)
         if not lease:
             return False
         id, epoch = lease
@@ -136,121 +157,142 @@ class Worker:
                 task.result()
         except Fault as exc:
             if exc.code != "STALE_LEASE":
-                self.pause(tenant, id, epoch, f"{exc.code}: {exc.message}")
+                await asyncio.to_thread(self.pause, tenant, id, epoch, f"{exc.code}: {exc.message}")
         except Exception as exc:
             log.error("worker operation failed: %s", type(exc).__name__, extra={"run_id": id})
             try:
-                self.pause(tenant, id, epoch, f"Execution stopped: {type(exc).__name__}")
+                await asyncio.to_thread(self.pause, tenant, id, epoch, f"Execution stopped: {type(exc).__name__}")
             except Exception:
                 log.error("Unable to persist failure; lease recovery will reconcile the operation")
         finally:
             beat.cancel()
             await asyncio.gather(beat, return_exceptions=True)
-            with db.transaction(tenant) as s:
-                r = db.get(s, db.Run, tenant, id, True)
-                if r.epoch == epoch and r.lease_owner == self.owner:
-                    r.lease_owner = r.lease_until = None
-                    job = db.get(s, db.Job, tenant, id)
-                    job.status = "READY" if r.status in {"ACTIVE", "QUEUED", "WAITING", "CANCELLING"} else "DONE"
+            await asyncio.to_thread(self.release, tenant, id, epoch)
         return True
 
-    async def advance(self, tenant, id, epoch):
+    def release(self, tenant, id, epoch):
         with db.transaction(tenant) as s:
-            db.fence(s, tenant, id, self.owner, epoch)
-            remote_pending = [
-                a.id
-                for a in db.rows(s, db.Action, tenant, run_id=id)
-                if a.status == "RUNNING" and a.receipt and a.receipt.get("remote_task_id")
-            ]
+            r = db.get(s, db.Run, tenant, id, True)
+            if r.epoch == epoch and r.lease_owner == self.owner:
+                r.lease_owner = r.lease_until = None
+                job = db.get(s, db.Job, tenant, id)
+                if r.status in {"ACTIVE", "QUEUED"}:
+                    db.schedule(s, r)  # Put a completed decision quantum behind other ready runs.
+                else:
+                    job.status = "READY" if r.status in {"WAITING", "CANCELLING"} else "DONE"
+                if r.status in TERMINAL:
+                    service.release_child_allocation(s, r)
+
+    async def advance(self, tenant, id, epoch):
+        def pending_remote():
+            with db.transaction(tenant) as s:
+                db.fence(s, tenant, id, self.owner, epoch)
+                remote_pending = [
+                    a.id
+                    for a in db.rows(s, db.Action, tenant, run_id=id)
+                    if a.status == "RUNNING" and a.receipt and a.receipt.get("remote_task_id")
+                ]
+            return remote_pending
+        remote_pending = await asyncio.to_thread(pending_remote)
         if remote_pending:
             from .remote import poll_remote
 
             for action_id in remote_pending:
                 await poll_remote(tenant, id, action_id, self.owner, epoch)
             return
-        with db.transaction(tenant) as s:
-            r = db.fence(s, tenant, id, self.owner, epoch)
-            state = r.state
-            if r.status == "PAUSED":
-                return
-            actions = db.rows(s, db.Action, tenant, run_id=id)
-            unknown = [a for a in actions if a.status == "UNKNOWN"]
-            children = db.rows(s, db.Run, tenant, parent_id=id)
-            if unknown:
-                r.status, r.wait_reason = "WAITING", "RECONCILIATION"
-                r.state = {**state, "reason": "External effect requires reconciliation"}
-                db.emit(s, r, "RECONCILIATION_REQUIRED", "Unknown effects block further execution")
-                db.schedule(s, r, 30)
-                return
-            if r.cancel_requested:
-                try:
-                    service.require_settled_usage(s, r)
-                except Fault as exc:
-                    r.status, r.wait_reason = "CANCELLING", "RECONCILIATION"
-                    r.state = {**state, "reason": exc.message}
-                    db.emit(s, r, "CANCELLATION_WAITING", "Cancellation awaits billing reconciliation")
+        def prepare_advance():
+            with db.transaction(tenant) as s:
+                r = db.fence(s, tenant, id, self.owner, epoch)
+                state = r.state
+                if r.status == "PAUSED":
+                    return
+                if state.get("deadline") and datetime.fromisoformat(state["deadline"]) <= db.clock(s) and not r.cancel_requested:
+                    service.control(s, tenant, id, "cancel", r.version, "Child deadline reached")
+                    state = r.state
+                actions = db.rows(s, db.Action, tenant, run_id=id)
+                unknown = [a for a in actions if a.status == "UNKNOWN"]
+                children = db.rows(s, db.Run, tenant, parent_id=id)
+                if unknown:
+                    r.status, r.wait_reason = "WAITING", "RECONCILIATION"
+                    r.state = {**state, "reason": "External effect requires reconciliation"}
+                    db.emit(s, r, "RECONCILIATION_REQUIRED", "Unknown effects block further execution")
                     db.schedule(s, r, 30)
                     return
-                if any(c.status not in TERMINAL for c in children):
-                    r.status, r.wait_reason = "CANCELLING", "CHILD_RUN"
-                    db.emit(s, r, "CANCELLATION_WAITING", "Cancellation awaits child settlement")
+                if r.cancel_requested:
+                    try:
+                        service.require_settled_usage(s, r)
+                    except Fault as exc:
+                        r.status, r.wait_reason = "CANCELLING", "RECONCILIATION"
+                        r.state = {**state, "reason": exc.message}
+                        db.emit(s, r, "CANCELLATION_WAITING", "Cancellation awaits billing reconciliation")
+                        db.schedule(s, r, 30)
+                        return
+                    if any(c.status not in TERMINAL for c in children):
+                        r.status, r.wait_reason = "CANCELLING", "CHILD_RUN"
+                        db.emit(s, r, "CANCELLATION_WAITING", "Cancellation awaits child settlement")
+                        db.schedule(s, r, 2)
+                        return
+                    for a in actions:
+                        if a.status in {"READY", "PREPARED", "WAITING_APPROVAL"}:
+                            a.status = "CANCELLED"
+                    r.status, r.wait_reason = "CANCELLED", None
+                    db.emit(s, r, "RUN_CANCELLED", "All in-flight effects settled; no new actions dispatched")
+                    return
+                service.authorization(s, r)
+                if state["semantic"]["tools_digest"] != digest(service.TOOLS):
+                    raise Fault("SEMANTIC_DRIFT", "Pinned tool catalog differs from this worker")
+                if state["semantic"].get("implementation") != service.implementation_bindings():
+                    raise Fault("SEMANTIC_DRIFT", "Pinned runtime implementation changed; fork with current version")
+                if r.pause_requested:
+                    r.status, r.wait_reason = "PAUSED", None
+                    db.emit(s, r, "RUN_PAUSED", "Paused at a durable boundary")
+                    service.checkpoint(s, r)
+                    return
+                pending = [a for a in actions if a.status == "WAITING_APPROVAL"]
+                if pending:
+                    for a in pending:
+                        approvals = [p for p in db.rows(s, db.Approval, tenant, action_id=a.id) if p.decision == "pending"]
+                        if not approvals or approvals[-1].expires_at <= db.clock(s):
+                            for p in approvals:
+                                p.decision = "expired"
+                            a.status = "FAILED"
+                            a.receipt = {"exit_code": 1, "error": "Approval expired"}
+                            r.status, r.wait_reason = "PAUSED", None
+                            db.emit(s, r, "APPROVAL_EXPIRED", "Approval expired before dispatch")
+                            return
+                    r.status, r.wait_reason = "WAITING", "APPROVAL"
+                    db.emit(s, r, "APPROVAL_WAITING", "Pending approval blocks execution")
+                    db.schedule(s, r, 5)
+                    return
+                required_pending, required_failed = service.join_children(s, r, children)
+                if required_pending:
+                    r.status, r.wait_reason = "WAITING", "CHILD_RUN"
+                    db.emit(s, r, "CHILD_WAITING", "Required children have not settled")
                     db.schedule(s, r, 2)
                     return
+                if required_failed:
+                    raise Fault("CHILD_FAILED", "A required child run did not succeed")
+                if (db.clock(s) - r.created_at).total_seconds() > state["budget"]["max_wall_seconds"]:
+                    raise Fault("WALL_TIME_LIMIT", "Task wall time limit reached")
+                r.status, r.wait_reason = "ACTIVE", None
+                ready = [a.id for a in actions if a.status == "READY"]
                 for a in actions:
-                    if a.status in {"READY", "PREPARED", "WAITING_APPROVAL"}:
-                        a.status = "CANCELLED"
-                r.status, r.wait_reason = "CANCELLED", None
-                db.emit(s, r, "RUN_CANCELLED", "All in-flight effects settled; no new actions dispatched")
-                return
-            service.authorization(s, r)
-            if state["semantic"]["tools_digest"] != digest(service.TOOLS):
-                raise Fault("SEMANTIC_DRIFT", "Pinned tool catalog differs from this worker")
-            if state["semantic"].get("implementation") != service.implementation_bindings():
-                raise Fault("SEMANTIC_DRIFT", "Pinned runtime implementation changed; fork with current version")
-            if r.pause_requested:
-                r.status, r.wait_reason = "PAUSED", None
-                db.emit(s, r, "RUN_PAUSED", "Paused at a durable boundary")
-                service.checkpoint(s, r)
-                return
-            pending = [a for a in actions if a.status == "WAITING_APPROVAL"]
-            if pending:
-                for a in pending:
-                    approvals = [p for p in db.rows(s, db.Approval, tenant, action_id=a.id) if p.decision == "pending"]
-                    if not approvals or approvals[-1].expires_at <= db.clock(s):
-                        for p in approvals:
-                            p.decision = "expired"
-                        a.status = "FAILED"
-                        a.receipt = {"exit_code": 1, "error": "Approval expired"}
-                        r.status, r.wait_reason = "PAUSED", None
-                        db.emit(s, r, "APPROVAL_EXPIRED", "Approval expired before dispatch")
-                        return
-                r.status, r.wait_reason = "WAITING", "APPROVAL"
-                db.emit(s, r, "APPROVAL_WAITING", "Pending approval blocks execution")
-                db.schedule(s, r, 5)
-                return
-            if any(c.status not in TERMINAL for c in children):
-                r.status, r.wait_reason = "WAITING", "CHILD_RUN"
-                db.emit(s, r, "CHILD_WAITING", "Required children have not settled")
-                db.schedule(s, r, 2)
-                return
-            if children and any(c.status != "SUCCEEDED" for c in children):
-                raise Fault("CHILD_FAILED", "A required child run did not succeed")
-            if (db.clock(s) - r.created_at).total_seconds() > state["budget"]["max_wall_seconds"]:
-                raise Fault("WALL_TIME_LIMIT", "Task wall time limit reached")
-            r.status, r.wait_reason = "ACTIVE", None
-            ready = [a.id for a in actions if a.status == "READY"]
-            for a in actions:
-                if a.status in {"SUCCEEDED", "FAILED"} and not a.consumed:
-                    a.consumed = True
-                    db.emit(s, r, "ACTION_CONSUMED", "Persisted result consumed", action_id=a.id)
-            state = r.state
-            received = next((c.id for c in db.rows(s, db.ModelCall, tenant, run_id=id)
-                             if c.data.get("receipt_state") == "received" and c.status != "UNKNOWN"), None)
+                    if a.status in {"SUCCEEDED", "FAILED"} and not a.consumed:
+                        a.consumed = True
+                        db.emit(s, r, "ACTION_CONSUMED", "Persisted result consumed", action_id=a.id)
+                state = r.state
+                received = next((c.id for c in db.rows(s, db.ModelCall, tenant, run_id=id)
+                                 if c.data.get("receipt_state") == "received" and c.status != "UNKNOWN"), None)
+            return state, ready, received
+        prepared = await asyncio.to_thread(prepare_advance)
+        if prepared is None:
+            return
+        state, ready, received = prepared
         if received:
             await self.consume_response(tenant, id, epoch, received)
             return
-        content = json.loads(objects.get(tenant, state["workspace_ref"]))
-        root = sandbox.restore(tenant, id, epoch, content)
+        content = json.loads(await asyncio.to_thread(objects.get, tenant, state["workspace_ref"]))
+        root = await asyncio.to_thread(sandbox.restore, tenant, id, epoch, content)
         if ready:
             for action_id in ready:
                 await self.dispatch(tenant, id, epoch, action_id, root)
@@ -263,76 +305,108 @@ class Worker:
         await self.decide(tenant, id, epoch)
 
     async def decide(self, tenant, id, epoch):
-        with db.transaction(tenant) as s:
-            r = db.fence(s, tenant, id, self.owner, epoch)
-            state = r.state
-            actions = db.rows(s, db.Action, tenant, run_id=id)
-            observations = [
-                {"action_id": a.id, "tool": a.tool, "args": a.args, "result": a.receipt} for a in actions if a.receipt
-            ]
-            observations += [
-                {
-                    "child_run_id": c.id,
-                    "status": c.status,
-                    "verification": c.state.get("verification"),
-                    "summary": c.state.get("completion"),
-                }
-                for c in db.rows(s, db.Run, tenant, parent_id=id)
-            ]
-            messages, manifest = compile_context(
-                state["task"],
-                state,
-                observations,
-                state["skills"],
-                state["memories"],
-                settings.context_window,
-                settings.max_output,
-            )
-            call_id = uid()
-            reservation = 0 if state["fixture"] else models.estimate_cost(len(canonical(messages)), settings.max_output)
-            # Configuration failures happen before creating an uncertain billable request.
-            if (
-                not state["fixture"]
-                and self.model == models.generate
-                and (not settings.model_api_key or not settings.model_id)
-            ):
-                raise Fault("MODEL_NOT_CONFIGURED", "Configure model credentials and ID, then resume")
-            if not state["fixture"] and self.model == models.generate:
+        async with self.provider_slots:
+            from .concurrency import admission, provider_key
+
+            async with admission(provider_key(), settings.provider_concurrency) as admitted:
+                if not admitted:
+                    def defer():
+                        with db.transaction(tenant) as s:
+                            r = db.fence(s, tenant, id, self.owner, epoch)
+                            r.status, r.wait_reason = "WAITING", "PROVIDER_BACKPRESSURE"
+                            db.schedule(s, r, 1)
+                            db.emit(s, r, "PROVIDER_BACKPRESSURE", "Provider capacity exhausted; no request reserved or sent")
+                    await asyncio.to_thread(defer)
+                    return
+                await self.decide_with_slot(tenant, id, epoch)
+
+    async def decide_with_slot(self, tenant, id, epoch):
+        def prepare_request():
+            with db.transaction(tenant) as s:
+                r = db.fence(s, tenant, id, self.owner, epoch)
+                state = r.state
+                actions = db.rows(s, db.Action, tenant, run_id=id)
+                observations = [
+                    {"action_id": a.id, "tool": a.tool, "args": a.args, "result": a.receipt} for a in actions if a.receipt
+                ]
+                observations += [
+                    {
+                        "child_run_id": c.id,
+                        "status": c.status,
+                        "verification": c.state.get("verification"),
+                        "summary": c.state.get("completion"),
+                    }
+                    for c in db.rows(s, db.Run, tenant, parent_id=id)
+                ]
+                messages, manifest = compile_context(
+                    state["task"],
+                    state,
+                    observations,
+                    state["skills"],
+                    state["memories"],
+                    settings.context_window,
+                    settings.max_output,
+                )
+                call_id = uid()
+                reservation = 0 if state["fixture"] else models.estimate_cost(len(canonical(messages)), settings.max_output)
+                # Configuration failures happen before creating an uncertain billable request.
                 if (
-                    state["semantic"]["model_provider"] != settings.model_provider
-                    or state["semantic"]["model_id"] != settings.model_id
-                    or state["semantic"].get("model_profile") != service.model_profile()
+                    not state["fixture"]
+                    and self.model == models.generate
+                    and (not settings.model_api_key or not settings.model_id)
                 ):
-                    raise Fault("MODEL_BINDING_CHANGED", "Explicitly bind the configured model before resuming")
-            service.reserve(
-                s,
-                r,
-                call_id,
-                reservation,
-                0 if state["fixture"] else len(canonical(messages)) + settings.max_output + 2048,
-            )
-            call = db.ModelCall(
-                tenant_id=tenant,
-                id=call_id,
-                run_id=id,
-                status="DISPATCHED",
-                data={
-                    "request_digest": digest(messages),
-                    "ordinal": state["turn"] + 1,
-                    "input_revision": state.get("input_revision", 0),
-                    "context_digest": manifest["digest"],
-                    "model_id": state["semantic"]["model_id"],
-                    "messages_ref": objects.put(tenant, id, messages),
-                },
-            )
-            s.add(call)
-            s.add(db.ContextManifest(tenant_id=tenant, run_id=id, data={"turn": state["turn"] + 1, **manifest}))
-            r.phase = "DECIDING"
-            db.emit(s, r, "MODEL_REQUESTED", "Context and model request persisted", call_id=call_id)
+                    raise Fault("MODEL_NOT_CONFIGURED", "Configure model credentials and ID, then resume")
+                if not state["fixture"] and self.model == models.generate:
+                    if (
+                        state["semantic"]["model_provider"] != settings.model_provider
+                        or state["semantic"]["model_id"] != settings.model_id
+                        or state["semantic"].get("model_profile") != service.model_profile()
+                    ):
+                        raise Fault("MODEL_BINDING_CHANGED", "Explicitly bind the configured model before resuming")
+            return state, actions, messages, call_id, manifest, reservation
+        state, actions, messages, call_id, manifest, reservation = await asyncio.to_thread(prepare_request)
+        messages_ref = await asyncio.to_thread(objects.put, tenant, id, messages)
+        def register_request():
+            with db.transaction(tenant) as s:
+                r = db.fence(s, tenant, id, self.owner, epoch)
+                if r.cancel_requested or r.pause_requested or r.status == "PAUSED":
+                    return False
+                if (r.state.get("input_revision", 0) != state.get("input_revision", 0)
+                    or r.state["workspace_digest"] != state["workspace_digest"]
+                    or digest(r.state["semantic"]) != digest(state["semantic"])):
+                    return False
+                service.reserve(
+                    s,
+                    r,
+                    call_id,
+                    reservation,
+                    0 if state["fixture"] else len(canonical(messages)) + settings.max_output + 2048,
+                )
+                call = db.ModelCall(
+                    tenant_id=tenant,
+                    id=call_id,
+                    run_id=id,
+                    status="DISPATCHED",
+                    data={
+                        "request_digest": digest(messages),
+                        "ordinal": state["turn"] + 1,
+                        "input_revision": state.get("input_revision", 0),
+                        "context_digest": manifest["digest"],
+                        "model_id": state["semantic"]["model_id"],
+                        "messages_ref": messages_ref,
+                    },
+                )
+                s.add(call)
+                s.add(db.ContextManifest(tenant_id=tenant, run_id=id, data={"turn": state["turn"] + 1, **manifest}))
+                r.phase = "DECIDING"
+                db.emit(s, r, "MODEL_REQUESTED", "Context and model request persisted", call_id=call_id)
+            return True
+        if not await asyncio.to_thread(register_request):
+            return
         try:
             if state["fixture"]:
                 if not actions:
-                    current = json.loads(objects.get(tenant, state["workspace_ref"]))
+                    current = json.loads(await asyncio.to_thread(objects.get, tenant, state["workspace_ref"]))
                     response = {
                         "kind": "tool_calls",
                         "summary": "Correct addition fixture",
@@ -361,21 +435,26 @@ class Worker:
             else:
                 raw_text, usage, raw, provider_id = await self.model(messages, state["semantic"]["model_id"])
         except Exception as exc:
-            with db.transaction(tenant) as s:
-                r = db.fence(s, tenant, id, self.owner, epoch)
-                call = db.get(s, db.ModelCall, tenant, call_id)
-                code = getattr(exc, "status_code", None)
-                known_unbilled = code == 429 or isinstance(exc, Fault)
-                call.status = "FAILED" if known_unbilled else "UNKNOWN"
-                call.data = {**call.data, "error_type": type(exc).__name__}
-                service.settle(s, r, call_id, 0 if known_unbilled else None, 0 if known_unbilled else None)
-                count = r.state.get("model_errors", 0) + 1
-                r.state = {**r.state, "model_errors": count}
-                if code in {429, 500, 502, 503} and count <= 2 and known_unbilled:
-                    r.status, r.wait_reason = "WAITING", "RETRY_TIMER"
-                    db.schedule(s, r, min(60, 2**count))
-                    db.emit(s, r, "MODEL_RETRY_SCHEDULED", "Rate limit; durable bounded retry")
-                    return
+            def record_failure(exc=exc):
+                with db.transaction(tenant) as s:
+                    r = db.fence(s, tenant, id, self.owner, epoch)
+                    call = db.get(s, db.ModelCall, tenant, call_id)
+                    code = getattr(exc, "status_code", None)
+                    known_unbilled = code == 429 or isinstance(exc, Fault)
+                    call.status = "FAILED" if known_unbilled else "UNKNOWN"
+                    call.data = {**call.data, "error_type": type(exc).__name__}
+                    service.settle(s, r, call_id, 0 if known_unbilled else None, 0 if known_unbilled else None)
+                    count = r.state.get("model_errors", 0) + 1
+                    r.state = {**r.state, "model_errors": count}
+                    progress.failed(s, r, "MODEL_RATE_LIMIT" if code == 429 else "UNKNOWN_USAGE", "provider")
+                    if code in {429, 500, 502, 503} and count <= 2 and known_unbilled:
+                        r.status, r.wait_reason = "WAITING", "RETRY_TIMER"
+                        db.schedule(s, r, min(60, 2**count))
+                        db.emit(s, r, "MODEL_RETRY_SCHEDULED", "Rate limit; durable bounded retry")
+                        return True
+                return False
+            if await asyncio.to_thread(record_failure):
+                return
             raise Fault("MODEL_CALL_FAILED", "Model request failed; unknown usage stays reserved") from exc
         response_ref = await asyncio.to_thread(objects.put, tenant, id, raw)
         try:
@@ -383,24 +462,29 @@ class Worker:
             validation_error = None
         except (ValidationError, ValueError) as exc:
             decision, validation_error = None, str(exc)[:1500]
-        with db.transaction(tenant) as s:
-            r = db.fence(s, tenant, id, self.owner, epoch)
-            call = db.get(s, db.ModelCall, tenant, call_id, True)
-            call.status = "RECEIVED" if usage is not None else "UNKNOWN"
-            call.data = {**call.data, "response_ref": response_ref, "usage": usage,
-                         "provider_request_id": provider_id, "receipt_state": "received",
-                         "decision": decision.model_dump() if decision else None,
-                         "validation_error": validation_error, "received_at": db.clock(s).isoformat()}
-            actual = models.estimate_cost(usage["input_tokens"], usage["output_tokens"]) if usage else None
-            service.settle(s, r, call_id, actual, sum(usage.values()) if usage else None)
-            if usage is None:
-                r.status = "CANCELLING" if r.cancel_requested else "PAUSED"
-                r.state = {**r.state, "reason": "Provider omitted usage; reconcile reserved billing before continuing"}
-            r.phase = "RESPONSE_RECEIVED"
-            db.emit(s, r, "MODEL_RESPONSE_RECEIVED", "Response and usage committed before decision consumption", call_id=call_id)
+        def record_response():
+            with db.transaction(tenant) as s:
+                r = db.fence(s, tenant, id, self.owner, epoch)
+                call = db.get(s, db.ModelCall, tenant, call_id, True)
+                call.status = "RECEIVED" if usage is not None else "UNKNOWN"
+                call.data = {**call.data, "response_ref": response_ref, "usage": usage,
+                             "provider_request_id": provider_id, "receipt_state": "received",
+                             "decision": decision.model_dump() if decision else None,
+                             "validation_error": validation_error, "received_at": db.clock(s).isoformat()}
+                actual = models.estimate_cost(usage["input_tokens"], usage["output_tokens"]) if usage else None
+                service.settle(s, r, call_id, actual, sum(usage.values()) if usage else None)
+                if usage is None:
+                    r.status = "CANCELLING" if r.cancel_requested else "PAUSED"
+                    r.state = {**r.state, "reason": "Provider omitted usage; reconcile reserved billing before continuing"}
+                r.phase = "RESPONSE_RECEIVED"
+                db.emit(s, r, "MODEL_RESPONSE_RECEIVED", "Response and usage committed before decision consumption", call_id=call_id)
+        await asyncio.to_thread(record_response)
         await self.consume_response(tenant, id, epoch, call_id)
 
     async def consume_response(self, tenant, id, epoch, call_id):
+        await asyncio.to_thread(self.consume_response_sync, tenant, id, epoch, call_id)
+
+    def consume_response_sync(self, tenant, id, epoch, call_id):
         with db.transaction(tenant) as s:
             r = db.fence(s, tenant, id, self.owner, epoch)
             call = db.get(s, db.ModelCall, tenant, call_id, True)
@@ -424,6 +508,7 @@ class Worker:
             if validation_error:
                 count = r.state.get("format_errors", 0) + 1
                 r.state = {**r.state, "format_errors": count, "input": "Invalid decision JSON. " + validation_error}
+                progress.failed(s, r, "MODEL_FORMAT_ERROR", "provider")
                 if count > 2:
                     r.status = "CANCELLING" if r.cancel_requested else "PAUSED"
                 db.emit(s, r, "MODEL_FORMAT_ERROR", "Model response did not satisfy decision schema")
@@ -442,6 +527,8 @@ class Worker:
             )
             db.emit(s, r, "DECISION_COMMITTED", decision.summary, call_id=call_id)
             if r.cancel_requested or r.pause_requested:
+                return
+            if not progress.decided(s, r):
                 return
             if decision.kind == "tool_calls":
                 if len(actions) + len(decision.calls) > state["budget"]["max_tool_calls"]:
@@ -480,48 +567,52 @@ class Worker:
                     r.state = {**r.state, "reason": f"{exc.code}: {exc.message}"}
                     db.emit(s, r, "DELEGATION_DENIED", exc.message)
                     return
-                r.status, r.wait_reason = "WAITING", "CHILD_RUN"
+                r.status, r.wait_reason = ("WAITING", "CHILD_RUN") if decision.child.child_contract.required else ("ACTIVE", None)
                 db.emit(s, r, "CHILD_CREATED", decision.summary, child_run_id=child.id)
-                db.schedule(s, r, 2)
+                db.schedule(s, r, 2 if decision.child.child_contract.required else 0)
             else:
                 r.state = {**r.state, "completion": decision.summary}
                 r.phase = "VERIFYING"
             db.emit(s, r, "DECISION_APPLIED", "Decision effects committed", decision_kind=decision.kind)
 
     async def dispatch(self, tenant, id, epoch, action_id, root):
-        with db.transaction(tenant) as s:
-            r = db.fence(s, tenant, id, self.owner, epoch)
-            a = db.get(s, db.Action, tenant, action_id, True)
-            if a.status != "READY" or r.cancel_requested or r.pause_requested:
-                return
-            spec = service.TOOLS.get(a.tool)
-            if spec is None:
-                from .remote import dispatch_remote
+        def prepare_dispatch():
+            with db.transaction(tenant) as s:
+                r = db.fence(s, tenant, id, self.owner, epoch)
+                a = db.get(s, db.Action, tenant, action_id, True)
+                if a.status != "READY" or r.cancel_requested or r.pause_requested:
+                    return
+                spec = service.TOOLS.get(a.tool)
+                if spec is None:
+                    # Remote dispatch has its own bound approval check and persisted attempt.
+                    remote = True
+                else:
+                    remote = False
+                    service.authorization(s, r, spec["capability"])
+                if remote:
+                    from .remote import authorize_remote
 
-                # Remote dispatch has its own bound approval check and persisted attempt.
-                remote = True
-            else:
-                remote = False
-                service.authorization(s, r, spec["capability"])
-            if remote:
-                from .remote import authorize_remote
-
-                authorize_remote(s, r, a)
-            a.status, a.epoch = "DISPATCHED", epoch
-            a.attempt += 1
-            attempt_id = uid()
-            s.add(
-                db.Attempt(
-                    tenant_id=tenant,
-                    id=attempt_id,
-                    run_id=id,
-                    status="DISPATCHED",
-                    data={"action_id": a.id, "number": a.attempt, "epoch": epoch},
+                    authorize_remote(s, r, a)
+                a.status, a.epoch = "DISPATCHED", epoch
+                a.attempt += 1
+                attempt_id = uid()
+                s.add(
+                    db.Attempt(
+                        tenant_id=tenant,
+                        id=attempt_id,
+                        run_id=id,
+                        status="DISPATCHED",
+                        data={"action_id": a.id, "number": a.attempt, "epoch": epoch},
+                    )
                 )
-            )
-            r.phase = "EXECUTING"
-            db.emit(s, r, "ACTION_DISPATCHED", f"Dispatch {a.tool}", action_id=a.id)
-            args, tool, state = a.args, a.tool, r.state
+                r.phase = "EXECUTING"
+                db.emit(s, r, "ACTION_DISPATCHED", f"Dispatch {a.tool}", action_id=a.id)
+                args, tool, state = a.args, a.tool, r.state
+            return args, tool, state, remote, attempt_id
+        prepared = await asyncio.to_thread(prepare_dispatch)
+        if prepared is None:
+            return
+        args, tool, state, remote, attempt_id = prepared
         changed = None
         try:
             # Every action starts from the committed snapshot. A failed write/upload cannot leak
@@ -529,87 +620,96 @@ class Worker:
             committed = await asyncio.to_thread(objects.get, tenant, state["workspace_ref"])
             root = await asyncio.to_thread(sandbox.restore, tenant, id, epoch, json.loads(committed))
             if remote:
+                from .remote import dispatch_remote
+
                 receipt = await dispatch_remote(tenant, id, action_id, args)
-            elif tool == "repo.list":
-                receipt = {"files": sorted(files(root)), "exit_code": 0}
-            elif tool == "repo.read":
-                path = safe_path(root, args["path"])
-                body = path.read_bytes()
-                if len(body) > 256 * 1024:
-                    raise Fault("READ_LIMIT", "Read exceeds 256 KiB", 422)
-                receipt = {"content": body.decode("utf-8"), "digest": digest(body), "exit_code": 0}
-            elif tool == "repo.write":
-                path = safe_path(root, args["path"])
-                if not any(
-                    args["path"] == p or args["path"].startswith(p.rstrip("/") + "/")
-                    for p in state["task"]["allowed_paths"]
-                ):
-                    raise Fault("SCOPE_DENIED", "Write outside task allowed paths", 403)
-                body = args["content"].encode("utf-8")
-                if len(body) > 1024 * 1024:
-                    raise Fault("WRITE_LIMIT", "File exceeds 1 MiB", 422)
-                current = digest(path.read_bytes()) if path.exists() else "absent"
-                if current != digest(body) and current != args.get("expected_digest"):
-                    raise Fault("PRECONDITION_FAILED", "File digest changed")
-                path.parent.mkdir(parents=True, exist_ok=True)
-                # This epoch has an exclusive directory. Only the complete, stored snapshot is
-                # committed; interruption during this write restores the prior epoch's snapshot.
-                path.write_bytes(body)
-                changed = files(root)
-                receipt = {"path": args["path"], "digest": digest(body), "exit_code": 0}
-            elif tool == "observation.read":
-                if not state["semantic"].get("harness", {}).get("observation_recall", True):
-                    raise Fault("HARNESS_RECALL_DISABLED", "Observation recall is disabled in this task contract")
-                with db.transaction(tenant) as s:
-                    source = db.get(s, db.Action, tenant, args["action_id"])
-                    if source.run_id != id or not source.receipt or not source.receipt.get("ref"):
-                        raise Fault("OBSERVATION_SCOPE", "Observation is not available in this task", 404)
-                    ref = source.receipt["ref"]
-                raw = json.loads(objects.get(tenant, ref))
-                text = raw.get("output", raw.get("content", canonical(raw).decode()))
-                lines = text.splitlines()
-                start, count = args.get("line_start", 0), args.get("max_lines", 100)
-                receipt = {
-                    "exit_code": 0,
-                    "source_digest": ref["digest"],
-                    "line_start": start,
-                    "total_lines": len(lines),
-                    "content": "\n".join(lines[start : start + count])[:65536],
-                }
-            elif tool == "child.integrate":
-                with db.transaction(tenant) as s:
-                    child = db.get(s, db.Run, tenant, args["child_id"])
-                    if child.parent_id != id or child.status != "SUCCEEDED":
-                        raise Fault("CHILD_NOT_READY", "Only a succeeded direct child can be integrated")
-                    child_base = json.loads(objects.get(tenant, child.state["baseline_ref"]))
-                    child_files = json.loads(objects.get(tenant, child.state["workspace_ref"]))
-                current = files(root)
-                differences = [p for p in set(child_base) | set(child_files) if child_base.get(p) != child_files.get(p)]
-                for name in differences:
-                    if not any(
-                        name == p or name.startswith(p.rstrip("/") + "/") for p in state["task"]["allowed_paths"]
-                    ):
-                        raise Fault("CHILD_SCOPE", "Child patch exceeds parent write scope")
-                    if current.get(name) not in (child_base.get(name), child_files.get(name)):
-                        raise Fault("MERGE_CONFLICT", f"Parent and child both changed {name}")
-                for name in differences:
-                    path = safe_path(root, name)
-                    if name not in child_files:
-                        path.unlink(missing_ok=True)
-                    else:
+            elif tool != "tests.run":
+                def local_tool():
+                    changed = None
+                    if tool == "repo.list":
+                        receipt = {"files": sorted(files(root)), "exit_code": 0}
+                    elif tool == "repo.read":
+                        path = safe_path(root, args["path"])
+                        body = path.read_bytes()
+                        if len(body) > 256 * 1024:
+                            raise Fault("READ_LIMIT", "Read exceeds 256 KiB", 422)
+                        receipt = {"content": body.decode("utf-8"), "digest": digest(body), "exit_code": 0}
+                    elif tool == "repo.write":
+                        path = safe_path(root, args["path"])
+                        if not any(
+                            args["path"] == p or args["path"].startswith(p.rstrip("/") + "/")
+                            for p in state["task"]["allowed_paths"]
+                        ):
+                            raise Fault("SCOPE_DENIED", "Write outside task allowed paths", 403)
+                        body = args["content"].encode("utf-8")
+                        if len(body) > 1024 * 1024:
+                            raise Fault("WRITE_LIMIT", "File exceeds 1 MiB", 422)
+                        current = digest(path.read_bytes()) if path.exists() else "absent"
+                        if current != digest(body) and current != args.get("expected_digest"):
+                            raise Fault("PRECONDITION_FAILED", "File digest changed")
                         path.parent.mkdir(parents=True, exist_ok=True)
-                        path.write_text(child_files[name], encoding="utf-8", newline="")
-                changed = files(root)
-                receipt = {"exit_code": 0, "child_id": child.id, "integrated_paths": differences}
+                        # This epoch has an exclusive directory. Only the complete, stored snapshot is
+                        # committed; interruption during this write restores the prior epoch's snapshot.
+                        path.write_bytes(body)
+                        changed = files(root)
+                        receipt = {"path": args["path"], "digest": digest(body), "exit_code": 0}
+                    elif tool == "observation.read":
+                        if not state["semantic"].get("harness", {}).get("observation_recall", True):
+                            raise Fault("HARNESS_RECALL_DISABLED", "Observation recall is disabled in this task contract")
+                        with db.transaction(tenant) as s:
+                            source = db.get(s, db.Action, tenant, args["action_id"])
+                            if source.run_id != id or not source.receipt or not source.receipt.get("ref"):
+                                raise Fault("OBSERVATION_SCOPE", "Observation is not available in this task", 404)
+                            ref = source.receipt["ref"]
+                        raw = json.loads(objects.get(tenant, ref))
+                        text = raw.get("output", raw.get("content", canonical(raw).decode()))
+                        lines = text.splitlines()
+                        start, count = args.get("line_start", 0), args.get("max_lines", 100)
+                        receipt = {
+                            "exit_code": 0,
+                            "source_digest": ref["digest"],
+                            "line_start": start,
+                            "total_lines": len(lines),
+                            "content": "\n".join(lines[start : start + count])[:65536],
+                        }
+                    elif tool == "child.integrate":
+                        with db.transaction(tenant) as s:
+                            child = db.get(s, db.Run, tenant, args["child_id"])
+                            if child.parent_id != id or child.status != "SUCCEEDED":
+                                raise Fault("CHILD_NOT_READY", "Only a succeeded direct child can be integrated")
+                            child_base = json.loads(objects.get(tenant, child.state["baseline_ref"]))
+                            child_files = json.loads(objects.get(tenant, child.state["workspace_ref"]))
+                        current = files(root)
+                        differences = [p for p in set(child_base) | set(child_files) if child_base.get(p) != child_files.get(p)]
+                        for name in differences:
+                            if not any(
+                                name == p or name.startswith(p.rstrip("/") + "/") for p in state["task"]["allowed_paths"]
+                            ):
+                                raise Fault("CHILD_SCOPE", "Child patch exceeds parent write scope")
+                            if current.get(name) not in (child_base.get(name), child_files.get(name)):
+                                raise Fault("MERGE_CONFLICT", f"Parent and child both changed {name}")
+                        for name in differences:
+                            path = safe_path(root, name)
+                            if name not in child_files:
+                                path.unlink(missing_ok=True)
+                            else:
+                                path.parent.mkdir(parents=True, exist_ok=True)
+                                path.write_text(child_files[name], encoding="utf-8", newline="")
+                        changed = files(root)
+                        receipt = {"exit_code": 0, "child_id": child.id, "integrated_paths": differences}
+                    return receipt, changed
+                receipt, changed = await asyncio.to_thread(local_tool)
             elif tool == "tests.run":
                 image = await sandbox.image_digest()
                 if state.get("image_digest") and state["image_digest"] != image:
                     raise Fault("SEMANTIC_DRIFT", "Sandbox image changed")
                 if not state.get("image_digest"):
-                    with db.transaction(tenant) as s:
-                        r = db.fence(s, tenant, id, self.owner, epoch)
-                        r.state = {**r.state, "image_digest": image}
-                        db.emit(s, r, "SANDBOX_IMAGE_BOUND", "Sandbox image content address pinned", image_digest=image)
+                    def bind_image():
+                        with db.transaction(tenant) as s:
+                            r = db.fence(s, tenant, id, self.owner, epoch)
+                            r.state = {**r.state, "image_digest": image}
+                            db.emit(s, r, "SANDBOX_IMAGE_BOUND", "Sandbox image content address pinned", image_digest=image)
+                    await asyncio.to_thread(bind_image)
                 receipt = await sandbox.execute(root, args["argv"], image, readonly=True)
             else:
                 raise Fault("TOOL_UNAVAILABLE", "Tool is unavailable")
@@ -617,131 +717,189 @@ class Worker:
                 "RUNNING" if receipt.get("pending") else "SUCCEEDED" if receipt.get("exit_code", 0) == 0 else "FAILED"
             )
         except Exception as exc:
-            receipt = {"exit_code": 1, "error": str(exc)[:2000]}
+            receipt = {"exit_code": 1, "error": str(exc)[:2000], "error_code": getattr(exc, "code", "TOOL_FAILED")}
+            changed = None
             action_status = "UNKNOWN" if remote else "FAILED"
-        receipt_ref = objects.put(tenant, id, receipt)
-        workspace_ref = objects.put(tenant, id, changed) if changed is not None else None
-        with db.transaction(tenant) as s:
-            r = db.fence(s, tenant, id, self.owner, epoch)
-            a = db.get(s, db.Action, tenant, action_id, True)
-            a.status = action_status
-            a.receipt = {
-                "ref": receipt_ref,
-                "preview": canonical(receipt).decode()[:4000],
-                "exit_code": receipt.get("exit_code", 0),
-                **({"digest": receipt["digest"]} if "digest" in receipt else {}),
-            }
-            if receipt.get("remote_task_id"):
-                a.receipt = {**a.receipt, **receipt}
-                r.status, r.wait_reason = "WAITING", "TOOL"
-                db.schedule(s, r, receipt.get("poll_seconds", 5))
-            attempt = db.get(s, db.Attempt, tenant, attempt_id)
-            attempt.status, attempt.data = action_status, {**attempt.data, "result_ref": receipt_ref}
-            if workspace_ref:
-                r.state = {
-                    **r.state,
-                    "workspace_ref": workspace_ref,
-                    "workspace_digest": digest(changed),
-                    "verification": None,
-                    "artifact_version": r.state["artifact_version"] + 1,
+        receipt_ref = await asyncio.to_thread(objects.put, tenant, id, receipt)
+        workspace_ref = await asyncio.to_thread(objects.put, tenant, id, changed) if changed is not None and action_status == "SUCCEEDED" else None
+        def commit_dispatch():
+            with db.transaction(tenant) as s:
+                r = db.fence(s, tenant, id, self.owner, epoch)
+                a = db.get(s, db.Action, tenant, action_id, True)
+                a.status = action_status
+                a.receipt = {
+                    "ref": receipt_ref,
+                    "preview": canonical(receipt).decode()[:4000],
+                    "exit_code": receipt.get("exit_code", 0),
+                    **({"digest": receipt["digest"]} if "digest" in receipt else {}),
                 }
-                for artifact in db.rows(s, db.Artifact, tenant, run_id=id):
-                    artifact.verified = False
-                service.checkpoint(s, r)
-            db.emit(s, r, "ACTION_RESULT", f"{tool}: {action_status}", action_id=a.id, observation=a.receipt)
+                if receipt.get("remote_task_id"):
+                    a.receipt = {**a.receipt, **receipt}
+                    r.status, r.wait_reason = "WAITING", "TOOL"
+                    db.schedule(s, r, receipt.get("poll_seconds", 5))
+                attempt = db.get(s, db.Attempt, tenant, attempt_id)
+                attempt.status, attempt.data = action_status, {**attempt.data, "result_ref": receipt_ref}
+                if workspace_ref:
+                    r.state = {
+                        **r.state,
+                        "workspace_ref": workspace_ref,
+                        "workspace_digest": digest(changed),
+                        "verification": None,
+                        "artifact_version": r.state["artifact_version"] + 1,
+                    }
+                    for artifact in db.rows(s, db.Artifact, tenant, run_id=id):
+                        artifact.verified = False
+                    service.checkpoint(s, r)
+                if receipt.get("child_id") and action_status == "SUCCEEDED":
+                    r.state = {**r.state, "integrated_children": sorted(set(
+                        r.state.get("integrated_children", []) + [receipt["child_id"]]
+                    ))}
+                progress.observed(s, r, tool, receipt, action_status)
+                db.emit(s, r, "ACTION_RESULT", f"{tool}: {action_status}", action_id=a.id, observation=a.receipt)
+        await asyncio.to_thread(commit_dispatch)
 
     async def complete(self, tenant, id, epoch):
-        with db.transaction(tenant) as s:
-            r = db.fence(s, tenant, id, self.owner, epoch)
-            service.require_finalizable(s, r)
-            state = r.state
-            r.phase = "VERIFYING"
-            db.emit(s, r, "VERIFICATION_STARTED", "Verifying a frozen workspace in an independent environment")
-        baseline = json.loads(objects.get(tenant, state["baseline_ref"]))
-        current = json.loads(objects.get(tenant, state["workspace_ref"]))
+        def prepare_verification():
+            with db.transaction(tenant) as s:
+                r = db.fence(s, tenant, id, self.owner, epoch)
+                optional_live = [c for c in db.rows(s, db.Run, tenant, parent_id=id) if c.status not in TERMINAL
+                                 and not c.state.get("child_contract", {}).get("required", True)]
+                if optional_live:
+                    for child in optional_live:
+                        service.control(s, tenant, child.id, "cancel", child.version, "Parent completion closes optional exploration")
+                    r.status, r.wait_reason = "WAITING", "CHILD_RUN"
+                    db.emit(s, r, "OPTIONAL_CHILDREN_CLOSING", "Settle optional exploration before root completion")
+                    db.schedule(s, r, 2)
+                    return
+                service.require_finalizable(s, r)
+                state = r.state
+                r.phase = "VERIFYING"
+                db.emit(s, r, "VERIFICATION_STARTED", "Verifying a frozen workspace in an independent environment")
+            return state
+        prepared = await asyncio.to_thread(prepare_verification)
+        if prepared is None:
+            return
+        state = prepared
+        baseline = json.loads(await asyncio.to_thread(objects.get, tenant, state["baseline_ref"]))
+        current = json.loads(await asyncio.to_thread(objects.get, tenant, state["workspace_ref"]))
         image = None if state["fixture"] else await sandbox.image_digest()
         if state.get("image_digest") and state["image_digest"] != image:
             raise Fault("SEMANTIC_DRIFT", "Verification sandbox differs from the execution image")
         report = await verify(
-            tenant, id, epoch, baseline, current, service.resolve_acceptance(tenant, state["acceptance"]),
+            tenant, id, epoch, baseline, current, await asyncio.to_thread(service.resolve_acceptance, tenant, state["acceptance"]),
             state["task"]["allowed_paths"], image
         )
-        patch = sandbox.patch(baseline, current)
+        patch = await asyncio.to_thread(sandbox.patch, baseline, current)
         report["checks"].append(await asyncio.to_thread(sandbox.check_patch, baseline, current, patch))
-        patch_ref = objects.put(tenant, id, patch.encode())
+        patch_ref = await asyncio.to_thread(objects.put, tenant, id, patch.encode())
         report["artifact_digest"] = patch_ref["digest"]
-        report_ref = objects.put(tenant, id, report)
-        summary_ref = objects.put(tenant, id, state["completion"].encode())
-        with db.transaction(tenant) as s:
-            r = db.fence(s, tenant, id, self.owner, epoch)
-            if (r.state["workspace_digest"] != report["workspace_digest"]
-                or r.state.get("input_revision", 0) != state.get("input_revision", 0)):
-                raise Fault("VERIFICATION_STALE", "Workspace changed during verification")
-            if r.cancel_requested:
-                return
-            service.require_finalizable(s, r)
-            passed = report["verdict"] == "PASS"
-            for name, kind, ref in [
-                ("changes.patch", "patch", patch_ref),
-                ("verification.json", "test_report", report_ref),
-                ("summary.md", "summary", summary_ref),
-            ]:
-                s.add(
-                    db.Artifact(
-                        tenant_id=tenant,
-                        run_id=id,
-                        name=name,
-                        kind=kind,
-                        ref=ref,
-                        verified=passed,
-                        version=state["artifact_version"],
+        report_ref = await asyncio.to_thread(objects.put, tenant, id, report)
+        summary_ref = await asyncio.to_thread(objects.put, tenant, id, state["completion"].encode())
+        def commit_verification():
+            with db.transaction(tenant) as s:
+                r = db.fence(s, tenant, id, self.owner, epoch)
+                if (r.state["workspace_digest"] != report["workspace_digest"]
+                    or r.state.get("input_revision", 0) != state.get("input_revision", 0)):
+                    raise Fault("VERIFICATION_STALE", "Workspace changed during verification")
+                if r.cancel_requested:
+                    return
+                service.require_finalizable(s, r)
+                passed = report["verdict"] == "PASS"
+                for name, kind, ref in [
+                    ("changes.patch", "patch", patch_ref),
+                    ("verification.json", "test_report", report_ref),
+                    ("summary.md", "summary", summary_ref),
+                ]:
+                    s.add(
+                        db.Artifact(
+                            tenant_id=tenant,
+                            run_id=id,
+                            name=name,
+                            kind=kind,
+                            ref=ref,
+                            verified=passed,
+                            version=state["artifact_version"],
+                        )
                     )
-                )
-            s.add(db.VerificationResult(tenant_id=tenant, run_id=id, data={**report, "evidence_ref": report_ref}))
-            r.state = {
-                **r.state,
-                "verification": report,
-                "image_digest": image,
-                "reason": "Verification " + report["verdict"],
-            }
-            repair_count = r.state.get("repair_attempts", 0)
-            can_repair = (report["verdict"] == "FAIL"
-                          and report.get("failure_class") == "acceptance"
-                          and repair_count < state["budget"].get("max_repair_attempts", 2)
-                          and state["turn"] < state["budget"]["max_turns"]
-                          and (db.clock(s) - r.created_at).total_seconds() < state["budget"]["max_wall_seconds"])
-            r.status = "SUCCEEDED" if passed else "ACTIVE" if can_repair else "FAILED" if report["verdict"] == "FAIL" else "PAUSED"
-            if can_repair:
-                r.phase = "REPAIRING"
-                r.state = {**r.state, "completion": None, "repair_attempts": repair_count + 1,
-                           "verification_feedback": {"verdict": "FAIL", "checks": report["checks"],
-                                                     "evidence_ref": report_ref}}
-                db.schedule(s, r)
-                db.emit(s, r, "VERIFICATION_REPAIR_REQUESTED", "Acceptance failed; bounded repair remains")
-            db.emit(s, r, "VERIFICATION_COMPLETED", r.state["reason"], evidence_ref=report_ref)
-            service.checkpoint(s, r)
+                s.add(db.VerificationResult(tenant_id=tenant, run_id=id, data={**report, "evidence_ref": report_ref}))
+                r.state = {
+                    **r.state,
+                    "verification": report,
+                    "image_digest": image,
+                    "reason": "Verification " + report["verdict"],
+                }
+                progress.record(s, r, "verification", verdict=report["verdict"], evidence_digest=report_ref["digest"])
+                if not passed:
+                    progress.failed(s, r, "VERIFICATION_" + report["verdict"], report.get("failure_class") or "verification")
+                repair_count = r.state.get("repair_attempts", 0)
+                can_repair = (report["verdict"] == "FAIL"
+                              and report.get("failure_class") == "acceptance"
+                              and repair_count < state["budget"].get("max_repair_attempts", 2)
+                              and state["turn"] < state["budget"]["max_turns"]
+                              and (db.clock(s) - r.created_at).total_seconds() < state["budget"]["max_wall_seconds"])
+                r.status = "SUCCEEDED" if passed else "ACTIVE" if can_repair else "FAILED" if report["verdict"] == "FAIL" else "PAUSED"
+                if can_repair:
+                    r.phase = "REPAIRING"
+                    r.state = {**r.state, "completion": None, "repair_attempts": repair_count + 1,
+                               "verification_feedback": {"verdict": "FAIL", "checks": report["checks"],
+                                                         "evidence_ref": report_ref}}
+                    db.schedule(s, r)
+                    db.emit(s, r, "VERIFICATION_REPAIR_REQUESTED", "Acceptance failed; bounded repair remains")
+                db.emit(s, r, "VERIFICATION_COMPLETED", r.state["reason"], evidence_ref=report_ref)
+                service.checkpoint(s, r)
+        await asyncio.to_thread(commit_verification)
+
+    def tenants(self):
+        if settings.worker_tenants:
+            return sorted(set(t.strip() for t in settings.worker_tenants.split(",") if t.strip()))
+        if settings.auth_mode == "local":
+            return ["local"]
+        with db.Session() as s:
+            return list(s.scalars(select(db.Tenant.id).order_by(db.Tenant.id)))
+
+    async def archived_quanta(self, tenant, quanta):
+        for _ in range(quanta):
+            if not await self.once(tenant):
+                break
 
     async def run(self):
-        while not self.stopping:
-            try:
-                with db.Session() as s:
-                    tenants = (
-                        settings.worker_tenants.split(",")
-                        if settings.worker_tenants
-                        else ["local"]
-                        if settings.auth_mode == "local"
-                        else list(s.scalars(select(db.Tenant.id)))
-                    )
+        # Blocking effect work and lease renewals need distinct spare execution capacity.
+        # The pool remains bounded even at the supported maximum number of run slots.
+        asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(
+            max_workers=settings.worker_slots * 3 + 8, thread_name_prefix="forge-io",
+        ))
+        active, cursor = {}, 0
+        try:
+            while not self.stopping:
+                tenants = await asyncio.to_thread(self.tenants)
+                completed = [task for task in active if task.done()]
                 worked = False
-                for tenant in tenants:
-                    worked = await self.once(tenant) or worked
-                    if self.stopping:
+                for task in completed:
+                    try:
+                        worked = task.result() or worked
+                    except Exception as exc:
+                        log.error("Worker quantum failed: %s", type(exc).__name__)
+                for task in completed:
+                    del active[task]
+                # Reserve each tenant's fair share, even when its fast quanta finish before
+                # another tenant's slow model call. Occupancy, not admission order, is bounded.
+                share = max(1, settings.worker_slots // max(1, len(tenants)))
+                for _ in range(len(tenants)):
+                    if len(active) >= settings.worker_slots:
                         break
-            except Exception as exc:
-                log.error("Worker suspended new dispatch after infrastructure error: %s", type(exc).__name__)
-                worked = False
-            if not worked:
-                await asyncio.sleep(1)
+                    if not tenants:
+                        break
+                    tenant = tenants[cursor % len(tenants)]
+                    cursor += 1
+                    if sum(t == tenant for t in active.values()) < share:
+                        active[asyncio.create_task(self.once(tenant))] = tenant
+                if active:
+                    await asyncio.wait(active, timeout=1 if worked else 0.1, return_when=asyncio.FIRST_COMPLETED)
+                if not worked:
+                    await asyncio.sleep(0.1)
+        finally:
+            # Stop admitting new work and let existing quanta reach their durable boundary.
+            await asyncio.gather(*active, return_exceptions=True)
 
 
 def main():
