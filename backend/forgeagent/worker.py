@@ -52,6 +52,17 @@ class Worker:
             )
             if not r:
                 return None
+            if r.epoch:
+                from .reducer import rebuild
+
+                recovered = rebuild(s, tenant, r.id)
+                if digest(recovered) != digest(db.projection(r)):
+                    r.status, r.wait_reason = "PAUSED", None
+                    r.state = {**r.state, "reason": "REPLAY_DIVERGENCE: live state differs from committed event history"}
+                    db.emit(s, r, "REPLAY_DIVERGENCE", r.state["reason"])
+                    db.get(s, db.Job, tenant, r.id).status = "DONE"
+                    return None
+                r.state = recovered["state"]
             prior_epoch = r.epoch
             r.epoch += 1
             r.lease_owner, r.lease_until = self.owner, time + timedelta(seconds=settings.lease_seconds)
@@ -68,7 +79,7 @@ class Worker:
                 if call.status == "DISPATCHED":
                     call.status = "UNKNOWN"
                     service.settle(s, r, call.id, None)
-                    r.status = "PAUSED"
+                    r.status = "CANCELLING" if r.cancel_requested else "PAUSED"
                     r.state = {
                         **r.state,
                         "reason": "Interrupted model request has unknown usage; reconcile budget before resuming",
@@ -90,7 +101,13 @@ class Worker:
             r = db.fence(s, tenant, id, self.owner, epoch)
             if r.status in TERMINAL:
                 return
-            r.status, r.wait_reason = "PAUSED", None
+            for call in db.rows(s, db.ModelCall, tenant, run_id=id):
+                if call.status == "DISPATCHED":
+                    call.status = "UNKNOWN"
+                    service.settle(s, r, call.id, None)
+            r.status, r.wait_reason = ("CANCELLING", "RECONCILIATION") if r.cancel_requested else ("PAUSED", None)
+            if r.cancel_requested:
+                db.schedule(s, r, 30)
             r.state = {**r.state, "reason": reason}
             db.emit(s, r, "RUN_PAUSED", reason)
             service.checkpoint(s, r)
@@ -156,11 +173,6 @@ class Worker:
             state = r.state
             if r.status == "PAUSED":
                 return
-            service.authorization(s, r)
-            if state["semantic"]["tools_digest"] != digest(service.TOOLS):
-                raise Fault("SEMANTIC_DRIFT", "Pinned tool catalog differs from this worker")
-            if state["semantic"].get("implementation") != service.implementation_bindings():
-                raise Fault("SEMANTIC_DRIFT", "Pinned runtime implementation changed; fork with current version")
             actions = db.rows(s, db.Action, tenant, run_id=id)
             unknown = [a for a in actions if a.status == "UNKNOWN"]
             children = db.rows(s, db.Run, tenant, parent_id=id)
@@ -171,8 +183,17 @@ class Worker:
                 db.schedule(s, r, 30)
                 return
             if r.cancel_requested:
+                try:
+                    service.require_settled_usage(s, r)
+                except Fault as exc:
+                    r.status, r.wait_reason = "CANCELLING", "RECONCILIATION"
+                    r.state = {**state, "reason": exc.message}
+                    db.emit(s, r, "CANCELLATION_WAITING", "Cancellation awaits billing reconciliation")
+                    db.schedule(s, r, 30)
+                    return
                 if any(c.status not in TERMINAL for c in children):
                     r.status, r.wait_reason = "CANCELLING", "CHILD_RUN"
+                    db.emit(s, r, "CANCELLATION_WAITING", "Cancellation awaits child settlement")
                     db.schedule(s, r, 2)
                     return
                 for a in actions:
@@ -181,6 +202,11 @@ class Worker:
                 r.status, r.wait_reason = "CANCELLED", None
                 db.emit(s, r, "RUN_CANCELLED", "All in-flight effects settled; no new actions dispatched")
                 return
+            service.authorization(s, r)
+            if state["semantic"]["tools_digest"] != digest(service.TOOLS):
+                raise Fault("SEMANTIC_DRIFT", "Pinned tool catalog differs from this worker")
+            if state["semantic"].get("implementation") != service.implementation_bindings():
+                raise Fault("SEMANTIC_DRIFT", "Pinned runtime implementation changed; fork with current version")
             if r.pause_requested:
                 r.status, r.wait_reason = "PAUSED", None
                 db.emit(s, r, "RUN_PAUSED", "Paused at a durable boundary")
@@ -199,10 +225,12 @@ class Worker:
                         db.emit(s, r, "APPROVAL_EXPIRED", "Approval expired before dispatch")
                         return
                 r.status, r.wait_reason = "WAITING", "APPROVAL"
+                db.emit(s, r, "APPROVAL_WAITING", "Pending approval blocks execution")
                 db.schedule(s, r, 5)
                 return
             if any(c.status not in TERMINAL for c in children):
                 r.status, r.wait_reason = "WAITING", "CHILD_RUN"
+                db.emit(s, r, "CHILD_WAITING", "Required children have not settled")
                 db.schedule(s, r, 2)
                 return
             if children and any(c.status != "SUCCEEDED" for c in children):
@@ -216,6 +244,11 @@ class Worker:
                     a.consumed = True
                     db.emit(s, r, "ACTION_CONSUMED", "Persisted result consumed", action_id=a.id)
             state = r.state
+            received = next((c.id for c in db.rows(s, db.ModelCall, tenant, run_id=id)
+                             if c.data.get("receipt_state") == "received" and c.status != "UNKNOWN"), None)
+        if received:
+            await self.consume_response(tenant, id, epoch, received)
+            return
         content = json.loads(objects.get(tenant, state["workspace_ref"]))
         root = sandbox.restore(tenant, id, epoch, content)
         if ready:
@@ -285,6 +318,8 @@ class Worker:
                 status="DISPATCHED",
                 data={
                     "request_digest": digest(messages),
+                    "ordinal": state["turn"] + 1,
+                    "input_revision": state.get("input_revision", 0),
                     "context_digest": manifest["digest"],
                     "model_id": state["semantic"]["model_id"],
                     "messages_ref": objects.put(tenant, id, messages),
@@ -342,7 +377,7 @@ class Worker:
                     db.emit(s, r, "MODEL_RETRY_SCHEDULED", "Rate limit; durable bounded retry")
                     return
             raise Fault("MODEL_CALL_FAILED", "Model request failed; unknown usage stays reserved") from exc
-        response_ref = objects.put(tenant, id, raw)
+        response_ref = await asyncio.to_thread(objects.put, tenant, id, raw)
         try:
             decision = models.parse_decision(raw_text)
             validation_error = None
@@ -350,27 +385,47 @@ class Worker:
             decision, validation_error = None, str(exc)[:1500]
         with db.transaction(tenant) as s:
             r = db.fence(s, tenant, id, self.owner, epoch)
-            call = db.get(s, db.ModelCall, tenant, call_id)
-            call.status = "SUCCEEDED"
-            call.data = {**call.data, "response_ref": response_ref, "usage": usage, "provider_request_id": provider_id}
+            call = db.get(s, db.ModelCall, tenant, call_id, True)
+            call.status = "RECEIVED" if usage is not None else "UNKNOWN"
+            call.data = {**call.data, "response_ref": response_ref, "usage": usage,
+                         "provider_request_id": provider_id, "receipt_state": "received",
+                         "decision": decision.model_dump() if decision else None,
+                         "validation_error": validation_error, "received_at": db.clock(s).isoformat()}
             actual = models.estimate_cost(usage["input_tokens"], usage["output_tokens"]) if usage else None
             service.settle(s, r, call_id, actual, sum(usage.values()) if usage else None)
-            r.state = {
-                **r.state,
-                "turn": r.state["turn"] + 1,
-                "tokens": r.state["tokens"] + (sum(usage.values()) if usage else 0),
-            }
-            billing_unknown = usage is None
-            if billing_unknown:
-                call.status = "UNKNOWN"
-                r.status = "PAUSED"
+            if usage is None:
+                r.status = "CANCELLING" if r.cancel_requested else "PAUSED"
                 r.state = {**r.state, "reason": "Provider omitted usage; reconcile reserved billing before continuing"}
-                db.emit(s, r, "MODEL_USAGE_UNKNOWN", r.state["reason"], call_id=call_id)
+            r.phase = "RESPONSE_RECEIVED"
+            db.emit(s, r, "MODEL_RESPONSE_RECEIVED", "Response and usage committed before decision consumption", call_id=call_id)
+        await self.consume_response(tenant, id, epoch, call_id)
+
+    async def consume_response(self, tenant, id, epoch, call_id):
+        with db.transaction(tenant) as s:
+            r = db.fence(s, tenant, id, self.owner, epoch)
+            call = db.get(s, db.ModelCall, tenant, call_id, True)
+            if call.data.get("receipt_state") != "received" or call.status == "UNKNOWN":
+                return
+            if r.pause_requested and not r.cancel_requested:
+                return
+            state = r.state
+            actions = db.rows(s, db.Action, tenant, run_id=id)
+            decision = models.parse_decision(json.dumps(call.data["decision"])) if call.data.get("decision") else None
+            validation_error = call.data.get("validation_error")
+            usage = call.data.get("usage")
+            call.status = "RECONCILED" if call.status == "RECONCILED" else "SUCCEEDED"
+            call.data = {**call.data, "receipt_state": "applied", "applied_at": db.clock(s).isoformat()}
+            r.state = {**r.state, "turn": call.data["ordinal"],
+                       "tokens": r.state["tokens"] + (sum(usage.values()) if usage else call.data.get("reconciled_tokens", 0))}
+            if call.data.get("input_revision", 0) != state.get("input_revision", 0):
+                call.data = {**call.data, "receipt_state": "superseded_input"}
+                db.emit(s, r, "MODEL_RESPONSE_SUPERSEDED", "New input invalidated the persisted decision", call_id=call_id)
+                return
             if validation_error:
                 count = r.state.get("format_errors", 0) + 1
                 r.state = {**r.state, "format_errors": count, "input": "Invalid decision JSON. " + validation_error}
                 if count > 2:
-                    r.status = "PAUSED"
+                    r.status = "CANCELLING" if r.cancel_requested else "PAUSED"
                 db.emit(s, r, "MODEL_FORMAT_ERROR", "Model response did not satisfy decision schema")
                 return
             s.add(
@@ -381,7 +436,7 @@ class Worker:
                         "ordinal": r.state["turn"],
                         "call_id": call_id,
                         "decision": decision.model_dump(),
-                        "context_digest": manifest["digest"],
+                        "context_digest": call.data["context_digest"],
                     },
                 )
             )
@@ -415,10 +470,6 @@ class Worker:
                 r.status, r.wait_reason = "PAUSED", None
                 r.state = {**r.state, "reason": decision.summary, "input_required": True}
             elif decision.kind == "delegate":
-                if billing_unknown:
-                    r.state = {**r.state, "input": "Billing must be reconciled before requesting delegation again."}
-                    db.emit(s, r, "DELEGATION_DEFERRED", "Unknown model billing prevents child dispatch")
-                    return
                 try:
                     with s.begin_nested():
                         child = service.create_run(
@@ -435,8 +486,6 @@ class Worker:
             else:
                 r.state = {**r.state, "completion": decision.summary}
                 r.phase = "VERIFYING"
-            if billing_unknown:
-                r.status = "PAUSED"
             db.emit(s, r, "DECISION_APPLIED", "Decision effects committed", decision_kind=decision.kind)
 
     async def dispatch(self, tenant, id, epoch, action_id, root):
@@ -475,6 +524,10 @@ class Worker:
             args, tool, state = a.args, a.tool, r.state
         changed = None
         try:
+            # Every action starts from the committed snapshot. A failed write/upload cannot leak
+            # an uncommitted filesystem mutation into another action in the same lease.
+            committed = await asyncio.to_thread(objects.get, tenant, state["workspace_ref"])
+            root = await asyncio.to_thread(sandbox.restore, tenant, id, epoch, json.loads(committed))
             if remote:
                 receipt = await dispatch_remote(tenant, id, action_id, args)
             elif tool == "repo.list":
@@ -600,10 +653,7 @@ class Worker:
     async def complete(self, tenant, id, epoch):
         with db.transaction(tenant) as s:
             r = db.fence(s, tenant, id, self.owner, epoch)
-            if any(
-                a.status not in {"SUCCEEDED", "FAILED", "CANCELLED"} for a in db.rows(s, db.Action, tenant, run_id=id)
-            ):
-                raise Fault("UNSETTLED_ACTION", "Cannot verify while actions remain unsettled")
+            service.require_finalizable(s, r)
             state = r.state
             r.phase = "VERIFYING"
             db.emit(s, r, "VERIFICATION_STARTED", "Verifying a frozen workspace in an independent environment")
@@ -613,19 +663,23 @@ class Worker:
         if state.get("image_digest") and state["image_digest"] != image:
             raise Fault("SEMANTIC_DRIFT", "Verification sandbox differs from the execution image")
         report = await verify(
-            tenant, id, epoch, baseline, current, state["acceptance"], state["task"]["allowed_paths"], image
+            tenant, id, epoch, baseline, current, service.resolve_acceptance(tenant, state["acceptance"]),
+            state["task"]["allowed_paths"], image
         )
         patch = sandbox.patch(baseline, current)
+        report["checks"].append(await asyncio.to_thread(sandbox.check_patch, baseline, current, patch))
         patch_ref = objects.put(tenant, id, patch.encode())
         report["artifact_digest"] = patch_ref["digest"]
         report_ref = objects.put(tenant, id, report)
         summary_ref = objects.put(tenant, id, state["completion"].encode())
         with db.transaction(tenant) as s:
             r = db.fence(s, tenant, id, self.owner, epoch)
-            if r.state["workspace_digest"] != report["workspace_digest"]:
+            if (r.state["workspace_digest"] != report["workspace_digest"]
+                or r.state.get("input_revision", 0) != state.get("input_revision", 0)):
                 raise Fault("VERIFICATION_STALE", "Workspace changed during verification")
             if r.cancel_requested:
                 return
+            service.require_finalizable(s, r)
             passed = report["verdict"] == "PASS"
             for name, kind, ref in [
                 ("changes.patch", "patch", patch_ref),
@@ -650,7 +704,20 @@ class Worker:
                 "image_digest": image,
                 "reason": "Verification " + report["verdict"],
             }
-            r.status = "SUCCEEDED" if passed else "FAILED" if report["verdict"] == "FAIL" else "PAUSED"
+            repair_count = r.state.get("repair_attempts", 0)
+            can_repair = (report["verdict"] == "FAIL"
+                          and report.get("failure_class") == "acceptance"
+                          and repair_count < state["budget"].get("max_repair_attempts", 2)
+                          and state["turn"] < state["budget"]["max_turns"]
+                          and (db.clock(s) - r.created_at).total_seconds() < state["budget"]["max_wall_seconds"])
+            r.status = "SUCCEEDED" if passed else "ACTIVE" if can_repair else "FAILED" if report["verdict"] == "FAIL" else "PAUSED"
+            if can_repair:
+                r.phase = "REPAIRING"
+                r.state = {**r.state, "completion": None, "repair_attempts": repair_count + 1,
+                           "verification_feedback": {"verdict": "FAIL", "checks": report["checks"],
+                                                     "evidence_ref": report_ref}}
+                db.schedule(s, r)
+                db.emit(s, r, "VERIFICATION_REPAIR_REQUESTED", "Acceptance failed; bounded repair remains")
             db.emit(s, r, "VERIFICATION_COMPLETED", r.state["reason"], evidence_ref=report_ref)
             service.checkpoint(s, r)
 

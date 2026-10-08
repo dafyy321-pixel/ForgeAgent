@@ -21,7 +21,9 @@ def compile_context(task, state, observations, skills, memories, window, output)
     mandatory = [
         {"type": "constraints", "content": system, "trust": "system"},
         {"type": "task", "content": task, "trust": "user"},
-        {"type": "runtime", "content": {k: state.get(k) for k in ("turn", "input", "unresolved")}, "trust": "runtime"},
+        {"type": "runtime", "content": {k: state.get(k) for k in (
+            "turn", "input", "input_revision", "unresolved", "verification_feedback"
+        )}, "trust": "runtime"},
     ]
 
     # UTF-8 bytes is a deliberately conservative token bound, including CJK and code.

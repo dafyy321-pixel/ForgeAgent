@@ -15,7 +15,9 @@ export interface AppController {
  notify:(message:string)=>void; command:()=>void; showNotifications:()=>void;
  download:(name:string,content:string)=>void; verifyArtifact:(id:string)=>void;
  addMemory:(title:string,content:string,kind:string)=>void; removeMemory:(id:string)=>void;
- settings:{budget:number;concurrency:number;notifications:boolean;redact:boolean}; saveSettings:(s:AppController['settings'])=>void;
+ settings:{budget:number;concurrency:number;notifications:boolean;redact:boolean};
+ settingsReady:boolean;settingsRevision:number;
+ saveSettings:(s:AppController['settings'],revision:number)=>Promise<boolean>;
  reset:()=>void; evalRunning:boolean; evalCompleted:boolean; runEval:()=>void;
 }
 export interface VariantProps { app:AppController; children:ReactNode }

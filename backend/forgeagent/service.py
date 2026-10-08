@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 
 from . import db
+from .auth import PROJECT_OPERATIONS, Identity, project_access, require_run_access
 from .config import settings
 from .domain import CAPABILITIES, TERMINAL, TOOL_INPUTS, UNSETTLED, CreateRun, Fault, digest, uid
 from .storage import objects
@@ -80,7 +81,10 @@ def provision(tenant="local", actor="local-user"):
                 )
             )
         if not s.get(db.Authorization, (tenant, actor)):
-            s.add(db.Authorization(tenant_id=tenant, id=actor, data={"epoch": 1, "capabilities": sorted(CAPABILITIES)}))
+            s.add(db.Authorization(tenant_id=tenant, id=actor, data={
+                "epoch": 1, "capabilities": sorted(CAPABILITIES),
+                "project_permissions": {"runtime-lab": sorted(PROJECT_OPERATIONS)},
+            }))
         if not s.get(db.PolicyVersion, (tenant, "settings")):
             s.add(
                 db.PolicyVersion(
@@ -104,11 +108,14 @@ def authorization(s, run, capability=None):
     return current
 
 
-def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_id=None):
+def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_id=None, admin=False):
     if not key or len(key) > 200:
         raise Fault("IDEMPOTENCY_REQUIRED", "A bounded Idempotency-Key is required", 422)
+    if not parent and not evaluation_id and not project_access(s, Identity(tenant, actor, admin), spec.project_id, "create"):
+        raise Fault("FORBIDDEN", "Project create permission is required", 403)
     payload = spec.model_dump(mode="json")
     request_digest = digest(payload)
+    key = digest({"actor": actor, "key": key})
     # Serialize equal keys before checking their unique index (also for concurrent clients).
     s.execute(db.text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": tenant + ":" + key})
     existing = s.scalar(select(db.Run).where(db.Run.tenant_id == tenant, db.Run.request_key == key))
@@ -154,7 +161,7 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
         if m.status == "active" and m.data.get("project") in (None, spec.project_id) and memory_valid(m, db.clock(s))
     ]
     model = "fixture@1" if spec.model == "fixture" else settings.model_id
-    acceptance = project.data.get("acceptance", {})
+    acceptance = seal_acceptance(tenant, run_id, project.data.get("acceptance", {}))
     if spec.task.acceptance_profile and spec.task.acceptance_profile != acceptance.get("id"):
         raise Fault("ACCEPTANCE_PROFILE", "Acceptance profile does not match the registered project", 422)
     semantic = {
@@ -230,14 +237,17 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
 
 
 def checkpoint(s, run):
+    # The checkpoint cursor must name an event that includes every state change it stores.
+    db.emit(s, run, "STATE_CHECKPOINTED", "Logical state committed before snapshot publication")
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "event_seq": run.seq,
         "workspace": run.state["workspace_ref"],
         "semantic_digest": digest(run.state["semantic"]),
         "state_digest": digest(run.state),
         "acceptance_digest": digest(run.state["acceptance"]),
         "state": run.state,
+        "projection": db.projection(run),
     }
     ref = objects.put(run.tenant_id, run.id, manifest)
     cp = db.Checkpoint(tenant_id=run.tenant_id, run_id=run.id, status="READY", data={"manifest_ref": ref, **manifest})
@@ -340,6 +350,11 @@ def consume_tool_slot(s, run):
 def control(s, tenant, id, command, expected_version, reason):
     r = db.get(s, db.Run, tenant, id, True)
     if command == "cancel" and r.cancel_requested:
+        if r.status not in TERMINAL:
+            if r.status != "CANCELLING":
+                r.status = "CANCELLING"
+                db.emit(s, r, "CANCEL_REASSERTED", "Existing cancellation intent rescheduled")
+            db.schedule(s, r)
         return r
     if r.version != expected_version:
         raise Fault("VERSION_CONFLICT", "Task changed; refresh before submitting")
@@ -363,8 +378,7 @@ def control(s, tenant, id, command, expected_version, reason):
             raise Fault("INVALID_STATE", "Only paused tasks can resume")
         if any(a.status in UNSETTLED for a in db.rows(s, db.Action, tenant, run_id=id)):
             raise Fault("UNRESOLVED_EFFECT", "Reconcile pending effects first")
-        if any(c.status == "UNKNOWN" for c in db.rows(s, db.ModelCall, tenant, run_id=id)):
-            raise Fault("UNKNOWN_USAGE", "Reconcile unknown model billing before resuming")
+        require_settled_usage(s, r)
         authorization(s, r)
         if digest(TOOLS) != r.state["semantic"]["tools_digest"]:
             raise Fault("SEMANTIC_DRIFT", "Pinned tool implementation is not available")
@@ -425,10 +439,11 @@ def prepare_action(s, run, call, logical_key):
     return a
 
 
-def approve(s, tenant, actor, approval_id, body):
+def approve(s, tenant, actor, approval_id, body, admin=False):
     approval = db.get(s, db.Approval, tenant, approval_id)
     action = db.get(s, db.Action, tenant, approval.action_id)
     run = db.get(s, db.Run, tenant, action.run_id, True)
+    require_run_access(s, Identity(tenant, actor, admin), run, "approve")
     approval = db.get(s, db.Approval, tenant, approval_id, True)
     if run.version != body.expected_version:
         raise Fault("VERSION_CONFLICT", "Task changed; review its latest version")
@@ -456,9 +471,75 @@ def approve(s, tenant, actor, approval_id, body):
 
 
 def replay(s, tenant, id):
+    from .reducer import rebuild
+
     db.get(s, db.Run, tenant, id)
     events = sorted(db.rows(s, db.Event, tenant, run_id=id), key=lambda e: e.seq)
     return {
         "events": [{"seq": e.seq, "type": e.type, "payload": e.payload} for e in events],
-        "projection": events[-1].payload["projection"] if events else None,
+        "projection": rebuild(s, tenant, id) if events else None,
     }
+
+
+def seal_acceptance(tenant, namespace, contract):
+    contract = dict(contract)
+    tests = contract.pop("protected_tests", None)
+    if tests:
+        contract["protected_tests_ref"] = objects.put(tenant, namespace, tests)
+    return contract
+
+
+def resolve_acceptance(tenant, contract):
+    result = dict(contract)
+    if result.get("protected_tests_ref"):
+        result["protected_tests"] = json.loads(objects.get(tenant, result["protected_tests_ref"]))
+    return result
+
+
+def public_payload(value):
+    """Legacy snapshots also pass through this boundary; no protected test or object locator escapes."""
+    if isinstance(value, dict):
+        result = {k: public_payload(v) for k, v in value.items() if k not in {"protected_tests", "protected_tests_ref"}}
+        if value.get("acceptance") and value.get("verification"):
+            result["verification"] = public_report(value["acceptance"], value["verification"])
+        return result
+    if isinstance(value, list):
+        return [public_payload(v) for v in value]
+    return value
+
+
+def public_report(contract, value):
+    value = public_payload(value)
+    if contract.get("protected_tests") or contract.get("protected_tests_ref"):
+        if value.get("result"):
+            value["result"] = {**value["result"], "output": "Protected acceptance diagnostics are private"}
+        value["checks"] = [
+            {**c, "evidence": "Protected acceptance diagnostics are private"} if c.get("name") == "独立验收" else c
+            for c in value.get("checks", [])
+        ]
+    return value
+
+
+def require_settled_usage(s, run):
+    # A root completion includes all descendant accounts, even zero-dollar/token-only reservations.
+    run_ids = {r.id for r in db.rows(s, db.Run, run.tenant_id, root_id=run.root_id)} if not run.parent_id else {run.id}
+    if any(c.run_id in run_ids and c.status in {"DISPATCHED", "UNKNOWN"}
+           for c in db.rows(s, db.ModelCall, run.tenant_id)):
+        raise Fault("UNKNOWN_USAGE", "Reconcile outstanding model usage before continuing")
+    if any(e.status != "settled" and e.data.get("run_id") in run_ids
+           for e in db.rows(s, db.BudgetEntry, run.tenant_id, account_id=run.root_id)):
+        raise Fault("UNSETTLED_BUDGET", "All root budget reservations must settle before continuing")
+    account = db.get(s, db.BudgetAccount, run.tenant_id, run.root_id)
+    if not run.parent_id and (account.reserved or (account.resources or {}).get("tokens_reserved", 0)):
+        raise Fault("UNSETTLED_BUDGET", "Root budget still contains reserved funds or tokens")
+
+
+def require_finalizable(s, run):
+    require_settled_usage(s, run)
+    if any(c.data.get("receipt_state") == "received" for c in db.rows(s, db.ModelCall, run.tenant_id, run_id=run.id)):
+        raise Fault("UNCONSUMED_RESPONSE", "Consume or supersede persisted model decisions before verification")
+    if any(a.status not in {"SUCCEEDED", "FAILED", "CANCELLED"}
+           for a in db.rows(s, db.Action, run.tenant_id, run_id=run.id)):
+        raise Fault("UNSETTLED_ACTION", "Pending actions must settle before verification")
+    if any(c.status != "SUCCEEDED" for c in db.rows(s, db.Run, run.tenant_id, parent_id=run.id)):
+        raise Fault("UNSETTLED_CHILD", "Required child runs must succeed before verification")

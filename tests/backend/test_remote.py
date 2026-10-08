@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from forgeagent import db, remote
+from forgeagent import db, remote, service
 from forgeagent.config import settings
 from forgeagent.domain import Fault, canonical, digest, uid
 from forgeagent.worker import Worker
@@ -253,9 +253,9 @@ async def test_missing_usage_does_not_execute_decision_until_reconciled(client, 
     with db.transaction(tenant) as s:
         r = db.get(s, db.Run, tenant, id)
         assert r.status == "PAUSED"
-        action = db.rows(s, db.Action, tenant, run_id=id)[0]
-        assert action.status == "READY" and action.attempt == 0
+        assert not db.rows(s, db.Action, tenant, run_id=id)
         call = db.rows(s, db.ModelCall, tenant, run_id=id)[0]
+        assert call.data["receipt_state"] == "received"
         version = r.version
     result = client.post(
         f"/v1/runs/{id}/budget/{call.id}/reconcile",
@@ -267,6 +267,14 @@ async def test_missing_usage_does_not_execute_decision_until_reconciled(client, 
         },
     )
     assert result.status_code == 200
+    with db.transaction(tenant) as s:
+        run = db.get(s, db.Run, tenant, id)
+        service.control(s, tenant, id, "resume", run.version, "continue with reconciled response")
+    await Worker(model=model).once(tenant)
+    with db.transaction(tenant) as s:
+        assert len(db.rows(s, db.ModelCall, tenant, run_id=id)) == 1
+        action = db.rows(s, db.Action, tenant, run_id=id)[0]
+        assert action.status == "READY" and action.attempt == 0
 
 
 async def test_malformed_decision_retries_are_bounded(tenant, make_run):

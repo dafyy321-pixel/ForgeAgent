@@ -1,5 +1,8 @@
 import asyncio
-import difflib
+import os
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path, PurePosixPath
 
 from .config import settings
@@ -51,11 +54,27 @@ class Sandbox:
 
     def restore(self, tenant, run_id, epoch, content):
         root = self.root(tenant, run_id, epoch)
-        root.mkdir(parents=True, exist_ok=True)
-        for name, body in content.items():
-            path = safe_path(root, name)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(body, encoding="utf-8", newline="")
+        base = settings.data_dir.resolve() / "workspaces"
+        if not root.resolve().is_relative_to(base) or root.is_symlink() or root.is_junction():
+            raise Fault("PATH_DENIED", "Workspace root is outside managed storage", 403)
+        root.parent.mkdir(parents=True, exist_ok=True)
+        stage = root.with_name(root.name + ".stage-" + uid())
+        backup = root.with_name(root.name + ".backup-" + uid())
+        try:
+            stage.mkdir()
+            write_tree(stage, content)
+            if root.exists():
+                os.replace(root, backup)
+            try:
+                os.replace(stage, root)
+            except BaseException:
+                if backup.exists():
+                    os.replace(backup, root)
+                raise
+        finally:
+            for path in (stage, backup):
+                if path.exists():
+                    shutil.rmtree(path)
         return root
 
     async def image_digest(self):
@@ -147,19 +166,54 @@ class Sandbox:
         }
 
     def patch(self, baseline, current):
-        chunks = []
-        for name in sorted(set(baseline) | set(current)):
-            if baseline.get(name) == current.get(name):
-                continue
-            chunks.append(f"diff --git a/{name} b/{name}\n")
-            for line in difflib.unified_diff(
-                baseline.get(name, "").splitlines(True),
-                current.get(name, "").splitlines(True),
-                fromfile=f"a/{name}" if name in baseline else "/dev/null",
-                tofile=f"b/{name}" if name in current else "/dev/null",
-            ):
-                chunks.append(line if line.endswith("\n") else line + "\n\\ No newline at end of file\n")
-        return "".join(chunks)
+        with tempfile.TemporaryDirectory(prefix="forge-patch-") as directory:
+            root = Path(directory)
+            git(root, "init", "--quiet")
+            write_tree(root, baseline)
+            git(root, "add", "--force", "--all")
+            baseline_tree = git(root, "write-tree").decode().strip()
+            for name in baseline:
+                safe_path(root, name).unlink()
+            # File/directory replacements need the old empty directory removed first.
+            for path in sorted(root.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+                if ".git" not in path.relative_to(root).parts and path.is_dir():
+                    path.rmdir()
+            write_tree(root, current)
+            git(root, "add", "--force", "--all")
+            return git(root, "diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv", baseline_tree).decode()
+
+    def check_patch(self, baseline, current, patch):
+        """Check and apply the actual deliverable, then compare its complete tree with the verified tree."""
+        with tempfile.TemporaryDirectory(prefix="forge-apply-") as directory:
+            root = Path(directory)
+            git(root, "init", "--quiet")
+            write_tree(root, baseline)
+            if patch:
+                git(root, "apply", "--check", "--whitespace=nowarn", "-", input=patch.encode())
+                git(root, "apply", "--whitespace=nowarn", "-", input=patch.encode())
+            if files(root) != current:
+                raise Fault("PATCH_TREE_MISMATCH", "Delivered patch does not reproduce the verified workspace")
+        return {"name": "交付补丁可应用", "status": "passed", "evidence": "git apply --check; applied tree digest matches"}
+
+
+def write_tree(root, content):
+    for name, body in content.items():
+        path = safe_path(root, name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8", newline="")
+
+
+def git(root, *args, input=None):
+    try:
+        result = subprocess.run(
+            ["git", "-c", "core.autocrlf=false", "-c", "core.safecrlf=false", "-c", "core.quotePath=true", *args],
+            cwd=root, input=input, capture_output=True, timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise Fault("GIT_UNAVAILABLE", "Git operation could not complete") from exc
+    if result.returncode:
+        raise Fault("INVALID_PATCH", "Git rejected the deliverable: " + result.stderr.decode(errors="replace")[:1000])
+    return result.stdout
 
 
 sandbox = Sandbox()

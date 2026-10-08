@@ -55,7 +55,15 @@ async def verify(tenant, run_id, epoch, baseline, current, contract, allowed_pat
         result = await sandbox.execute(root, contract["argv"], image, contract.get("timeout", 120), readonly=True)
         # Verification runs in a read-only copy; no generated code can alter the accepted artifact.
     if result:
-        verdict = "PASS" if result["exit_code"] == 0 and scope_ok and protected_ok else "FAIL"
+        if result.get("timed_out") or result.get("truncated") or result["exit_code"] in {-1, 125, 126, 127, 137}:
+            verdict = "INCONCLUSIVE"
+        else:
+            verdict = "PASS" if result["exit_code"] == 0 and scope_ok and protected_ok else "FAIL"
+        if contract.get("protected_tests"):
+            # Generated code may echo test bodies or assertion answers into stdout. Keep that channel private.
+            result = {**result, "output": "Protected acceptance passed" if verdict == "PASS"
+                      else "Protected acceptance did not pass; inspect public tests and task constraints",
+                      "protected_output": True}
     checks.append(
         {
             "name": "独立验收",
@@ -65,9 +73,13 @@ async def verify(tenant, run_id, epoch, baseline, current, contract, allowed_pat
     )
     return {
         "verdict": verdict,
+        "failure_class": "hard_constraint" if not scope_ok or not protected_ok else
+                         "environment" if verdict == "INCONCLUSIVE" else
+                         "acceptance" if verdict == "FAIL" else None,
         "checks": checks,
         "workspace_digest": before,
-        "acceptance_digest": digest(contract),
+        "acceptance_digest": digest({k: v for k, v in contract.items() if k != "protected_tests"}
+                                    if contract.get("protected_tests_ref") else contract),
         "verifier_version": "forge-verifier@1",
         "environment_digest": image or "fixture-ast@1",
         "commands": contract.get("argv", []),

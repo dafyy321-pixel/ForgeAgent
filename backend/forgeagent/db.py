@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from copy import deepcopy
 from datetime import timedelta
 
 from sqlalchemy import (
@@ -230,29 +231,43 @@ def rows(s, cls, tenant, **filters):
     return list(s.scalars(query.order_by(cls.created_at, cls.id)))
 
 
-def emit(s, run, kind, message, **details):
-    run.seq += 1
-    run.version += 1
-    run.updated_at = clock(s)
-    projection = {
+def projection(run):
+    return {
         "status": run.status,
         "phase": run.phase,
         "wait_reason": run.wait_reason,
         "version": run.version,
         "epoch": run.epoch,
         "cancel_requested": run.cancel_requested,
+        "pause_requested": run.pause_requested,
         "state": run.state,
     }
+
+
+def emit(s, run, kind, message, **details):
+    from .domain import digest
+    from .reducer import EventReducer, rebuild
+
+    cache_key = (run.tenant_id, run.id)
+    cached = s.info.setdefault("event_projections", {}).get(cache_key)
+    previous = cached[1] if cached and cached[0] == run.seq else rebuild(s, run.tenant_id, run.id)
+    run.seq += 1
+    run.version += 1
+    run.updated_at = clock(s)
+    current = deepcopy(projection(run))
+    payload = {"schema_version": 2, "message": message, "transition": EventReducer.transition(previous, current),
+               "prior_digest": digest(previous), "projection_digest": digest(current), **details}
     s.add(
         Event(
             tenant_id=run.tenant_id,
             run_id=run.id,
             seq=run.seq,
             type=kind,
-            payload={"schema_version": 1, "message": message, "projection": projection, **details},
+            payload=payload,
         )
     )
     s.flush()
+    s.info["event_projections"][cache_key] = (run.seq, current)
 
 
 def fence(s, tenant, id, owner, epoch):

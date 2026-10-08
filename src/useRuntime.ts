@@ -6,7 +6,7 @@ import { api } from './api';
 type Route={page:Page;id:string;tab:string;project:string;q:string;filter:string};
 export type TaskDraft={title:string;description:string;criteria:string;scope:string;project:string;model:string;budget:number;skills:string[];allowedPaths?:string;allowExternal?:boolean;allowDelegation?:boolean};
 export type Scenario='active'|'approval'|'recovery'|'unknown'|'tool'|'child'|'retry'|'queued'|'failure';
-const empty:WorkspaceState={schema:2,runs:[],approvals:[],artifacts:[],skills:[],memories:[],events:[],settings:{budget:5,concurrency:2,notifications:true,redact:true},evalCompleted:false,projects:[]};
+const empty:WorkspaceState={schema:2,runs:[],approvals:[],artifacts:[],skills:[],memories:[],events:[],settings:{budget:5,concurrency:2,notifications:true,redact:true},settings_revision:1,evalCompleted:false,projects:[]};
 function readRoute():Route {
  const q=new URLSearchParams(location.search);const path=location.pathname.split('/').filter(Boolean);
  const known:Page[]=['overview','runs','inbox','approvals','recovery','artifacts','context','skills','memory','tools','evaluations','observability','settings'];
@@ -62,7 +62,9 @@ export function useRuntime(){
   verifyArtifact:id=>{const a=state.artifacts.find(a=>a.id===id);if(a)openRun(a.runId)},
   toggleSkill:id=>{const skill=state.skills.find(x=>x.id===id);void mutate(`/skills/${encodeURIComponent(id)}/release`,'POST',{enabled:!skill?.enabled,review:'用户在控制台确认技能发布状态'})},
   addMemory:(title,content,kind)=>{void mutate('/memories','POST',{title,content,kind,source:'用户在控制台确认',project:route.project==='所有项目'?null:route.project})},removeMemory:id=>{void mutate(`/memories/${id}`,'DELETE')},
-  settings:state.settings,saveSettings:settings=>{void mutate('/settings','PUT',settings)},reset:()=>setToast('真实执行记录保留审计，不提供演示重置。'),evalCompleted:state.evalCompleted,evalRunning,
+  settings:state.settings,settingsReady:!loading&&!storageError,settingsRevision:state.settings_revision,
+  saveSettings:async(settings,revision)=>{try{await api('/settings','PUT',{...settings,expected_revision:revision});await refresh();setToast('设置已保存');return true}catch(e){setToast((e as Error).message);return false}},
+  reset:()=>setToast('真实执行记录保留审计，不提供演示重置。'),evalCompleted:state.evalCompleted,evalRunning,
   runEval:()=>{setEvalRunning(true);void mutate('/evaluations','POST',{repetitions:3,seed:42}).finally(()=>setEvalRunning(false))}};
  return {app,state,route,overlay,setOverlay,toast,now,storageError,loading,back,create,scenario,verify,decide,repair,reconcile,revise:(_id:string)=>unavailable(),requestApproval,receive:(_id:string)=>unavailable(),emitUpdate:(_id:string)=>refresh(),assignResource:(_id:string)=>refresh(),refresh,fork,
   clearFilters:()=>changeRoute({...route,q:'',filter:'all'},true),openTask:(id:string,tab='timeline')=>changeRoute({...route,page:'task',id,tab}),setFilter:(filter:string)=>changeRoute({...route,filter},true),setTab:(tab:string)=>changeRoute({...route,tab},true)};

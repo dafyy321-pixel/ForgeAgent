@@ -12,7 +12,7 @@ from sqlalchemy import select, text
 
 from . import db, presenters, service
 from . import evaluations as experiments
-from .auth import Identity, identity, require_admin
+from .auth import Identity, authorized_identity, project_access, require_admin, require_run_access, run_access
 from .config import settings
 from .domain import (
     TERMINAL,
@@ -39,7 +39,7 @@ async def lifespan(app):
 
 
 app = FastAPI(title="ForgeAgent Runtime", version="0.2.0", lifespan=lifespan)
-Actor = Annotated[Identity, Depends(identity)]
+Actor = Annotated[Identity, Depends(authorized_identity)]
 
 
 @app.middleware("http")
@@ -111,13 +111,15 @@ def ready():
 @app.get("/v1/workspace")
 def workspace(actor: Actor):
     with db.transaction(actor.tenant) as s:
-        return presenters.workspace(s, actor.tenant)
+        return presenters.workspace(s, actor.tenant, actor)
 
 
 @app.post("/v1/runs", status_code=202)
 def create(body: CreateRun, actor: Actor, idempotency_key: Annotated[str, Header()]):
     with db.transaction(actor.tenant) as s:
-        r = service.create_run(s, actor.tenant, actor.actor, body, idempotency_key)
+        if not project_access(s, actor, body.project_id, "create"):
+            raise Fault("FORBIDDEN", "An explicit project create permission is required", 403)
+        r = service.create_run(s, actor.tenant, actor.actor, body, idempotency_key, admin=actor.admin)
         return presenters.run_view(s, r)
 
 
@@ -133,7 +135,7 @@ def runs(
             q = q.where(db.Run.status == status)
         if cursor:
             q = q.where(db.Run.id > cursor)
-        values = list(s.scalars(q.order_by(db.Run.id).limit(min(max(limit, 1), 100) + 1)))
+        values = [r for r in s.scalars(q.order_by(db.Run.id)) if run_access(s, actor, r)]
         more = len(values) > min(max(limit, 1), 100)
         values = values[: min(max(limit, 1), 100)]
         return {"items": [presenters.run_view(s, r) for r in values], "next_cursor": values[-1].id if more else None}
@@ -154,6 +156,8 @@ def control(id: str, body: Control, request: Request, actor: Actor):
             cp = db.get(s, db.Checkpoint, actor.tenant, body.checkpoint_id)
             if cp.run_id != id:
                 raise Fault("CHECKPOINT_SCOPE", "Checkpoint does not belong to this run", 404)
+            if request.url.path.endswith("/resume"):
+                raise Fault("CHECKPOINT_FORK_REQUIRED", "Resume continues current state; use fork to restore a checkpoint", 422)
         r = service.control(s, actor.tenant, id, request.url.path.rsplit("/", 1)[1], body.expected_version, body.reason)
         return presenters.run_view(s, r)
 
@@ -168,7 +172,7 @@ def fork(id: str, body: Control, actor: Actor, idempotency_key: Annotated[str, H
         spec = CreateRun.model_validate(original.data)
         spec.title = old.state["title"] + " (fork)"
         spec.capabilities = [c for c in spec.capabilities if c != "external.write"]
-        r = service.create_run(s, actor.tenant, actor.actor, spec, idempotency_key)
+        r = service.create_run(s, actor.tenant, actor.actor, spec, idempotency_key, admin=actor.admin)
         if not r.state.get("forked_from") and r.status == "QUEUED":
             source = old.state["workspace_ref"]
             if body.checkpoint_id:
@@ -191,7 +195,7 @@ def fork(id: str, body: Control, actor: Actor, idempotency_key: Annotated[str, H
 @app.get("/v1/runs/{id}/replay")
 def replay(id: str, actor: Actor):
     with db.transaction(actor.tenant) as s:
-        return service.replay(s, actor.tenant, id)
+        return service.public_payload(service.replay(s, actor.tenant, id))
 
 
 @app.get("/v1/runs/{id}/events")
@@ -206,6 +210,7 @@ async def events(
         raise Fault("INVALID_CURSOR", "Event cursor must be a nonnegative integer", 422)
     with db.transaction(actor.tenant) as s:
         r = db.get(s, db.Run, actor.tenant, id)
+        require_run_access(s, actor, r)
         if cursor > r.seq:
             raise Fault("INVALID_CURSOR", "Cursor exceeds the latest committed event", 409)
 
@@ -214,6 +219,7 @@ async def events(
         while not await request.is_disconnected():
             with db.transaction(actor.tenant) as s:
                 r = db.get(s, db.Run, actor.tenant, id)
+                require_run_access(s, actor, r)
                 batch = list(
                     s.scalars(
                         select(db.Event)
@@ -225,7 +231,7 @@ async def events(
                 done = r.status in TERMINAL
             for e in batch:
                 cursor = e.seq
-                value = {"seq": e.seq, "type": e.type, "payload": e.payload}
+                value = service.public_payload({"seq": e.seq, "type": e.type, "payload": e.payload})
                 yield f"id: {e.seq}\nevent: domain\ndata: {canonical(value).decode()}\n\n"
             if done and not batch:
                 break
@@ -354,7 +360,9 @@ def remote_input(action_id: str, body: RemoteTaskInput, actor: Actor):
 def checkpoints(id: str, actor: Actor):
     with db.transaction(actor.tenant) as s:
         db.get(s, db.Run, actor.tenant, id)
-        return [{"id": c.id, "status": c.status, **c.data} for c in db.rows(s, db.Checkpoint, actor.tenant, run_id=id)]
+        return service.public_payload([
+            {"id": c.id, "status": c.status, **c.data} for c in db.rows(s, db.Checkpoint, actor.tenant, run_id=id)
+        ])
 
 
 @app.get("/v1/actions/{action_id}/observation")
@@ -444,8 +452,13 @@ def reconcile_budget(id: str, operation_id: str, body: BudgetReconciliation, act
             raise Fault("BUDGET_CONFLICT", "Only this run's unknown model usage can be reconciled")
         service.settle(s, r, operation_id, body.actual_micros, body.actual_tokens)
         call.status = "RECONCILED"
-        call.data = {**call.data, "billing_evidence": body.evidence, "reviewer": actor.actor}
+        call.data = {**call.data, "billing_evidence": body.evidence, "reviewer": actor.actor,
+                     "reconciled_tokens": body.actual_tokens if body.actual_tokens is not None else 0}
         db.emit(s, r, "BUDGET_RECONCILED", body.reason, operation_id=operation_id, actual_micros=body.actual_micros)
+        if r.cancel_requested and r.status not in TERMINAL:
+            r.status, r.wait_reason = "CANCELLING", None
+            db.emit(s, r, "CANCELLATION_RESUMED", "Billing reconciled; resume cancellation settlement")
+            db.schedule(s, r)
         return {"status": "settled"}
 
 
@@ -472,6 +485,9 @@ def download(artifact_id: str, actor: Actor):
     with db.transaction(actor.tenant) as s:
         a = db.get(s, db.Artifact, actor.tenant, artifact_id)
         body = objects.get(actor.tenant, a.ref)
+        if a.kind == "test_report":
+            r = db.get(s, db.Run, actor.tenant, a.run_id)
+            body = canonical(service.public_report(r.state["acceptance"], json.loads(body)))
         return Response(
             body,
             media_type="application/octet-stream",
@@ -482,7 +498,7 @@ def download(artifact_id: str, actor: Actor):
 @app.post("/v1/approvals/{id}/decision")
 def decide(id: str, body: ApprovalDecision, actor: Actor):
     with db.transaction(actor.tenant) as s:
-        return presenters.run_view(s, service.approve(s, actor.tenant, actor.actor, id, body))
+        return presenters.run_view(s, service.approve(s, actor.tenant, actor.actor, id, body, admin=actor.admin))
 
 
 @app.get("/v1/runs/{id}/context/{turn}")
@@ -506,7 +522,13 @@ def user_input(id: str, body: UserInput, actor: Actor):
         r = db.get(s, db.Run, actor.tenant, id, True)
         if r.version != body.expected_version or r.status != "PAUSED":
             raise Fault("INPUT_CONFLICT", "Input requires the current paused task version")
-        r.state = {**r.state, "input": body.content, "input_required": False}
+        if r.cancel_requested:
+            raise Fault("INPUT_CONFLICT", "A cancelling task cannot accept new input")
+        r.state = {**r.state, "input": body.content, "input_required": False, "completion": None,
+                   "verification": None, "input_revision": r.state.get("input_revision", 0) + 1,
+                   "artifact_version": r.state["artifact_version"] + 1}
+        for artifact in db.rows(s, db.Artifact, actor.tenant, run_id=id):
+            artifact.verified = False
         db.emit(s, r, "USER_INPUT", body.content)
         return presenters.run_view(s, r)
 
@@ -522,10 +544,7 @@ def verify_run(id: str, body: Control, actor: Actor):
             or r.lease_owner
         ):
             raise Fault("VERIFY_CONFLICT", "Verification requires an idle active or paused task at the current version")
-        if any(
-            a.status not in {"SUCCEEDED", "FAILED", "CANCELLED"} for a in db.rows(s, db.Action, actor.tenant, run_id=id)
-        ):
-            raise Fault("UNSETTLED_ACTION", "Pending actions must settle before verification")
+        service.require_finalizable(s, r)
         r.state = {**r.state, "completion": "User requested independent verification"}
         r.status, r.phase, r.pause_requested = "QUEUED", "VERIFYING", False
         db.emit(s, r, "VERIFICATION_REQUESTED", body.reason)
@@ -582,7 +601,10 @@ class ProjectInput(Strict):
 @app.get("/v1/projects")
 def projects(actor: Actor):
     with db.transaction(actor.tenant) as s:
-        return [{"id": p.id, **p.data} for p in db.rows(s, db.Project, actor.tenant)]
+        return service.public_payload([
+            {"id": p.id, **p.data} for p in db.rows(s, db.Project, actor.tenant)
+            if project_access(s, actor, p.id, "read")
+        ])
 
 
 @app.post("/v1/projects", status_code=201)
@@ -606,6 +628,7 @@ def add_project(body: ProjectInput, actor: Actor):
                 "protected_tests": body.protected_tests,
             },
         }
+        data["acceptance"] = service.seal_acceptance(actor.tenant, "project-" + body.id, data["acceptance"])
         s.add(db.Project(tenant_id=actor.tenant, id=body.id, data=data))
         return {"id": body.id, "digest": data["baseline_digest"]}
 
@@ -624,6 +647,10 @@ def add_memory(body: MemoryInput, actor: Actor):
     with db.transaction(actor.tenant) as s:
         if body.project:
             db.get(s, db.Project, actor.tenant, body.project)
+            if not project_access(s, actor, body.project, "edit"):
+                raise Fault("FORBIDDEN", "Project edit permission is required", 403)
+        else:
+            require_admin(actor)
         m = db.Memory(tenant_id=actor.tenant, data={**body.model_dump(mode="json"), "confirmed_by": actor.actor})
         s.add(m)
         s.flush()
@@ -634,6 +661,8 @@ def add_memory(body: MemoryInput, actor: Actor):
 def delete_memory(id: str, actor: Actor):
     with db.transaction(actor.tenant) as s:
         m = db.get(s, db.Memory, actor.tenant, id, True)
+        if not actor.admin and not project_access(s, actor, m.data.get("project"), "edit"):
+            raise Fault("FORBIDDEN", "Project edit permission is required", 403)
         m.status = "deleted"
         # Existing task snapshots remain immutable audit records; new retrieval excludes this memory.
         return {"status": "deleted", "retained_in_historical_snapshots": True}
@@ -674,6 +703,33 @@ class SkillRelease(Strict):
     configuration: str | None = None
 
 
+@app.get("/v1/skills/{id}/release-options")
+def skill_release_options(id: str, actor: Actor):
+    require_admin(actor)
+    with db.transaction(actor.tenant) as s:
+        db.get(s, db.SkillVersion, actor.tenant, id)
+        options = []
+        for evaluation in db.rows(s, db.Evaluation, actor.tenant):
+            if evaluation.data.get("kind") != "paired":
+                continue
+            report = experiments.report(s, evaluation, actor.tenant)
+            for config in report["configurations"][1:]:
+                if id not in config["skills"]:
+                    continue
+                try:
+                    evidence = experiments.release_gate(s, actor.tenant, id, evaluation.id, config["name"])
+                    reason = None
+                except Fault as exc:
+                    evidence, reason = None, exc.message
+                options.append({"evaluation_id": evaluation.id, "configuration": config["name"],
+                                "eligible": evidence is not None, "reason": reason,
+                                "evidence_digest": evidence, "split": report["split"],
+                                "independent_cases": report["independent_cases"],
+                                "repetitions": report["repetitions"],
+                                "comparison": report["comparisons"].get(config["name"])})
+        return options
+
+
 @app.post("/v1/skills/{id}/release")
 def release_skill(id: str, body: SkillRelease, actor: Actor):
     require_admin(actor)
@@ -700,6 +756,7 @@ class WorkspaceSettings(Strict):
     concurrency: int = Field(ge=1, le=4)
     notifications: bool = True
     redact: Literal[True] = True
+    expected_revision: int = Field(ge=1)
 
 
 @app.put("/v1/settings")
@@ -707,13 +764,17 @@ def save_settings(body: WorkspaceSettings, actor: Actor):
     require_admin(actor)
     with db.transaction(actor.tenant) as s:
         config = db.get(s, db.PolicyVersion, actor.tenant, "settings", True)
-        config.data = body.model_dump()
+        revision = config.data.get("_revision", 1)
+        if body.expected_revision != revision:
+            raise Fault("SETTINGS_CONFLICT", "Settings changed; reload before saving your draft")
+        config.data = {**body.model_dump(exclude={"expected_revision"}), "_revision": revision + 1}
         return config.data
 
 
 class RevokeInput(Strict):
     actor: str
     capabilities: list[str]
+    project_permissions: dict[str, list[str]] | None = None
 
 
 @app.post("/v1/authorization")
@@ -721,9 +782,18 @@ def revoke(body: RevokeInput, actor: Actor):
     require_admin(actor)
     if not set(body.capabilities) <= service.CAPABILITIES:
         raise Fault("CAPABILITIES", "Unknown capability", 422)
+    if body.project_permissions is not None:
+        from .auth import PROJECT_OPERATIONS
+        if any(not set(ops) <= PROJECT_OPERATIONS for ops in body.project_permissions.values()):
+            raise Fault("PROJECT_PERMISSIONS", "Unknown project operation", 422)
     with db.transaction(actor.tenant) as s:
-        auth = db.get(s, db.Authorization, actor.tenant, body.actor, True)
-        auth.data = {"capabilities": body.capabilities, "epoch": auth.data["epoch"] + 1}
+        auth = s.get(db.Authorization, (actor.tenant, body.actor), with_for_update=True)
+        if not auth:
+            auth = db.Authorization(tenant_id=actor.tenant, id=body.actor, data={"epoch": 0})
+            s.add(auth)
+        auth.data = {**auth.data, "capabilities": body.capabilities, "epoch": auth.data["epoch"] + 1,
+                     "project_permissions": body.project_permissions if body.project_permissions is not None
+                     else auth.data.get("project_permissions", {})}
         return auth.data
 
 
@@ -791,6 +861,8 @@ async def callback(
 @app.post("/v1/examples/smoke", status_code=202)
 def smoke(actor: Actor, idempotency_key: Annotated[str, Header()]):
     with db.transaction(actor.tenant) as s:
+        if not project_access(s, actor, "runtime-lab", "create"):
+            raise Fault("FORBIDDEN", "Runtime Lab create permission is required", 403)
         spec = CreateRun(
             project_id="runtime-lab",
             title="验证 Runtime 端到端流程",
@@ -799,7 +871,7 @@ def smoke(actor: Actor, idempotency_key: Annotated[str, Header()]):
                 goal="修复 add 函数，使其返回两个输入之和", allowed_paths=["src"], acceptance_profile="addition@1"
             ),
         )
-        return presenters.run_view(s, service.create_run(s, actor.tenant, actor.actor, spec, idempotency_key))
+        return presenters.run_view(s, service.create_run(s, actor.tenant, actor.actor, spec, idempotency_key, admin=actor.admin))
 
 
 class EvaluationInput(Strict):
@@ -854,7 +926,7 @@ def evaluate(body: EvaluationInput, actor: Actor):
                 model="fixture",
                 task=Task(goal="Fix addition", allowed_paths=["src"]),
             )
-            r = service.create_run(s, actor.tenant, actor.actor, spec, f"eval:{e.id}:{i}")
+            r = service.create_run(s, actor.tenant, actor.actor, spec, f"eval:{e.id}:{i}", admin=True)
             ids.append(r.id)
         e.data = {**e.data, "runs": ids}
         return {"id": e.id, "status": e.status, **e.data}
@@ -908,12 +980,14 @@ def evaluation_view(s, e, tenant):
 
 @app.get("/v1/evaluations")
 def evaluations(actor: Actor):
+    require_admin(actor)
     with db.transaction(actor.tenant) as s:
         return [evaluation_view(s, e, actor.tenant) for e in db.rows(s, db.Evaluation, actor.tenant)]
 
 
 @app.get("/v1/evaluations/{id}")
 def evaluation(id: str, actor: Actor):
+    require_admin(actor)
     with db.transaction(actor.tenant) as s:
         return evaluation_view(s, db.get(s, db.Evaluation, actor.tenant, id), actor.tenant)
 
@@ -945,6 +1019,7 @@ async def diagnostics(actor: Actor):
 
 @app.get("/v1/metrics")
 def metrics(actor: Actor):
+    require_admin(actor)
     with db.transaction(actor.tenant) as s:
         runs = db.rows(s, db.Run, actor.tenant)
         actions = db.rows(s, db.Action, actor.tenant)

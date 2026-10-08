@@ -1,7 +1,6 @@
 """Versioned evaluation datasets with tenant isolation."""
 
 from alembic import op
-from forgeagent import db
 
 revision = "0003"
 down_revision = "0002"
@@ -10,7 +9,14 @@ depends_on = None
 
 
 def upgrade():
-    db.EvaluationDataset.__table__.create(op.get_bind(), checkfirst=True)
+    op.execute("""CREATE TABLE IF NOT EXISTS evaluation_datasets (
+        data JSON NOT NULL,
+        status VARCHAR(40) NOT NULL,
+        tenant_id VARCHAR(100) NOT NULL,
+        id VARCHAR(100) NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        PRIMARY KEY (tenant_id, id)
+    )""")
     op.execute("ALTER TABLE evaluation_datasets ENABLE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE evaluation_datasets FORCE ROW LEVEL SECURITY")
     op.execute("DROP POLICY IF EXISTS tenant_isolation ON evaluation_datasets")

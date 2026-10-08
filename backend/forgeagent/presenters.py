@@ -1,4 +1,5 @@
 from . import db, service
+from .auth import project_access, run_access
 from .domain import canonical, digest
 from .storage import objects
 
@@ -7,7 +8,7 @@ def run_view(s, r):
     st = r.state
     account = db.get(s, db.BudgetAccount, r.tenant_id, r.root_id)
     actions = db.rows(s, db.Action, r.tenant_id, run_id=r.id)
-    report = st.get("verification")
+    report = service.public_report(st["acceptance"], st["verification"]) if st.get("verification") else None
     elapsed = max(0, int((db.clock(s) - r.created_at).total_seconds()))
     semantic = st["semantic"]
     return {
@@ -103,12 +104,14 @@ def action_view(s, a):
     }
 
 
-def workspace(s, tenant):
-    runs = db.rows(s, db.Run, tenant)
+def workspace(s, tenant, actor=None):
+    runs = [r for r in db.rows(s, db.Run, tenant) if actor is None or run_access(s, actor, r)]
     by_id = {r.id: r for r in runs}
     approvals = []
     for p in db.rows(s, db.Approval, tenant):
         a = db.get(s, db.Action, tenant, p.action_id)
+        if a.run_id not in by_id or (actor and not run_access(s, actor, by_id[a.run_id], "approve")):
+            continue
         r = by_id[a.run_id]
         approvals.append(
             {
@@ -129,7 +132,12 @@ def workspace(s, tenant):
         )
     artifacts = []
     for a in db.rows(s, db.Artifact, tenant):
+        if a.run_id not in by_id:
+            continue
         content = objects.get(tenant, a.ref).decode("utf-8", errors="replace")
+        if a.kind == "test_report":
+            import json
+            content = canonical(service.public_report(by_id[a.run_id].state["acceptance"], json.loads(content))).decode()
         artifacts.append(
             {
                 "id": a.id,
@@ -145,6 +153,8 @@ def workspace(s, tenant):
         )
     events = []
     for e in db.rows(s, db.Event, tenant):
+        if e.run_id not in by_id:
+            continue
         kind = (
             "approval"
             if "APPROVAL" in e.type
@@ -166,7 +176,8 @@ def workspace(s, tenant):
                 "runId": e.run_id,
                 "kind": kind,
                 "title": e.payload["message"],
-                "detail": canonical({k: v for k, v in e.payload.items() if k != "projection"}).decode(),
+                "detail": canonical({k: v for k, v in e.payload.items()
+                                     if k not in {"projection", "transition", "prior_digest", "projection_digest"}}).decode(),
                 "time": int(e.created_at.timestamp() * 1000),
             }
         )
@@ -180,12 +191,16 @@ def workspace(s, tenant):
             {"id": x.id, "enabled": x.status == "active", "calls": 0, **x.data}
             for x in db.rows(s, db.SkillVersion, tenant)
         ],
-        "memories": [{"id": m.id, **m.data} for m in db.rows(s, db.Memory, tenant) if m.status == "active"],
+        "memories": [{"id": m.id, **m.data} for m in db.rows(s, db.Memory, tenant)
+                     if m.status == "active" and (actor is None or actor.admin
+                     or project_access(s, actor, m.data.get("project"), "read"))],
         "events": sorted(events, key=lambda e: e["time"], reverse=True),
-        "settings": config.data,
+        "settings": {k: v for k, v in config.data.items() if k != "_revision"},
+        "settings_revision": config.data.get("_revision", 1),
         "evalCompleted": any(e.status == "completed" for e in db.rows(s, db.Evaluation, tenant)),
         "projects": [
             {"id": p.id, "name": p.data.get("name", p.id), "acceptance": p.data.get("acceptance", {}).get("id")}
             for p in db.rows(s, db.Project, tenant)
+            if actor is None or project_access(s, actor, p.id, "read")
         ],
     }

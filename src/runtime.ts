@@ -17,7 +17,7 @@ export interface Evidence extends Artifact { version:number;digest:string; }
 export interface WorkspaceState {
   projects?:{id:string;name:string;acceptance?:string}[];
   schema:2;runs:Execution[];approvals:Decision[];artifacts:Evidence[];skills:Skill[];memories:(Memory & {project?:string})[];
-  events:RunEvent[];settings:AppController['settings'];evalCompleted:boolean;
+  events:RunEvent[];settings:AppController['settings'];settings_revision:number;evalCompleted:boolean;
 }
 export const waitLabels:Record<NonNullable<WaitReason>,string> = {APPROVAL:'等待授权审批',TOOL:'等待远程工具返回',CHILD_RUN:'等待子任务结果',RETRY_TIMER:'等待重试时间',RECONCILIATION:'外部操作结果待确认'};
 export const statusText:Record<Run['status'],string> = {QUEUED:'排队中',ACTIVE:'运行中',WAITING:'等待中',PAUSED:'已暂停',CANCELLING:'正在取消',SUCCEEDED:'已验证完成',FAILED:'执行失败',CANCELLED:'已取消'};

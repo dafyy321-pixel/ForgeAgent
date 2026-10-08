@@ -44,6 +44,7 @@ class Budget(Strict):
     max_wall_seconds: int = Field(7200, ge=10, le=86400)
     max_tool_calls: int = Field(300, ge=1, le=3000)
     max_tokens: int = Field(500000, ge=1, le=10000000)
+    max_repair_attempts: int = Field(2, ge=0, le=10)
 
 
 class Task(Strict):
