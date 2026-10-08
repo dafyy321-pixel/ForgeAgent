@@ -138,11 +138,15 @@ def eval_report(id: str):
 
 
 @project.command("register")
-def register_project(id: str, directory: Path, acceptance: Path):
-    """Upload a text baseline and a protected acceptance JSON file; no repository URL fetching."""
-    from .sandbox import files
+def register_project(id: str, directory: Path, acceptance: Path, commit: str = "HEAD"):
+    """Upload a bounded Git bundle at a fixed commit and a protected acceptance contract."""
+    from .repository import bundle_from_directory
 
     contract = json.loads(acceptance.read_text(encoding="utf-8"))
+    from .domain import AcceptanceContract, BuildContract
+
+    build = BuildContract(**contract.pop("build", {})).model_dump()
+    contract = AcceptanceContract(**contract).model_dump()
     execute(
         lambda c: c.request(
             "POST",
@@ -150,10 +154,11 @@ def register_project(id: str, directory: Path, acceptance: Path):
             {
                 "id": id,
                 "name": id,
-                "baseline": files(directory.resolve()),
+                "repository": bundle_from_directory(directory, commit).model_dump(),
                 "acceptance_id": contract["id"],
                 "verification_argv": contract["argv"],
-                "protected_tests": contract.get("protected_tests", {}),
+                "acceptance": contract,
+                "build": build,
             },
         )
     )

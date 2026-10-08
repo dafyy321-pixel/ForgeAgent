@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     max_output: int = 4096
     sandbox_image: str = "forgeagent-sandbox:local"
     sandbox_runtime: str = "runc"
+    sandbox_manager_url: str = ""
+    sandbox_manager_secret: str = ""
+    credential_routes: str = "{}"
     lease_seconds: int = 30
     worker_tenants: str = ""
     worker_slots: int = Field(4, ge=1, le=32)

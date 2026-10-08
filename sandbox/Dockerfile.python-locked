@@ -1,0 +1,12 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+ARG LOCK_DIGEST
+# Supply a wheelhouse and a pip hash-locked requirements.lock as the build context.
+# Installation is offline and must precede any untrusted task source.
+COPY requirements.lock /opt/requirements.lock
+COPY wheels /opt/wheels
+RUN python -m pip install --no-index --require-hashes --find-links=/opt/wheels -r /opt/requirements.lock \
+    && rm -rf /opt/wheels
+LABEL forge.lock.digest=${LOCK_DIGEST}
+WORKDIR /workspace
+USER 10001:10001

@@ -47,7 +47,7 @@ def observed(s, run, tool, receipt, status):
         return
     progress = run.state.get("progress", {})
     evidence = None
-    if tool in {"repo.read", "observation.read"}:
+    if tool in {"repo.read", "repo.search", "repo.symbols", "observation.read"}:
         evidence = digest([tool, receipt.get("source_digest") or receipt.get("digest")])
     elif tool == "tests.run":
         evidence = digest([tool, run.state["workspace_digest"], receipt.get("exit_code")])

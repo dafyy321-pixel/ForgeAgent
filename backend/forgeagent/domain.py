@@ -47,14 +47,79 @@ class Budget(Strict):
     max_repair_attempts: int = Field(2, ge=0, le=10)
     max_no_progress_turns: int = Field(12, ge=3, le=100)
     max_concurrent_runs: int = Field(2, ge=1, le=32)
+    max_cpu_seconds: int = Field(3600, ge=1, le=86400)
+    max_storage_bytes: int = Field(134217728, ge=1024, le=10737418240)
+
+
+class AcceptanceCondition(Strict):
+    kind: Literal["file_exists", "file_digest", "output_contains"]
+    path: str = Field("", max_length=500)
+    value: str = Field("", max_length=4000)
+
+    @model_validator(mode="after")
+    def shape(self):
+        if self.kind != "output_contains" and not self.path:
+            raise ValueError("File conditions require a path")
+        if self.kind != "file_exists" and not self.value:
+            raise ValueError("This condition requires a value")
+        return self
+
+
+class AcceptanceContract(Strict):
+    id: str = Field(min_length=1, max_length=100)
+    kind: Literal["command", "fixture_ast"] = "command"
+    argv: list[str] = Field(default_factory=list, max_length=100)
+    timeout: int = Field(120, ge=1, le=300)
+    conditions: list[AcceptanceCondition] = Field(default_factory=list, max_length=100)
+    protected_tests: dict[str, str] = Field(default_factory=dict)
+    protected_paths: list[str] = Field(default_factory=list, max_length=100)
+    success_exit_codes: list[Annotated[int, Field(ge=0, le=124)]] = Field(default_factory=lambda: [0], min_length=1, max_length=16)
+    failure_exit_codes: list[Annotated[int, Field(ge=1, le=124)]] = Field(default_factory=lambda: [1], max_length=16)
+
+    @model_validator(mode="after")
+    def executable(self):
+        if self.kind == "command" and not self.argv:
+            raise ValueError("Command acceptance requires argv")
+        if set(self.success_exit_codes) & set(self.failure_exit_codes):
+            raise ValueError("Success and business failure exit codes must be disjoint")
+        return self
+
+
+class BuildContract(Strict):
+    ecosystem: Literal["none", "python", "node"] = "none"
+    lockfile: str = Field("", max_length=500)
+    lock_digest: str = Field("", pattern=r"^(|sha256:[a-f0-9]{64})$")
+    argv: list[str] = Field(default_factory=list, max_length=100)
+    timeout: int = Field(120, ge=1, le=300)
+    # Dependencies must be baked into this content-addressed image. No installer network is implicit.
+    dependency_image: str = Field("", pattern=r"^(|sha256:[a-f0-9]{64})$")
+    persistent_session: bool = False
+    cache_bytes: int = Field(33554432, ge=1024, le=134217728)
+
+    @model_validator(mode="after")
+    def locked(self):
+        if self.ecosystem != "none" and (not self.lockfile or not self.lock_digest.startswith("sha256:")):
+            raise ValueError("Dependency builds require a lockfile and its sha256 digest")
+        if self.ecosystem != "none" and not self.dependency_image.startswith("sha256:"):
+            raise ValueError("Dependency image must be content-addressed")
+        if self.persistent_session and self.ecosystem == "none":
+            raise ValueError("Persistent sessions require a locked dependency environment")
+        return self
+
+
+class PublicationRequirement(Strict):
+    tool: str = Field(min_length=1, max_length=200)
+    effect_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
 
 
 class Task(Strict):
     goal: str = Field(min_length=1, max_length=12000)
     allowed_paths: list[str] = Field(default_factory=lambda: ["src", "tests"], min_length=1, max_length=100)
     acceptance_profile: str = ""
-    deliverables: list[str] = Field(default_factory=lambda: ["patch", "test_report", "summary"])
+    deliverables: list[Literal["patch", "test_report", "summary"]] = Field(default_factory=lambda: ["patch", "test_report", "summary"], min_length=1)
+    publication: list[PublicationRequirement] = Field(default_factory=list, max_length=20)
     criteria: list[str] = Field(default_factory=list, max_length=30)
+    acceptance_conditions: list[AcceptanceCondition] = Field(default_factory=list, max_length=100)
     scope: str = ""
 
     @model_validator(mode="after")
@@ -62,6 +127,10 @@ class Task(Strict):
         for path in self.allowed_paths:
             if not path or path.startswith(("/", "\\")) or ":" in path or ".." in path.replace("\\", "/").split("/"):
                 raise ValueError("allowed_paths must be relative workspace paths")
+        for condition in self.acceptance_conditions:
+            path = condition.path
+            if path and (path.startswith(("/", "\\")) or ":" in path or ".." in path.replace("\\", "/").split("/")):
+                raise ValueError("Acceptance condition paths must remain in the workspace")
         return self
 
 
@@ -116,11 +185,43 @@ class ToolCall(Strict):
 
 class ReadArgs(Strict):
     path: str = Field(min_length=1, max_length=500)
+    line_start: int = Field(0, ge=0)
+    max_lines: int = Field(200, ge=1, le=1000)
+    encoding: Literal["utf8", "base64"] = "utf8"
 
 
-class WriteArgs(ReadArgs):
+class WriteArgs(Strict):
+    path: str = Field(min_length=1, max_length=500)
     content: str = Field(max_length=1_000_000)
     expected_digest: str = Field(pattern=r"^(absent|sha256:[0-9a-f]{64})$")
+    encoding: Literal["utf8", "base64"] = "utf8"
+    mode: Literal["100644", "100755"] | None = None
+
+
+class SearchArgs(Strict):
+    query: str = Field(min_length=1, max_length=200)
+    glob: str = Field("*", max_length=200)
+    max_matches: int = Field(100, ge=1, le=200)
+
+
+class PatchArgs(Strict):
+    patch: str = Field(min_length=1, max_length=2_000_000)
+    expected_workspace_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+
+class DeleteArgs(Strict):
+    path: str = Field(min_length=1, max_length=500)
+    expected_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+
+class MoveArgs(DeleteArgs):
+    destination: str = Field(min_length=1, max_length=500)
+    expected_target_digest: str = Field("absent", pattern=r"^(absent|sha256:[0-9a-f]{64})$")
+
+
+class SymbolsArgs(Strict):
+    path: str = Field(min_length=1, max_length=500)
+    query: str = Field("", max_length=200)
 
 
 class TestArgs(Strict):
@@ -141,6 +242,11 @@ TOOL_INPUTS = {
     "repo.list": Strict,
     "repo.read": ReadArgs,
     "repo.write": WriteArgs,
+    "repo.search": SearchArgs,
+    "repo.apply_patch": PatchArgs,
+    "repo.delete": DeleteArgs,
+    "repo.move": MoveArgs,
+    "repo.symbols": SymbolsArgs,
     "tests.run": TestArgs,
     "observation.read": RecallArgs,
     "child.integrate": IntegrateArgs,

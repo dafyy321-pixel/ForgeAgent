@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import shlex
 import signal
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -9,14 +10,15 @@ from pydantic import ValidationError
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import aliased
 
-from . import db, models, progress, service
+from . import db, models, progress, resources, service
 from .config import settings
 from .context import compile_context
 from .domain import TERMINAL, Fault, canonical, digest, uid
-from .sandbox import files, safe_path, sandbox
+from .sandbox import files, sandbox
 from .storage import objects
 from .telemetry import tracer
 from .verification import verify
+from .workspace import clear_tree, write_tree
 
 log = logging.getLogger("forge.worker")
 
@@ -274,6 +276,9 @@ class Worker:
                     raise Fault("CHILD_FAILED", "A required child run did not succeed")
                 if (db.clock(s) - r.created_at).total_seconds() > state["budget"]["max_wall_seconds"]:
                     raise Fault("WALL_TIME_LIMIT", "Task wall time limit reached")
+                root_run = db.get(s, db.Run, tenant, r.root_id)
+                if (db.clock(s) - root_run.created_at).total_seconds() > root_run.state["budget"]["max_wall_seconds"]:
+                    raise Fault("ROOT_WALL_LIMIT", "Root task wall-clock quota exhausted")
                 r.status, r.wait_reason = "ACTIVE", None
                 ready = [a.id for a in actions if a.status == "READY"]
                 for a in actions:
@@ -292,7 +297,7 @@ class Worker:
             await self.consume_response(tenant, id, epoch, received)
             return
         content = json.loads(await asyncio.to_thread(objects.get, tenant, state["workspace_ref"]))
-        root = await asyncio.to_thread(sandbox.restore, tenant, id, epoch, content)
+        root = await asyncio.to_thread(sandbox.restore, tenant, id, epoch, content, state.get("repository"))
         if ready:
             for action_id in ready:
                 await self.dispatch(tenant, id, epoch, action_id, root)
@@ -365,7 +370,7 @@ class Worker:
                         raise Fault("MODEL_BINDING_CHANGED", "Explicitly bind the configured model before resuming")
             return state, actions, messages, call_id, manifest, reservation
         state, actions, messages, call_id, manifest, reservation = await asyncio.to_thread(prepare_request)
-        messages_ref = await asyncio.to_thread(objects.put, tenant, id, messages)
+        messages_ref = await asyncio.to_thread(resources.put, tenant, id, messages)
         def register_request():
             with db.transaction(tenant) as s:
                 r = db.fence(s, tenant, id, self.owner, epoch)
@@ -456,7 +461,7 @@ class Worker:
             if await asyncio.to_thread(record_failure):
                 return
             raise Fault("MODEL_CALL_FAILED", "Model request failed; unknown usage stays reserved") from exc
-        response_ref = await asyncio.to_thread(objects.put, tenant, id, raw)
+        response_ref = await asyncio.to_thread(resources.put, tenant, id, raw)
         try:
             decision = models.parse_decision(raw_text)
             validation_error = None
@@ -618,7 +623,7 @@ class Worker:
             # Every action starts from the committed snapshot. A failed write/upload cannot leak
             # an uncommitted filesystem mutation into another action in the same lease.
             committed = await asyncio.to_thread(objects.get, tenant, state["workspace_ref"])
-            root = await asyncio.to_thread(sandbox.restore, tenant, id, epoch, json.loads(committed))
+            root = await asyncio.to_thread(sandbox.restore, tenant, id, epoch, json.loads(committed), state.get("repository"))
             if remote:
                 from .remote import dispatch_remote
 
@@ -626,33 +631,10 @@ class Worker:
             elif tool != "tests.run":
                 def local_tool():
                     changed = None
-                    if tool == "repo.list":
-                        receipt = {"files": sorted(files(root)), "exit_code": 0}
-                    elif tool == "repo.read":
-                        path = safe_path(root, args["path"])
-                        body = path.read_bytes()
-                        if len(body) > 256 * 1024:
-                            raise Fault("READ_LIMIT", "Read exceeds 256 KiB", 422)
-                        receipt = {"content": body.decode("utf-8"), "digest": digest(body), "exit_code": 0}
-                    elif tool == "repo.write":
-                        path = safe_path(root, args["path"])
-                        if not any(
-                            args["path"] == p or args["path"].startswith(p.rstrip("/") + "/")
-                            for p in state["task"]["allowed_paths"]
-                        ):
-                            raise Fault("SCOPE_DENIED", "Write outside task allowed paths", 403)
-                        body = args["content"].encode("utf-8")
-                        if len(body) > 1024 * 1024:
-                            raise Fault("WRITE_LIMIT", "File exceeds 1 MiB", 422)
-                        current = digest(path.read_bytes()) if path.exists() else "absent"
-                        if current != digest(body) and current != args.get("expected_digest"):
-                            raise Fault("PRECONDITION_FAILED", "File digest changed")
-                        path.parent.mkdir(parents=True, exist_ok=True)
-                        # This epoch has an exclusive directory. Only the complete, stored snapshot is
-                        # committed; interruption during this write restores the prior epoch's snapshot.
-                        path.write_bytes(body)
-                        changed = files(root)
-                        receipt = {"path": args["path"], "digest": digest(body), "exit_code": 0}
+                    if tool.startswith("repo."):
+                        from .repo_tools import execute
+
+                        return execute(root, tool, args, state)
                     elif tool == "observation.read":
                         if not state["semantic"].get("harness", {}).get("observation_recall", True):
                             raise Fault("HARNESS_RECALL_DISABLED", "Observation recall is disabled in this task contract")
@@ -688,19 +670,21 @@ class Worker:
                                 raise Fault("CHILD_SCOPE", "Child patch exceeds parent write scope")
                             if current.get(name) not in (child_base.get(name), child_files.get(name)):
                                 raise Fault("MERGE_CONFLICT", f"Parent and child both changed {name}")
+                        merged = dict(current)
                         for name in differences:
-                            path = safe_path(root, name)
                             if name not in child_files:
-                                path.unlink(missing_ok=True)
+                                merged.pop(name, None)
                             else:
-                                path.parent.mkdir(parents=True, exist_ok=True)
-                                path.write_text(child_files[name], encoding="utf-8", newline="")
+                                merged[name] = child_files[name]
+                        clear_tree(root)
+                        write_tree(root, merged)
                         changed = files(root)
                         receipt = {"exit_code": 0, "child_id": child.id, "integrated_paths": differences}
                     return receipt, changed
                 receipt, changed = await asyncio.to_thread(local_tool)
             elif tool == "tests.run":
-                image = await sandbox.image_digest()
+                build = state.get("build", {})
+                image = await sandbox.image_digest(build.get("dependency_image") or None)
                 if state.get("image_digest") and state["image_digest"] != image:
                     raise Fault("SEMANTIC_DRIFT", "Sandbox image changed")
                 if not state.get("image_digest"):
@@ -710,7 +694,18 @@ class Worker:
                             r.state = {**r.state, "image_digest": image}
                             db.emit(s, r, "SANDBOX_IMAGE_BOUND", "Sandbox image content address pinned", image_digest=image)
                     await asyncio.to_thread(bind_image)
-                receipt = await sandbox.execute(root, args["argv"], image, readonly=True)
+                if build.get("ecosystem", "none") != "none":
+                    from .workspace import body
+
+                    current = await asyncio.to_thread(files, root)
+                    if build["lockfile"] not in current or digest(body(current[build["lockfile"]])) != build["lock_digest"]:
+                        raise Fault("DEPENDENCY_LOCK_MISMATCH", "Restore the registered lockfile before running tests")
+                if build.get("argv"):
+                    combined = ["/bin/sh", "-c", shlex.join(build["argv"]) + " && " + shlex.join(args["argv"])]
+                    receipt = await resources.execute(tenant, id, attempt_id + ":build-test", root, combined, image,
+                                                      min(300, build.get("timeout", 120) + 120), build=build)
+                else:
+                    receipt = await resources.execute(tenant, id, attempt_id + ":test", root, args["argv"], image, build=build)
             else:
                 raise Fault("TOOL_UNAVAILABLE", "Tool is unavailable")
             action_status = (
@@ -720,8 +715,8 @@ class Worker:
             receipt = {"exit_code": 1, "error": str(exc)[:2000], "error_code": getattr(exc, "code", "TOOL_FAILED")}
             changed = None
             action_status = "UNKNOWN" if remote else "FAILED"
-        receipt_ref = await asyncio.to_thread(objects.put, tenant, id, receipt)
-        workspace_ref = await asyncio.to_thread(objects.put, tenant, id, changed) if changed is not None and action_status == "SUCCEEDED" else None
+        receipt_ref = await asyncio.to_thread(resources.put, tenant, id, receipt)
+        workspace_ref = await asyncio.to_thread(resources.put, tenant, id, changed) if changed is not None and action_status == "SUCCEEDED" else None
         def commit_dispatch():
             with db.transaction(tenant) as s:
                 r = db.fence(s, tenant, id, self.owner, epoch)
@@ -775,26 +770,44 @@ class Worker:
                 state = r.state
                 r.phase = "VERIFYING"
                 db.emit(s, r, "VERIFICATION_STARTED", "Verifying a frozen workspace in an independent environment")
-            return state
+            return state, {"run_id": id, "epoch": epoch, "run_version": r.version, "task_id": r.task_id,
+                           "task_digest": digest(state["task"]), "input_revision": state.get("input_revision", 0),
+                           "artifact_version": state["artifact_version"], "semantic_digest": digest(state["semantic"])}
         prepared = await asyncio.to_thread(prepare_verification)
         if prepared is None:
             return
-        state = prepared
+        state, evidence_metadata = prepared
         baseline = json.loads(await asyncio.to_thread(objects.get, tenant, state["baseline_ref"]))
         current = json.loads(await asyncio.to_thread(objects.get, tenant, state["workspace_ref"]))
-        image = None if state["fixture"] else await sandbox.image_digest()
+        build = state.get("build", {})
+        try:
+            image = None if state["fixture"] else await sandbox.image_digest(build.get("dependency_image") or None)
+        except Fault as exc:
+            if exc.code not in {"SANDBOX_UNAVAILABLE", "SANDBOX_MANAGER_REQUIRED"}:
+                raise
+            image = None
         if state.get("image_digest") and state["image_digest"] != image:
             raise Fault("SEMANTIC_DRIFT", "Verification sandbox differs from the execution image")
+        verification_operation = uid()
+        async def execute_verification(root, argv, image, timeout, readonly=True, build=None):
+            return await resources.execute(tenant, id, verification_operation + ":" + uid(), root, argv, image,
+                                           timeout, readonly, build)
+        acceptance = await asyncio.to_thread(service.resolve_acceptance, tenant, state["acceptance"])
+        acceptance["conditions"] = acceptance.get("conditions", []) + state["task"].get("acceptance_conditions", [])
         report = await verify(
-            tenant, id, epoch, baseline, current, await asyncio.to_thread(service.resolve_acceptance, tenant, state["acceptance"]),
-            state["task"]["allowed_paths"], image
+            tenant, id, epoch, baseline, current, acceptance,
+            state["task"]["allowed_paths"], image, state.get("repository"), build, execute_verification, evidence_metadata
         )
-        patch = await asyncio.to_thread(sandbox.patch, baseline, current)
-        report["checks"].append(await asyncio.to_thread(sandbox.check_patch, baseline, current, patch))
-        patch_ref = await asyncio.to_thread(objects.put, tenant, id, patch.encode())
+        patch = await asyncio.to_thread(sandbox.patch, baseline, current, state.get("repository"))
+        report["checks"].append(await asyncio.to_thread(sandbox.check_patch, baseline, current, patch, state.get("repository")))
+        patch_ref = await asyncio.to_thread(resources.put, tenant, id, patch.encode())
         report["artifact_digest"] = patch_ref["digest"]
-        report_ref = await asyncio.to_thread(objects.put, tenant, id, report)
-        summary_ref = await asyncio.to_thread(objects.put, tenant, id, state["completion"].encode())
+        logs = {"acceptance": report.get("result"), "build": report.get("build_result")}
+        log_ref = await asyncio.to_thread(resources.put, tenant, id, logs)
+        report["logs"] = {"ref": log_ref, "digest": log_ref["digest"], "encoding": "json", "line_start": 0}
+        report["deliverables"] = {kind: "present" for kind in state["task"]["deliverables"]}
+        report_ref = await asyncio.to_thread(resources.put, tenant, id, report)
+        summary_ref = await asyncio.to_thread(resources.put, tenant, id, state["completion"].encode())
         def commit_verification():
             with db.transaction(tenant) as s:
                 r = db.fence(s, tenant, id, self.owner, epoch)
@@ -809,6 +822,7 @@ class Worker:
                     ("changes.patch", "patch", patch_ref),
                     ("verification.json", "test_report", report_ref),
                     ("summary.md", "summary", summary_ref),
+                    ("verification-log.json", "log", log_ref),
                 ]:
                     s.add(
                         db.Artifact(

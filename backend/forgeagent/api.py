@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import AwareDatetime, Field
 from sqlalchemy import select, text
 
-from . import db, presenters, service
+from . import db, domain, presenters, service
 from . import evaluations as experiments
 from .auth import Identity, authorized_identity, project_access, require_admin, require_run_access, run_access
 from .config import settings
@@ -27,8 +27,10 @@ from .domain import (
     uid,
 )
 from .remote import accept_callback, prepare_remote, validate_url
+from .repository import RepositoryInput
 from .sandbox import safe_path, sandbox
 from .storage import objects
+from .workspace import FileEntry, validate_manifest
 
 
 @asynccontextmanager
@@ -611,10 +613,13 @@ async def recheck(id: str, body: Control, actor: Actor):
 class ProjectInput(Strict):
     id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,80}$")
     name: str = Field(min_length=1, max_length=100)
-    baseline: dict[str, str]
+    baseline: dict[str, str | FileEntry] = Field(default_factory=dict)
+    repository: RepositoryInput | None = None
     acceptance_id: str = Field(min_length=1, max_length=100)
     verification_argv: list[str] = Field(min_length=1, max_length=100)
     protected_tests: dict[str, str] = Field(default_factory=dict)
+    acceptance: domain.AcceptanceContract | None = None
+    build: domain.BuildContract = Field(default_factory=domain.BuildContract)
 
 
 @app.get("/v1/projects")
@@ -633,19 +638,45 @@ def add_project(body: ProjectInput, actor: Actor):
         raise Fault("PROJECT_LIMIT", "Baseline is too large", 413)
     for path in {**body.baseline, **body.protected_tests}:
         safe_path(settings.data_dir.resolve() / "path-validation", path)
+    baseline = body.model_dump()["baseline"]
+    repository = None
+    if body.repository:
+        if baseline:
+            raise Fault("PROJECT_BASELINE", "A repository baseline is derived from its fixed commit", 422)
+        from .repository import register
+
+        repository, baseline = register(actor.tenant, "repository-" + body.id, body.repository)
+    validate_manifest(baseline)
+    build = body.build.model_dump()
+    if build["ecosystem"] != "none":
+        from .workspace import body as file_body
+
+        if build["lockfile"] not in baseline or digest(file_body(baseline[build["lockfile"]])) != build["lock_digest"]:
+            raise Fault("DEPENDENCY_LOCK_MISMATCH", "Build lockfile does not match the fixed baseline", 422)
+    acceptance = body.acceptance.model_dump() if body.acceptance else domain.AcceptanceContract(
+        id=body.acceptance_id, argv=body.verification_argv, protected_tests=body.protected_tests).model_dump()
+    if acceptance["id"] != body.acceptance_id:
+        raise Fault("ACCEPTANCE_PROFILE", "Acceptance IDs must agree", 422)
+    if acceptance["kind"] != "command":
+        raise Fault("FIXTURE_SCOPE", "Fixture verification is reserved for the built-in runtime lab", 422)
+    if body.acceptance and (body.protected_tests or body.verification_argv != acceptance["argv"]):
+        raise Fault("ACCEPTANCE_AMBIGUOUS", "Use a single consistent acceptance contract", 422)
+    for path in [*acceptance["protected_tests"], *acceptance["protected_paths"], build["lockfile"]]:
+        if path:
+            safe_path(settings.data_dir.resolve() / "path-validation", path)
+    for condition in acceptance["conditions"]:
+        if condition["path"]:
+            safe_path(settings.data_dir.resolve() / "path-validation", condition["path"])
     with db.transaction(actor.tenant) as s:
         if s.get(db.Project, (actor.tenant, body.id)):
             raise Fault("PROJECT_EXISTS", "Register a new project revision rather than overwrite an existing baseline")
         data = {
             "name": body.name,
-            "baseline": body.baseline,
-            "baseline_digest": digest(body.baseline),
-            "acceptance": {
-                "id": body.acceptance_id,
-                "kind": "command",
-                "argv": body.verification_argv,
-                "protected_tests": body.protected_tests,
-            },
+            "baseline": baseline,
+            "baseline_digest": digest(baseline),
+            "repository": repository,
+            "build": build,
+            "acceptance": acceptance,
         }
         data["acceptance"] = service.seal_acceptance(actor.tenant, "project-" + body.id, data["acceptance"])
         s.add(db.Project(tenant_id=actor.tenant, id=body.id, data=data))

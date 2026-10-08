@@ -31,7 +31,7 @@ async def test_end_to_end_evidence(tenant, make_run):
     with db.transaction(tenant) as s:
         r = db.get(s, db.Run, tenant, id)
         artifacts = db.rows(s, db.Artifact, tenant, run_id=id)
-        assert len(artifacts) == 3 and all(a.verified for a in artifacts)
+        assert {a.kind for a in artifacts} == {"patch", "test_report", "summary", "log"} and all(a.verified for a in artifacts)
         patch = next(a for a in artifacts if a.kind == "patch")
         assert r.state["verification"]["artifact_digest"] == patch.ref["digest"]
         assert b"+    return left + right" in objects.get(tenant, patch.ref)
@@ -297,7 +297,8 @@ def test_unknown_tokens_remain_reserved_until_reconciled(tenant, make_run):
         assert db.get(s, db.BudgetAccount, tenant, id).resources["tokens_reserved"] == 10
         service.settle(s, run, "call", 1, 3)
         account = db.get(s, db.BudgetAccount, tenant, id)
-        assert account.resources == {"tokens_reserved": 0, "tokens_spent": 3}
+        assert {k: account.resources[k] for k in ("tokens_reserved", "tokens_spent")} == {"tokens_reserved": 0, "tokens_spent": 3}
+        assert account.resources["storage_bytes"] > 0
 
 
 def test_child_cannot_expand_root_tool_or_own_cost_budget(tenant, make_run):

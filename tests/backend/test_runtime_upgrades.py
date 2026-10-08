@@ -339,7 +339,7 @@ async def test_sse_delayed_database_calls_leave_event_loop_responsive(client, te
 
 
 async def test_failed_write_snapshot_does_not_leak_to_next_action(tenant, make_run, monkeypatch):
-    from forgeagent import worker as worker_module
+    from forgeagent import repo_tools as worker_module
 
     run_id = make_run()
     with db.transaction(tenant) as s:

@@ -16,7 +16,7 @@ STAGES = {
     "state": ["domain.py", "db.py", "reducer.py", "auth.py"],
     "runtime": ["service.py", "worker.py", "progress.py", "concurrency.py", "semantic.py"],
     "decision": ["models.py", "context.py"],
-    "effects": ["sandbox.py", "remote.py", "storage.py"],
+    "effects": ["sandbox.py", "sandbox_manager.py", "resources.py", "workspace.py", "repository.py", "repo_tools.py", "remote.py", "storage.py"],
     "verification": ["verification.py"],
 }
 DEPENDENCIES = ["sqlalchemy", "psycopg", "pydantic", "pydantic-settings", "httpx", "boto3",

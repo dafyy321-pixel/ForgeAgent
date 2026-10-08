@@ -1,0 +1,13 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+ARG LOCK_DIGEST
+WORKDIR /opt/dependencies
+# npm-cache must already contain packages referenced by the exact package-lock.
+COPY package.json package-lock.json ./
+COPY npm-cache /opt/npm-cache
+RUN npm ci --offline --ignore-scripts --cache=/opt/npm-cache && rm -rf /opt/npm-cache
+LABEL forge.lock.digest=${LOCK_DIGEST}
+ENV NODE_PATH=/opt/dependencies/node_modules
+ENV PATH=/opt/dependencies/node_modules/.bin:${PATH}
+WORKDIR /workspace
+USER 10001:10001

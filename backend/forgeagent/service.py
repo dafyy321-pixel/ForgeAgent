@@ -8,13 +8,18 @@ from sqlalchemy import select
 from . import db
 from .auth import PROJECT_OPERATIONS, Identity, project_access, require_run_access
 from .config import settings
-from .domain import CAPABILITIES, TERMINAL, TOOL_INPUTS, UNSETTLED, CreateRun, Fault, digest, uid
+from .domain import CAPABILITIES, TERMINAL, TOOL_INPUTS, UNSETTLED, CreateRun, Fault, canonical, digest, uid
 from .storage import objects
 
 TOOLS = {
     "repo.list": {"effect": "read", "capability": "repo.read"},
     "repo.read": {"effect": "read", "capability": "repo.read"},
     "repo.write": {"effect": "workspace_write", "capability": "workspace.write"},
+    "repo.search": {"effect": "read", "capability": "repo.read"},
+    "repo.symbols": {"effect": "read", "capability": "repo.read"},
+    "repo.apply_patch": {"effect": "workspace_write", "capability": "workspace.write"},
+    "repo.delete": {"effect": "workspace_write", "capability": "workspace.write"},
+    "repo.move": {"effect": "workspace_write", "capability": "workspace.write"},
     "tests.run": {"effect": "read", "capability": "tests.run"},
     "observation.read": {"effect": "read", "capability": "repo.read"},
     "child.integrate": {"effect": "workspace_write", "capability": "workspace.write"},
@@ -145,7 +150,10 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
         allocate_child(s, parent, run_id, spec.budget)
     # Child baselines are immutable references to the parent's committed snapshot. Reusing
     # them avoids S3 transfers inside the parent's response-consumption transaction.
-    baseline_ref = parent.state["workspace_ref"] if parent else objects.put(tenant, run_id, project.data.get("baseline", {}))
+    baseline_bytes = canonical(project.data.get("baseline", {}))
+    if not parent and len(baseline_bytes) > spec.budget.max_storage_bytes:
+        raise Fault("ROOT_STORAGE_LIMIT", "Baseline exceeds the root storage quota", 422)
+    baseline_ref = parent.state["workspace_ref"] if parent else objects.put(tenant, run_id, baseline_bytes)
     skill_data = []
     for skill_id in spec.skills:
         skill = db.get(s, db.SkillVersion, tenant, skill_id)
@@ -213,6 +221,8 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
             "tokens": 0,
             "artifact_version": 1,
             "acceptance": acceptance,
+            "repository": parent.state.get("repository") if parent else project.data.get("repository"),
+            "build": parent.state.get("build", {}) if parent else project.data.get("build", {}),
             "verification": None,
             "reason": "Waiting for worker",
             "fixture": spec.model == "fixture",
@@ -230,7 +240,9 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
     if not parent:
         s.add(
             db.BudgetAccount(
-                tenant_id=tenant, id=run_id, limit_micros=int(Decimal(spec.budget.max_cost_usd) * 1_000_000)
+                tenant_id=tenant, id=run_id, limit_micros=int(Decimal(spec.budget.max_cost_usd) * 1_000_000),
+                resources={"storage_bytes": baseline_ref["bytes"],
+                           "storage_charges": {run_id + ":" + baseline_ref["digest"]: baseline_ref["bytes"]}},
             )
         )
     s.add(db.SemanticManifest(tenant_id=tenant, run_id=run_id, data={"bindings": semantic, "digest": digest(semantic)}))
@@ -691,3 +703,9 @@ def require_finalizable(s, run):
            and c.state.get("child_contract", {}).get("join") == "integrate"
            and c.id not in run.state.get("integrated_children", []) for c in children):
         raise Fault("CHILD_NOT_INTEGRATED", "Required child workspace must be integrated before verification")
+    for requirement in run.state["task"].get("publication", []):
+        if not any(a.status == "SUCCEEDED" and a.effect_class == "external_write"
+                   and a.tool == requirement["tool"] and a.effect_digest == requirement["effect_digest"]
+                   and a.receipt and (a.receipt.get("manual") or a.receipt.get("business_receipt"))
+                   for a in db.rows(s, db.Action, run.tenant_id, run_id=run.id)):
+            raise Fault("PUBLICATION_RECEIPT_REQUIRED", "Required publication has no confirmed business receipt")
