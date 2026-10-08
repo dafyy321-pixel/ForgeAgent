@@ -456,6 +456,37 @@ def budget_ledger(id: str, actor: Actor):
         }
 
 
+@app.post("/v1/runs/{id}/budget/{operation_id}/query")
+async def query_budget(id: str, operation_id: str, body: Control, actor: Actor):
+    require_admin(actor)
+    def prepare_query():
+        with db.transaction(actor.tenant) as s:
+            run = db.get(s, db.Run, actor.tenant, id)
+            if run.version != body.expected_version:
+                raise Fault("VERSION_CONFLICT", "Task changed")
+            call = db.get(s, db.ModelCall, actor.tenant, operation_id)
+            if call.run_id != id or call.status != "UNKNOWN":
+                raise Fault("BUDGET_CONFLICT", "Only this run's unknown model usage can be queried")
+            response_id = (call.data.get("protocol_receipt") or {}).get("response_id")
+            if not response_id:
+                raise Fault("PROVIDER_QUERY_UNAVAILABLE", "Original response ID was not received; review provider billing evidence")
+            return json.loads(objects.get(actor.tenant, call.data["messages_ref"])), response_id
+    request, response_id = await asyncio.to_thread(prepare_query)
+    from .models import query_billing
+
+    return await query_billing(request, response_id)
+
+
+@app.get("/v1/runs/{id}/context-cost")
+def context_economics(id: str, actor: Actor):
+    from .context_cost import report
+
+    with db.transaction(actor.tenant) as s:
+        run = db.get(s, db.Run, actor.tenant, id)
+        return report([{**c.data, "fixture": run.state["fixture"]} for c in db.rows(s, db.ModelCall, actor.tenant, run_id=id)],
+                      [m.data for m in db.rows(s, db.ContextManifest, actor.tenant, run_id=id)])
+
+
 @app.post("/v1/runs/{id}/budget/{operation_id}/reconcile")
 def reconcile_budget(id: str, operation_id: str, body: BudgetReconciliation, actor: Actor):
     require_admin(actor)
@@ -467,9 +498,12 @@ def reconcile_budget(id: str, operation_id: str, body: BudgetReconciliation, act
         if call.run_id != id or call.status != "UNKNOWN":
             raise Fault("BUDGET_CONFLICT", "Only this run's unknown model usage can be reconciled")
         service.settle(s, r, operation_id, body.actual_micros, body.actual_tokens)
+        entry = s.scalar(select(db.BudgetEntry).where(db.BudgetEntry.tenant_id == actor.tenant,
+                                                    db.BudgetEntry.operation_id == operation_id))
         call.status = "RECONCILED"
         call.data = {**call.data, "billing_evidence": body.evidence, "reviewer": actor.actor,
-                     "reconciled_tokens": body.actual_tokens if body.actual_tokens is not None else 0}
+                     "reconciled_tokens": entry.data["tokens_actual"],
+                     "reconciled_tokens_conservative": entry.data["tokens_conservative"]}
         db.emit(s, r, "BUDGET_RECONCILED", body.reason, operation_id=operation_id, actual_micros=body.actual_micros)
         if r.cancel_requested and r.status not in TERMINAL:
             r.status, r.wait_reason = "CANCELLING", None

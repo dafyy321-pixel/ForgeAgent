@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import aliased
 
-from . import db, models, progress, resources, service
+from . import billing, db, models, observation, progress, resources, service
 from .config import settings
 from .context import compile_context
 from .domain import TERMINAL, Fault, canonical, digest, uid
@@ -279,6 +279,13 @@ class Worker:
                 root_run = db.get(s, db.Run, tenant, r.root_id)
                 if (db.clock(s) - root_run.created_at).total_seconds() > root_run.state["budget"]["max_wall_seconds"]:
                     raise Fault("ROOT_WALL_LIMIT", "Root task wall-clock quota exhausted")
+                retry_at = state.get("model_retry_at")
+                if retry_at and datetime.fromisoformat(retry_at) > db.clock(s):
+                    delay = (datetime.fromisoformat(retry_at) - db.clock(s)).total_seconds()
+                    r.status, r.wait_reason = "WAITING", "RETRY_TIMER"
+                    db.schedule(s, r, delay)
+                    db.emit(s, r, "PROVIDER_RETRY_WAITING", "Respect persisted provider Retry-After deadline")
+                    return
                 r.status, r.wait_reason = "ACTIVE", None
                 ready = [a.id for a in actions if a.status == "READY"]
                 for a in actions:
@@ -332,7 +339,7 @@ class Worker:
                 state = r.state
                 actions = db.rows(s, db.Action, tenant, run_id=id)
                 observations = [
-                    {"action_id": a.id, "tool": a.tool, "args": a.args, "result": a.receipt} for a in actions if a.receipt
+                    observation.project(a) for a in actions if a.receipt
                 ]
                 observations += [
                     {
@@ -345,7 +352,7 @@ class Worker:
                 ]
                 messages, manifest = compile_context(
                     state["task"],
-                    state,
+                    {**state, "phase": r.phase},
                     observations,
                     state["skills"],
                     state["memories"],
@@ -370,7 +377,45 @@ class Worker:
                         raise Fault("MODEL_BINDING_CHANGED", "Explicitly bind the configured model before resuming")
             return state, actions, messages, call_id, manifest, reservation
         state, actions, messages, call_id, manifest, reservation = await asyncio.to_thread(prepare_request)
-        messages_ref = await asyncio.to_thread(resources.put, tenant, id, messages)
+        request = None
+        input_bound = len(canonical(messages)) + 2048
+        if not state["fixture"] and self.model == models.generate:
+            from .model_protocol import build_request
+
+            request = await asyncio.to_thread(build_request, messages, state, service.TOOLS)
+            request["client_request_id"] = call_id
+            if request["provider"] == "openai":
+                request["payload"]["prompt_cache_key"] = digest({"tenant": tenant, "run": id,
+                    "tools": request["payload"].get("tools"), "system": messages[0]["content"]})[7:]
+            exchange = state.get("native_exchange")
+            if exchange and exchange.get("input_revision", 0) == state.get("input_revision", 0):
+                def read_exchange():
+                    raw = json.loads(objects.get(tenant, exchange["response_ref"]))
+                    metadata = raw.get("_forge")
+                    results = {}
+                    with db.transaction(tenant) as s:
+                        for binding in exchange.get("actions", []):
+                            action = db.get(s, db.Action, tenant, binding["action_id"])
+                            if action.run_id != id or action.status not in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+                                raise Fault("PROTOCOL_RESULT_PENDING", "Native tool result has not settled in this run")
+                            results[binding["provider_call_id"]] = json.loads(objects.get(tenant, action.receipt["ref"])) if action.receipt and action.receipt.get("ref") else action.receipt or {"status": action.status}
+                    for native in (metadata or {}).get("calls", []):
+                        results.setdefault(native["call_id"], {"control": exchange["kind"], "children": state.get("child_results", {}), "input_revision": state.get("input_revision", 0)})
+                    return metadata, results
+                metadata, results = await asyncio.to_thread(read_exchange)
+                from .model_protocol import attach_continuation
+
+                request = attach_continuation(request, metadata, results)
+            input_bound, count_source = await models.count_request(request)
+            if input_bound + settings.max_output > settings.context_window:
+                raise Fault("CONTEXT_OVERFLOW", "Actual provider request including tools exceeds the context window")
+            manifest = {**manifest, "provider_input_tokens": input_bound, "provider_count_source": count_source}
+            prefix = request["payload"].get("system") or request["payload"].get("input", request["payload"].get("messages"))[0]
+            manifest["stable_prefix_digest"] = digest([prefix, request["payload"].get("tools", [])])
+            manifest["digest"] = digest({k: v for k, v in manifest.items() if k != "digest"})
+            reservation = billing.cost({"input_tokens": input_bound, "output_tokens": settings.max_output},
+                                       state["semantic"]["model_profile"], upper=True)
+        messages_ref = await asyncio.to_thread(resources.put, tenant, id, request or messages)
         def register_request():
             with db.transaction(tenant) as s:
                 r = db.fence(s, tenant, id, self.owner, epoch)
@@ -385,7 +430,7 @@ class Worker:
                     r,
                     call_id,
                     reservation,
-                    0 if state["fixture"] else len(canonical(messages)) + settings.max_output + 2048,
+                    0 if state["fixture"] else input_bound + settings.max_output,
                 )
                 call = db.ModelCall(
                     tenant_id=tenant,
@@ -393,12 +438,14 @@ class Worker:
                     run_id=id,
                     status="DISPATCHED",
                     data={
-                        "request_digest": digest(messages),
+                        "request_digest": digest(request or messages),
                         "ordinal": state["turn"] + 1,
                         "input_revision": state.get("input_revision", 0),
                         "context_digest": manifest["digest"],
                         "model_id": state["semantic"]["model_id"],
                         "messages_ref": messages_ref,
+                        "input_bound": input_bound,
+                        "rate_card": state["semantic"].get("model_profile", {}),
                     },
                 )
                 s.add(call)
@@ -438,23 +485,36 @@ class Worker:
                     call_id,
                 )
             else:
-                raw_text, usage, raw, provider_id = await self.model(messages, state["semantic"]["model_id"])
+                raw_text, usage, raw, provider_id = (await self.model(messages, state["semantic"]["model_id"], request=request)
+                    if request else await self.model(messages, state["semantic"]["model_id"]))
         except Exception as exc:
             def record_failure(exc=exc):
                 with db.transaction(tenant) as s:
                     r = db.fence(s, tenant, id, self.owner, epoch)
                     call = db.get(s, db.ModelCall, tenant, call_id)
-                    code = getattr(exc, "status_code", None)
-                    known_unbilled = code == 429 or isinstance(exc, Fault)
-                    call.status = "FAILED" if known_unbilled else "UNKNOWN"
-                    call.data = {**call.data, "error_type": type(exc).__name__}
-                    service.settle(s, r, call_id, 0 if known_unbilled else None, 0 if known_unbilled else None)
+                    from .model_retry import classify
+
                     count = r.state.get("model_errors", 0) + 1
+                    retry = classify(exc, db.clock(s), count)
+                    code = getattr(exc, "status_code", None)
+                    known_unbilled = retry["known_unbilled"]
+                    call.status = "FAILED" if known_unbilled else "UNKNOWN"
+                    call.data = {**call.data, "error_type": type(exc).__name__, "retry": retry,
+                                 "provider_request_id": getattr(exc, "request_id", None)}
+                    service.settle(s, r, call_id, 0 if known_unbilled else None, 0 if known_unbilled else None)
                     r.state = {**r.state, "model_errors": count}
                     progress.failed(s, r, "MODEL_RATE_LIMIT" if code == 429 else "UNKNOWN_USAGE", "provider")
-                    if code in {429, 500, 502, 503} and count <= 2 and known_unbilled:
+                    if retry["retryable"] and count <= 2:
+                        root = db.get(s, db.Run, tenant, r.root_id)
+                        deadline = root.created_at + timedelta(seconds=root.state["budget"]["max_wall_seconds"])
+                        retry_at = db.clock(s) + timedelta(seconds=retry["delay_seconds"])
+                        if retry_at >= deadline:
+                            r.state = {**r.state, "reason": "Provider Retry-After exceeds remaining root wall-clock budget"}
+                            db.emit(s, r, "PROVIDER_DELAY_EXCEEDS_BUDGET", r.state["reason"])
+                            return False
+                        r.state = {**r.state, "model_retry_at": retry_at.isoformat()}
                         r.status, r.wait_reason = "WAITING", "RETRY_TIMER"
-                        db.schedule(s, r, min(60, 2**count))
+                        db.schedule(s, r, retry["delay_seconds"])
                         db.emit(s, r, "MODEL_RETRY_SCHEDULED", "Rate limit; durable bounded retry")
                         return True
                 return False
@@ -471,14 +531,20 @@ class Worker:
             with db.transaction(tenant) as s:
                 r = db.fence(s, tenant, id, self.owner, epoch)
                 call = db.get(s, db.ModelCall, tenant, call_id, True)
-                call.status = "RECEIVED" if usage is not None else "UNKNOWN"
+                try:
+                    actual = billing.cost(usage, call.data["rate_card"]) if usage is not None else None
+                    billing_error = None
+                except Fault as exc:
+                    actual, billing_error = None, exc.code
+                call.status = "RECEIVED" if actual is not None else "UNKNOWN"
                 call.data = {**call.data, "response_ref": response_ref, "usage": usage,
                              "provider_request_id": provider_id, "receipt_state": "received",
                              "decision": decision.model_dump() if decision else None,
-                             "validation_error": validation_error, "received_at": db.clock(s).isoformat()}
-                actual = models.estimate_cost(usage["input_tokens"], usage["output_tokens"]) if usage else None
-                service.settle(s, r, call_id, actual, sum(usage.values()) if usage else None)
-                if usage is None:
+                             "validation_error": validation_error, "received_at": db.clock(s).isoformat(),
+                             "end_status": raw.get("_forge", {}).get("end_status", "completed"),
+                             "protocol_receipt": raw.get("_forge"), "billing_error": billing_error}
+                service.settle(s, r, call_id, actual, billing.tokens(usage) if usage and actual is not None else None)
+                if actual is None:
                     r.status = "CANCELLING" if r.cancel_requested else "PAUSED"
                     r.state = {**r.state, "reason": "Provider omitted usage; reconcile reserved billing before continuing"}
                 r.phase = "RESPONSE_RECEIVED"
@@ -505,10 +571,17 @@ class Worker:
             call.status = "RECONCILED" if call.status == "RECONCILED" else "SUCCEEDED"
             call.data = {**call.data, "receipt_state": "applied", "applied_at": db.clock(s).isoformat()}
             r.state = {**r.state, "turn": call.data["ordinal"],
-                       "tokens": r.state["tokens"] + (sum(usage.values()) if usage else call.data.get("reconciled_tokens", 0))}
+                       "tokens": r.state["tokens"] + (call.data.get("reconciled_tokens", 0) if call.status == "RECONCILED"
+                                                      else billing.tokens(usage) if usage else 0)}
             if call.data.get("input_revision", 0) != state.get("input_revision", 0):
                 call.data = {**call.data, "receipt_state": "superseded_input"}
                 db.emit(s, r, "MODEL_RESPONSE_SUPERSEDED", "New input invalidated the persisted decision", call_id=call_id)
+                return
+            if call.data.get("end_status", "completed") != "completed":
+                call.status = "FAILED"
+                r.status = "CANCELLING" if r.cancel_requested else "PAUSED"
+                r.state = {**r.state, "reason": "MODEL_" + call.data["end_status"].upper() + ": no decision effects applied"}
+                db.emit(s, r, "MODEL_ENDED_WITHOUT_DECISION", r.state["reason"], call_id=call_id)
                 return
             if validation_error:
                 count = r.state.get("format_errors", 0) + 1
@@ -541,7 +614,7 @@ class Worker:
                     db.emit(s, r, "TOOL_LIMIT", "Tool call budget exhausted")
                     return
                 fingerprint = digest(
-                    {"calls": [c.model_dump() for c in decision.calls], "workspace": r.state["workspace_digest"]}
+                    {"calls": [{"tool": c.tool, "args": c.args} for c in decision.calls], "workspace": r.state["workspace_digest"]}
                 )
                 repeats = r.state.get("repeats", 0) + 1 if r.state.get("fingerprint") == fingerprint else 1
                 r.state = {**r.state, "fingerprint": fingerprint, "repeats": repeats}
@@ -549,10 +622,13 @@ class Worker:
                     r.status = "PAUSED"
                     db.emit(s, r, "NO_PROGRESS", "Three identical decisions without workspace progress")
                     return
-                for i, call in enumerate(decision.calls):
+                native_actions = []
+                for i, proposed in enumerate(decision.calls):
                     try:
                         with s.begin_nested():
-                            service.prepare_action(s, r, call, f"{r.state['turn']}:{i}")
+                            action = service.prepare_action(s, r, proposed, f"{r.state['turn']}:{i}")
+                            if proposed.provider_call_id:
+                                native_actions.append({"provider_call_id": proposed.provider_call_id, "action_id": action.id})
                     except Fault as exc:
                         r.status = "PAUSED"
                         r.state = {**r.state, "reason": f"{exc.code}: {exc.message}"}
@@ -578,6 +654,10 @@ class Worker:
             else:
                 r.state = {**r.state, "completion": decision.summary}
                 r.phase = "VERIFYING"
+            if call.data.get("protocol_receipt"):
+                r.state = {**r.state, "native_exchange": {"response_ref": call.data["response_ref"],
+                    "input_revision": state.get("input_revision", 0), "kind": decision.kind,
+                    "actions": native_actions if decision.kind == "tool_calls" else []}}
             db.emit(s, r, "DECISION_APPLIED", "Decision effects committed", decision_kind=decision.kind)
 
     async def dispatch(self, tenant, id, epoch, action_id, root):
@@ -644,16 +724,8 @@ class Worker:
                                 raise Fault("OBSERVATION_SCOPE", "Observation is not available in this task", 404)
                             ref = source.receipt["ref"]
                         raw = json.loads(objects.get(tenant, ref))
-                        text = raw.get("output", raw.get("content", canonical(raw).decode()))
-                        lines = text.splitlines()
                         start, count = args.get("line_start", 0), args.get("max_lines", 100)
-                        receipt = {
-                            "exit_code": 0,
-                            "source_digest": ref["digest"],
-                            "line_start": start,
-                            "total_lines": len(lines),
-                            "content": "\n".join(lines[start : start + count])[:65536],
-                        }
+                        receipt = observation.read(raw, ref, start, count)
                     elif tool == "child.integrate":
                         with db.transaction(tenant) as s:
                             child = db.get(s, db.Run, tenant, args["child_id"])
@@ -715,6 +787,7 @@ class Worker:
             receipt = {"exit_code": 1, "error": str(exc)[:2000], "error_code": getattr(exc, "code", "TOOL_FAILED")}
             changed = None
             action_status = "UNKNOWN" if remote else "FAILED"
+        receipt = observation.envelope(receipt, tool, state)
         receipt_ref = await asyncio.to_thread(resources.put, tenant, id, receipt)
         workspace_ref = await asyncio.to_thread(resources.put, tenant, id, changed) if changed is not None and action_status == "SUCCEEDED" else None
         def commit_dispatch():
@@ -727,6 +800,7 @@ class Worker:
                     "preview": canonical(receipt).decode()[:4000],
                     "exit_code": receipt.get("exit_code", 0),
                     **({"digest": receipt["digest"]} if "digest" in receipt else {}),
+                    "observation": receipt["_observation"],
                 }
                 if receipt.get("remote_task_id"):
                     a.receipt = {**a.receipt, **receipt}

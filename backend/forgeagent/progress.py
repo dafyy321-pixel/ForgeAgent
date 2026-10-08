@@ -24,7 +24,7 @@ def failure_class(code):
 
 def record(s, run, kind, **facts):
     progress = run.state.get("progress", {})
-    journal = [*progress.get("journal", []), {"at": db.clock(s).isoformat(), "turn": run.state["turn"],
+    journal = [*progress.get("journal", []), {"at": db.clock(s).isoformat(), "turn": run.state["turn"], "phase": run.phase,
                                             "kind": kind, **facts}][-64:]
     run.state = {**run.state, "progress": {**progress, "journal": journal}}
     db.emit(s, run, "PROGRESS_RECORDED", kind, **facts)
@@ -46,6 +46,10 @@ def observed(s, run, tool, receipt, status):
         failed(s, run, "UNRESOLVED_EFFECT" if status == "UNKNOWN" else receipt.get("error_code", "TOOL_FAILED"), tool)
         return
     progress = run.state.get("progress", {})
+    paths = [p for p in [receipt.get("path"), *receipt.get("changed_paths", []),
+                        *(m.get("path") for m in receipt.get("matches", []))] if p]
+    if paths:
+        run.state = {**run.state, "relevant_paths": list(dict.fromkeys(paths + run.state.get("relevant_paths", [])))[:100]}
     evidence = None
     if tool in {"repo.read", "repo.search", "repo.symbols", "observation.read"}:
         evidence = digest([tool, receipt.get("source_digest") or receipt.get("digest")])

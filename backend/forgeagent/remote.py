@@ -12,7 +12,6 @@ import httpx
 from . import db, service
 from .config import settings
 from .domain import Fault, digest, uid
-from .storage import objects
 
 
 class SafeTransport(httpx.AsyncBaseTransport):
@@ -241,11 +240,11 @@ async def poll_remote(tenant, run_id, action_id, owner, epoch):
                 action.status = "UNKNOWN"
                 db.emit(s, run, "REMOTE_DEADLINE", "Remote task exceeded deadline; explicit reconciliation required")
                 return None
-        return approved_inputs, cancel, connection, receipt, task_id
+        return approved_inputs, cancel, connection, receipt, task_id, run.state, action.tool
     prepared = await asyncio.to_thread(prepare_poll)
     if prepared is None:
         return
-    approved_inputs, cancel, connection, receipt, task_id = prepared
+    approved_inputs, cancel, connection, receipt, task_id, state, tool = prepared
     is_mcp = connection["kind"] == "mcp"
     is_v1 = connection["protocol"] == "1.0"
     params = {"taskId" if is_mcp else "id": task_id}
@@ -266,7 +265,10 @@ async def poll_remote(tenant, run_id, action_id, owner, epoch):
         result = await rpc(connection, "tasks/get" if is_mcp or not is_v1 else "GetTask", params)
         result = remote_result(connection, result)
         result["cancel_sent"] = cancel_sent
-        result_ref = await asyncio.to_thread(objects.put, tenant, run_id, result)
+        from . import observation, resources
+
+        result = observation.envelope(result, tool, state)
+        result_ref = await asyncio.to_thread(resources.put, tenant, run_id, result)
     except Exception:
         def record_poll_failure():
             with db.transaction(tenant) as s:

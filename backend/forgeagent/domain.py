@@ -181,6 +181,7 @@ class ApprovalDecision(Control):
 class ToolCall(Strict):
     tool: str
     args: dict
+    provider_call_id: str | None = Field(None, max_length=200)
 
 
 class ReadArgs(Strict):

@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -21,6 +22,14 @@ class Settings(BaseSettings):
     model_api_key: str = ""
     input_price: float = 0
     output_price: float = 0
+    cached_input_price: float | None = None
+    cache_write_price: float | None = None
+    model_protocol: Literal["responses", "chat"] = "responses"
+    model_output_mode: Literal["native", "structured", "json"] = "native"
+    model_tokenizer: str = "o200k_base"
+    model_token_count: bool = True
+    model_supports_schema: bool = True
+    model_supports_tools: bool = True
     context_window: int = 32768
     max_output: int = 4096
     sandbox_image: str = "forgeagent-sandbox:local"

@@ -36,6 +36,14 @@ def model_profile():
         "output_price": settings.output_price,
         "context_window": settings.context_window,
         "max_output": settings.max_output,
+        "cached_input_price": settings.cached_input_price,
+        "cache_write_price": settings.cache_write_price,
+        "protocol": settings.model_protocol,
+        "output_mode": settings.model_output_mode,
+        "tokenizer": settings.model_tokenizer,
+        "token_count": settings.model_token_count,
+        "supports_schema": settings.model_supports_schema,
+        "supports_tools": settings.model_supports_tools,
     }
 
 
@@ -323,7 +331,7 @@ def reserve(s, run, operation_id, amount, token_upper=0):
         reserved=amount,
         status="reserved",
         data={
-            "pricing": {"input": settings.input_price, "output": settings.output_price},
+            "pricing": run.state["semantic"].get("model_profile", {}),
             "run_id": run.id,
             "tokens_reserved": token_upper,
         },
