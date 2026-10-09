@@ -53,11 +53,13 @@ Actor = Annotated[Identity, Depends(authorized_identity)]
 async def request_limits(request, call_next):
     correlation = uid()
     length = request.headers.get("content-length")
-    if length and (not length.isdigit() or int(length) > 2 * 1024 * 1024):
+    upload = request.method == "PUT" and request.url.path.startswith("/v1/repository-bundles/")
+    maximum = min(settings.max_object_bytes, 16 * 1024 * 1024) if upload else 2 * 1024 * 1024
+    if length and (not length.isdigit() or int(length) > maximum):
         return JSONResponse(
-            {"code": "BODY_LIMIT", "message": "Request body limit is 2 MiB", "correlation_id": correlation}, 413
+            {"code": "BODY_LIMIT", "message": f"Request body limit is {maximum} bytes", "correlation_id": correlation}, 413
         )
-    if request.method in {"POST", "PUT", "PATCH"}:
+    if request.method in {"POST", "PUT", "PATCH"} and not upload:
         body = bytearray()
         async for part in request.stream():
             body.extend(part)
@@ -753,6 +755,32 @@ class ProjectInput(Strict):
     build: domain.BuildContract = Field(default_factory=domain.BuildContract)
 
 
+@app.put("/v1/repository-bundles/{checksum}")
+async def upload_repository(checksum: str, request: Request, actor: Actor):
+    import hashlib
+    import re
+    import tempfile
+
+    require_admin(actor)
+    if not re.fullmatch(r"[a-f0-9]{64}", checksum):
+        raise Fault("UPLOAD_DIGEST", "Expected lowercase SHA256 hex digest", 422)
+    if request.headers.get("content-type", "").split(";")[0] != "application/octet-stream":
+        raise Fault("UPLOAD_TYPE", "Upload a raw Git bundle as application/octet-stream", 415)
+    with tempfile.SpooledTemporaryFile(max_size=settings.object_spool_bytes) as spool:
+        count, hasher = 0, hashlib.sha256()
+        async for chunk in request.stream():
+            count += len(chunk)
+            if count > min(settings.max_object_bytes, 16 * 1024 * 1024):
+                raise Fault("BODY_LIMIT", "Repository upload exceeds 16 MiB or configured object limit", 413)
+            hasher.update(chunk)
+            await asyncio.to_thread(spool.write, chunk)
+        if not count or hasher.hexdigest() != checksum:
+            raise Fault("UPLOAD_DIGEST", "Upload size or SHA256 differs from the declared content", 422)
+        spool.seek(0)
+        reference = await asyncio.to_thread(objects.put_stream, actor.tenant, "repository-upload", spool)
+    return {"bundle_digest": reference["digest"], "bundle_bytes": reference["bytes"]}
+
+
 @app.get("/v1/projects")
 def projects(actor: Actor):
     from .catalog import page
@@ -765,9 +793,7 @@ def projects(actor: Actor):
         ])
 
 
-@app.post("/v1/projects", status_code=201)
-def add_project(body: ProjectInput, actor: Actor):
-    require_admin(actor)
+def prepare_project(body: ProjectInput, actor: Identity):
     if len(canonical(body.model_dump())) > settings.max_object_bytes // 2:
         raise Fault("PROJECT_LIMIT", "Baseline is too large", 413)
     for path in {**body.baseline, **body.protected_tests}:
@@ -801,18 +827,29 @@ def add_project(body: ProjectInput, actor: Actor):
     for condition in acceptance["conditions"]:
         if condition["path"]:
             safe_path(settings.data_dir.resolve() / "path-validation", condition["path"])
+    return {"name": body.name, "baseline": baseline, "baseline_digest": digest(baseline),
+            "repository": repository, "build": build, "acceptance": acceptance}
+
+
+@app.post("/v1/projects/preflight")
+def project_preflight(body: ProjectInput, actor: Actor):
+    require_admin(actor)
+    data = prepare_project(body, actor)
+    return {"commit": (data["repository"] or {}).get("commit"), "files": len(data["baseline"]),
+            "baseline_digest": data["baseline_digest"], "build": data["build"],
+            "acceptance": {"id": data["acceptance"]["id"], "argv": data["acceptance"]["argv"]},
+            "validation": "paths, expanded size, fixed commit and dependency lock validated",
+            "acceptance_execution": "not_run", "next_step": "Register this reviewed project, then run independent acceptance in the configured sandbox."}
+
+
+@app.post("/v1/projects", status_code=201)
+def add_project(body: ProjectInput, actor: Actor):
+    require_admin(actor)
+    data = prepare_project(body, actor)
+    data["acceptance"] = service.seal_acceptance(actor.tenant, "project-" + body.id, data["acceptance"])
     with db.transaction(actor.tenant) as s:
         if s.get(db.Project, (actor.tenant, body.id)):
             raise Fault("PROJECT_EXISTS", "Register a new project revision rather than overwrite an existing baseline")
-        data = {
-            "name": body.name,
-            "baseline": baseline,
-            "baseline_digest": digest(baseline),
-            "repository": repository,
-            "build": build,
-            "acceptance": acceptance,
-        }
-        data["acceptance"] = service.seal_acceptance(actor.tenant, "project-" + body.id, data["acceptance"])
         s.add(db.Project(tenant_id=actor.tenant, id=body.id, data=data))
         return {"id": body.id, "digest": data["baseline_digest"]}
 

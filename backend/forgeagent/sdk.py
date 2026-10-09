@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import inspect
 import json
 import uuid
@@ -49,6 +50,18 @@ class Client:
 
     async def create(self, spec, idempotency_key=None):
         return await self.request("POST", "/runs", spec, idempotency_key or str(uuid.uuid4()))
+
+    async def upload_repository(self, body: bytes):
+        """Content-addressed upload: retrying identical bytes has the same immutable result."""
+        checksum = hashlib.sha256(body).hexdigest()
+        async def chunks():
+            for offset in range(0, len(body), 65536):
+                yield body[offset:offset + 65536]
+        response = await self.http.put("/v1/repository-bundles/" + checksum, content=chunks(),
+            headers={**await self.headers(), "Content-Type": "application/octet-stream"})
+        if response.is_error:
+            raise ForgeError(response.json(), response.status_code)
+        return response.json()
 
     async def status(self, id):
         return await self.request("GET", "/runs/" + id)

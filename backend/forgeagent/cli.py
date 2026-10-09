@@ -138,30 +138,41 @@ def eval_report(id: str):
 
 
 @project.command("register")
-def register_project(id: str, directory: Path, acceptance: Path, commit: str = "HEAD"):
+def register_project(id: str, directory: Path, acceptance: Path, commit: str = "HEAD", dry_run: bool = False):
     """Upload a bounded Git bundle at a fixed commit and a protected acceptance contract."""
-    from .repository import bundle_from_directory
+    import base64
+
+    from .repository import bundle_from_directory, commit_files
 
     contract = json.loads(acceptance.read_text(encoding="utf-8"))
     from .domain import AcceptanceContract, BuildContract
 
     build = BuildContract(**contract.pop("build", {})).model_dump()
     contract = AcceptanceContract(**contract).model_dump()
-    execute(
-        lambda c: c.request(
-            "POST",
-            "/projects",
-            {
-                "id": id,
-                "name": id,
-                "repository": bundle_from_directory(directory, commit).model_dump(),
-                "acceptance_id": contract["id"],
-                "verification_argv": contract["argv"],
-                "acceptance": contract,
-                "build": build,
-            },
-        )
-    )
+    from .domain import Fault, canonical, digest
+
+    try:
+        repository = bundle_from_directory(directory, commit)
+        manifest = commit_files(directory.resolve(), repository.commit)
+        bundle = base64.b64decode(repository.bundle_base64, validate=True)
+        if len(bundle) > 16 * 1024 * 1024:
+            raise Fault("REPOSITORY_LIMIT", "Git bundle exceeds 16 MiB; export a smaller reviewed repository history", 413)
+        payload = {"id": id, "name": id, "repository": {"commit": repository.commit,
+            "bundle_digest": digest(bundle), "bundle_bytes": len(bundle)},
+            "acceptance_id": contract["id"], "verification_argv": contract["argv"], "acceptance": contract, "build": build}
+        if len(canonical(payload)) > 2 * 1024 * 1024:
+            raise Fault("BODY_LIMIT", "Acceptance and project metadata exceed the 2 MiB JSON request limit", 413)
+    except Fault as exc:
+        raise typer.BadParameter(exc.message) from exc
+    if dry_run:
+        typer.echo(json.dumps({"commit": repository.commit, "bundle_bytes": len(bundle), "json_bytes": len(canonical(payload)),
+            "files": len(manifest), "baseline_digest": digest(manifest), "acceptance_execution": "not_run"}))
+        return
+    async def upload_and_register(c):
+        payload["repository"].update(await c.upload_repository(bundle))
+        await c.request("POST", "/projects/preflight", payload)
+        return await c.request("POST", "/projects", payload)
+    execute(upload_and_register)
 
 
 @admin.command("provision")

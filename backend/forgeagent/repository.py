@@ -5,7 +5,7 @@ import os
 import shutil
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .config import settings
 from .domain import Fault, Strict, digest, uid
@@ -15,7 +15,17 @@ from .workspace import entry, validate_manifest
 
 class RepositoryInput(Strict):
     commit: str = Field(pattern=r"^[0-9a-f]{40}([0-9a-f]{24})?$")
-    bundle_base64: str = Field(max_length=24_000_000)
+    bundle_base64: str | None = Field(None, max_length=24_000_000)
+    bundle_digest: str | None = Field(None, pattern=r"^sha256:[a-f0-9]{64}$")
+    bundle_bytes: int | None = Field(None, ge=1, le=16 * 1024 * 1024)
+
+    @model_validator(mode="after")
+    def source(self):
+        if (self.bundle_base64 is None) == (self.bundle_digest is None):
+            raise ValueError("Choose exactly one inline bundle or uploaded bundle digest")
+        if (self.bundle_digest is None) != (self.bundle_bytes is None):
+            raise ValueError("Uploaded bundles require their verified byte count")
+        return self
 
 
 def mirror(tenant, repository):
@@ -86,11 +96,20 @@ def commit_files(root, commit):
 
 
 def register(tenant, namespace, spec):
-    try:
-        bundle = base64.b64decode(spec.bundle_base64, validate=True)
-    except ValueError as exc:
-        raise Fault("REPOSITORY_BUNDLE", "Invalid repository bundle encoding", 422) from exc
-    repository = {"commit": spec.commit, "bundle_ref": objects.put(tenant, namespace, bundle),
+    if spec.bundle_digest:
+        import hashlib
+
+        key = f"{hashlib.sha256(tenant.encode()).hexdigest()}/repository-upload/{spec.bundle_digest[7:]}"
+        # The uploader has verified this exact digest; no caller-supplied key or namespace is accepted.
+        reference = {"key": key, "digest": spec.bundle_digest, "bytes": spec.bundle_bytes}
+        objects.verify(tenant, reference)
+    else:
+        try:
+            bundle = base64.b64decode(spec.bundle_base64, validate=True)
+        except ValueError as exc:
+            raise Fault("REPOSITORY_BUNDLE", "Invalid repository bundle encoding", 422) from exc
+        reference = objects.put(tenant, namespace, bundle)
+    repository = {"commit": spec.commit, "bundle_ref": reference,
                   "file_semantics": ["utf8", "binary", "executable", "safe_symlink"], "submodules": "separate_projects"}
     root = mirror(tenant, repository)
     content = commit_files(root, spec.commit)

@@ -2,7 +2,7 @@ export interface ErrorPayload {code?:string;message?:string;retryable?:boolean;c
 export class ApiError extends Error {
  constructor(public payload:ErrorPayload,public status:number,public uncertain=false){super(`${payload.code||status}: ${payload.message||'请求失败'}${payload.errors?' · '+payload.errors.map(e=>e.message).join('; '):''}`);this.name='ApiError'}
 }
-type Options={signal?:AbortSignal;timeoutMs?:number;format?:'json'|'text'};
+type Options={signal?:AbortSignal;timeoutMs?:number;format?:'json'|'text';raw?:Blob};
 const mutations=new Map<string,string>();
 async function signatureFor(value:string){const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value));return 'forge-mutation-'+Array.from(new Uint8Array(hash),byte=>byte.toString(16).padStart(2,'0')).join('')}
 function keyFor(signature:string){let key=mutations.get(signature)||sessionStorage.getItem(signature);if(!key){key=crypto.randomUUID();mutations.set(signature,key);sessionStorage.setItem(signature,key)}return key}
@@ -18,7 +18,7 @@ export async function api<T=any>(path:string, method='GET', body?:unknown, key?:
  try{
  signature=await signatureFor(principal+' '+method+' '+path+' '+JSON.stringify(body??null));
  const mutationKey=key||(mutation?keyFor(signature):undefined);
-  const response=await fetch(`/v1${path}`,{method,signal:controller.signal,headers:{...(body!==undefined?{'Content-Type':'application/json'}:{}),...(mutationKey?{'Idempotency-Key':mutationKey}:{}),...(token?{Authorization:`Bearer ${token}`}:{})},body:body===undefined?undefined:JSON.stringify(body)});
+  const response=await fetch(`/v1${path}`,{method,signal:controller.signal,headers:{...(options.raw?{'Content-Type':'application/octet-stream'}:body!==undefined?{'Content-Type':'application/json'}:{}),...(mutationKey?{'Idempotency-Key':mutationKey}:{}),...(token?{Authorization:`Bearer ${token}`}:{})},body:options.raw??(body===undefined?undefined:JSON.stringify(body))});
   if(!response.ok){const payload:ErrorPayload=await response.json().catch(()=>({code:'HTTP_ERROR',message:`HTTP ${response.status}`}));if(response.status<500&&![408,429].includes(response.status))forget(signature);throw new ApiError(payload,response.status,response.status>=500)}
   const value=(options.format==='text'?await response.text():response.status===204?null:await response.json()) as T;
   forget(signature);return value;
