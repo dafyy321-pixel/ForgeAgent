@@ -1,0 +1,78 @@
+name: Live release gates
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  integration:
+    runs-on: [self-hosted, linux, forge-release]
+    environment: release-integration
+    timeout-minutes: 30
+    env:
+      FORGE_TEST_RELEASE: '1'
+      FORGE_TEST_DOCKER: '1'
+      FORGE_TEST_S3: '1'
+      FORGE_TEST_BACKUP: '1'
+      FORGE_MODEL_PROVIDER: ${{ vars.FORGE_MODEL_PROVIDER }}
+      FORGE_MODEL_ID: ${{ vars.FORGE_MODEL_ID }}
+      FORGE_MODEL_API_KEY: ${{ secrets.FORGE_MODEL_API_KEY }}
+      FORGE_MODEL_BASE_URL: ${{ vars.FORGE_MODEL_BASE_URL }}
+      FORGE_INPUT_PRICE: ${{ vars.FORGE_INPUT_PRICE }}
+      FORGE_OUTPUT_PRICE: ${{ vars.FORGE_OUTPUT_PRICE }}
+      FORGE_CACHED_INPUT_PRICE: ${{ vars.FORGE_CACHED_INPUT_PRICE }}
+      FORGE_CACHE_WRITE_PRICE: ${{ vars.FORGE_CACHE_WRITE_PRICE }}
+      FORGE_S3_ENDPOINT: ${{ vars.FORGE_S3_ENDPOINT }}
+      FORGE_S3_BUCKET: ${{ vars.FORGE_S3_BUCKET }}
+      FORGE_TEST_S3_BUCKET_CONFIRM: ${{ vars.FORGE_S3_BUCKET }}
+      FORGE_S3_ACCESS_KEY: ${{ secrets.FORGE_S3_ACCESS_KEY }}
+      FORGE_S3_SECRET_KEY: ${{ secrets.FORGE_S3_SECRET_KEY }}
+      FORGE_DATABASE_URL: ${{ secrets.FORGE_DATABASE_URL }}
+      FORGE_BACKUP_DATABASE_URL: ${{ secrets.FORGE_BACKUP_DATABASE_URL }}
+      FORGE_SANDBOX_MANAGER_URL: http://127.0.0.1:18099
+      FORGE_SANDBOX_MANAGER_SECRET: ${{ secrets.FORGE_SANDBOX_MANAGER_SECRET }}
+      FORGE_SANDBOX_RUNTIME: runsc
+      FORGE_SANDBOX_IMAGE: forgeagent-sandbox:release-test
+      FORGE_RELEASE_CONNECTIONS_FILE: ${{ github.workspace }}/.forge/release-connections.json
+      FORGE_REMOTE_CREDENTIALS: ${{ secrets.FORGE_REMOTE_CREDENTIALS }}
+      FORGE_REMOTE_HOSTS: ${{ vars.FORGE_REMOTE_HOSTS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - name: Install private test endpoint descriptors
+        env:
+          DESCRIPTORS: ${{ secrets.FORGE_RELEASE_CONNECTIONS_JSON }}
+        run: |
+          mkdir -p .forge
+          umask 077
+          printf '%s' "$DESCRIPTORS" > .forge/release-connections.json
+          echo "FORGE_RELEASE_FACTS_DIR=$GITHUB_WORKSPACE/.forge/release-facts-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+      - run: uv run python scripts/release_evidence.py
+      - run: uv run alembic upgrade head
+      - run: docker build -t forgeagent-sandbox:release-test sandbox
+      - name: Start this commit's independent manager
+        run: |
+          uv run uvicorn forgeagent.sandbox_manager:app --host 127.0.0.1 --port 18099 > .forge/release-manager.log 2>&1 &
+          echo "RELEASE_MANAGER_PID=$!" >> "$GITHUB_ENV"
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:18099/openapi.json >/dev/null && exit 0; sleep 1; done
+          exit 1
+      - name: Exercise live integrations
+        run: >-
+          uv run pytest tests/backend/test_release_integration.py tests/backend/test_sandbox.py
+          tests/backend/test_storage.py::test_real_s3_multipart_integrity_and_all_version_erasure
+          tests/backend/test_backup.py::test_real_postgres_and_object_snapshot_restore_in_isolated_databases
+          -q --junitxml=.forge/release-junit.xml
+      - run: uv run python scripts/release_evidence.py --junit .forge/release-junit.xml --output .forge/release-evidence.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: live-release-evidence-${{ github.sha }}
+          path: |
+            .forge/release-junit.xml
+            .forge/release-evidence.json
+          retention-days: 90
+      - name: Remove private endpoint file
+        if: always()
+        run: |
+          if [ -n "$RELEASE_MANAGER_PID" ]; then kill "$RELEASE_MANAGER_PID" || true; fi
+          rm -f -- .forge/release-connections.json

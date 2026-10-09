@@ -138,6 +138,12 @@ class Harness(Strict):
     context_policy: Literal["elide", "full"] = "elide"
     memory: bool = True
     observation_recall: bool = True
+    planning: bool = True
+    summarization: bool = True
+    tool_form: Literal["profile", "native", "structured", "json"] = "profile"
+    observation_fusion: bool = False
+    action_fusion: bool = True
+    delegation: bool = True
 
 
 class ChildContract(Strict):

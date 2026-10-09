@@ -12,6 +12,7 @@ from pydantic import Field, model_validator
 from . import db, service
 from .config import settings
 from .domain import TERMINAL, Budget, CreateRun, Fault, Harness, Strict, Task, digest
+from .research import CostAssumptions
 
 
 class Case(Strict):
@@ -54,6 +55,7 @@ class ExperimentInput(Strict):
     max_total_cost_usd: Decimal = Field(Decimal("10"), gt=0, le=10000)
     noninferiority_margin: float = Field(0.02, ge=0, le=0.1)
     max_cost_ratio: float = Field(1, gt=0, le=2)
+    cost_assumptions: CostAssumptions = Field(default_factory=CostAssumptions)
 
 
 def register(s, tenant, body):
@@ -157,6 +159,7 @@ def cluster_interval(values, seed):
 
 
 def report(s, record, tenant):
+    from .research import aggregate, snapshot
     if record.status == "erased":
         return {"id": record.id, "status": "erased", "limitations": "Knowledge-derived experiment evidence was erased."}
     if record.data.get("report"):
@@ -181,6 +184,7 @@ def report(s, record, tenant):
                 "verdict": (run.state.get("verification") or {}).get("verdict"),
                 "state_digest": digest(run.state),
                 "version": run.version,
+                "research": snapshot(s, run, record.data.get("cost_assumptions")),
             }
         )
     finished = all(x["status"] in TERMINAL | {"PAUSED"} for x in results)
@@ -202,6 +206,7 @@ def report(s, record, tenant):
             "latency_mean": mean(r["seconds"] for r in rows),
             "latency_p50": percentile([r["seconds"] for r in rows], 0.5),
             "latency_p95": percentile([r["seconds"] for r in rows], 0.95),
+            "research": aggregate(rows),
         }
     comparisons = {}
     for name in configs[1:]:
@@ -224,21 +229,21 @@ def report(s, record, tenant):
     result = {
         "id": record.id,
         "status": "awaiting_reconciliation"
-        if finished and any(x["reserved"] for x in results)
+        if finished and any(not x["research"]["model_usage_settled"] for x in results)
         else "completed"
         if finished
         else "running",
-        **{k: v for k, v in record.data.items() if k != "report"},
+        **{k: v for k, v in record.data.items() if k not in {"report", "status"}},
         "results": results,
         "total": len(results),
         "successes": sum(x["status"] == "SUCCEEDED" for x in results),
         "independent_cases": len(case_ids),
         "summaries": summaries,
         "comparisons": comparisons,
-        "limitations": "Cluster bootstrap is conditional on registered cases; no external benchmark or safety-effect oracle is implied.",
+        "limitations": "Cluster bootstrap keeps repetitions together within registered cases. Incomplete full-cost estimates cannot establish total savings. External benchmark and oracle evidence require separate reports.",
     }
     # Uncertain charges must stay live so a report cannot hide later reconciled spending.
-    if finished and not any(x["reserved"] for x in results):
+    if finished and all(x["research"]["model_usage_settled"] for x in results):
         record.status = "completed"
         record.data = {**record.data, "report": result}
         for row in results:

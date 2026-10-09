@@ -9,6 +9,14 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def direct_docker_lane(monkeypatch):
+    # These exercise the Docker adapter; test_release_integration separately exercises the manager RPC.
+    from forgeagent.config import settings
+
+    monkeypatch.setattr(settings, "sandbox_manager_url", "")
+
+
 async def test_real_container_is_nonroot_readonly_and_network_isolated(tmp_path):
     tmp_path.chmod(0o755)
     (tmp_path / "marker").write_text("immutable")

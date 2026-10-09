@@ -1,0 +1,846 @@
+{
+  "id": "be63e092-b8df-429f-9e77-c18c4640614f",
+  "status": "completed",
+  "dataset_id": "mechanism@1",
+  "model": "fixture@1",
+  "configurations": [
+    {
+      "name": "baseline",
+      "harness": {
+        "context_policy": "elide",
+        "memory": false,
+        "observation_recall": true,
+        "planning": true,
+        "summarization": true,
+        "tool_form": "profile",
+        "observation_fusion": false,
+        "action_fusion": true,
+        "delegation": true
+      },
+      "skills": []
+    },
+    {
+      "name": "no_plan",
+      "harness": {
+        "context_policy": "elide",
+        "memory": false,
+        "observation_recall": true,
+        "planning": false,
+        "summarization": true,
+        "tool_form": "profile",
+        "observation_fusion": false,
+        "action_fusion": true,
+        "delegation": true
+      },
+      "skills": []
+    },
+    {
+      "name": "no_summary",
+      "harness": {
+        "context_policy": "elide",
+        "memory": false,
+        "observation_recall": true,
+        "planning": true,
+        "summarization": false,
+        "tool_form": "profile",
+        "observation_fusion": false,
+        "action_fusion": true,
+        "delegation": true
+      },
+      "skills": []
+    },
+    {
+      "name": "fusion",
+      "harness": {
+        "context_policy": "elide",
+        "memory": false,
+        "observation_recall": true,
+        "planning": true,
+        "summarization": true,
+        "tool_form": "profile",
+        "observation_fusion": true,
+        "action_fusion": true,
+        "delegation": true
+      },
+      "skills": []
+    }
+  ],
+  "repetitions": 2,
+  "seed": 42,
+  "max_total_cost_usd": "10",
+  "noninferiority_margin": 0.02,
+  "max_cost_ratio": 1.0,
+  "cost_assumptions": {
+    "cpu_usd_per_second": null,
+    "storage_usd_per_gib_hour": null,
+    "tool_usd_per_call": {},
+    "environment_usd_per_run": null,
+    "human_usd_per_hour": null,
+    "human_seconds_by_run": {}
+  },
+  "kind": "paired",
+  "dataset": "mechanism@1",
+  "dataset_digest": "sha256:7c9994eb0b311fafa2bda805e4a6e7c6bb4309d940ed8cd8cae6f5066ee04045",
+  "split": "development",
+  "implementation": {
+    "schema_version": 2,
+    "environment": {
+      "python": "3.12.14",
+      "platform": "win32",
+      "dependencies": {
+        "sqlalchemy": "2.0.54",
+        "psycopg": "3.3.6",
+        "pydantic": "2.13.5",
+        "pydantic-settings": "2.15.0",
+        "httpx": "0.28.1",
+        "boto3": "1.43.99",
+        "openai": "2.54.0",
+        "anthropic": "0.125.0",
+        "mcp": "1.30.0",
+        "a2a-sdk": "0.3.26",
+        "opentelemetry-api": "1.44.0",
+        "fastapi": "0.141.1",
+        "starlette": "1.6.0",
+        "PyJWT": "2.14.0",
+        "cryptography": "50.0.1",
+        "httpcore": "1.0.9",
+        "anyio": "4.15.1",
+        "pydantic-core": "2.46.5",
+        "botocore": "1.43.99",
+        "opentelemetry-sdk": "1.44.0",
+        "opentelemetry-exporter-otlp-proto-http": "1.44.0",
+        "prometheus-client": "0.26.0",
+        "tiktoken": "0.14.0",
+        "regex": "2026.9.29",
+        "jsonschema": "4.26.0"
+      }
+    },
+    "stages": {
+      "state": {
+        "domain.py": "sha256:e2fa001db0239944b8b538bc9e14b0d51f6195b17b07c4fd1d9fb9a089b41fe0",
+        "db.py": "sha256:b70cdc23225783f0572db11bb66d3bea759c73b829d32034cb88c7c9b4784918",
+        "reducer.py": "sha256:1e11a58e891ac0904c48b57edb95b48353f46703b3c68bf74971ebc0afcc22f0",
+        "auth.py": "sha256:dc1691e073615edbfcaad6ae4aad2859df1968da73d8214e25bb0da0f9a53997"
+      },
+      "runtime": {
+        "service.py": "sha256:772f0375428e2cd70449e71e897bddc02d02156212b920d2b3ebcdd848865670",
+        "worker.py": "sha256:1db8f39372a0c04de792d2b43434474273e6e0a341ab5ac1d1d334621a645d5c",
+        "progress.py": "sha256:7f7e0e2f721fdaecf7b5ed798adb64beb7b65f00bb211ed2d2338736db2687bf",
+        "concurrency.py": "sha256:d3b53063d4f049990c8a099fd9fbc9d493575fcc2d8f41324fb2bb482f2d0bcb",
+        "semantic.py": "sha256:11fba3f400c272c12fa1defed10b9073bdc76e21aa0acaf699a252502d411337"
+      },
+      "decision": {
+        "models.py": "sha256:d9c166bea4e8d9f8faca890caeea72dceace64da7a6867ff908ec6f9689259c2",
+        "model_protocol.py": "sha256:477db4a3959151318cc35f0b0c98cb32d1d08582eea2416d1fca65659219ba10",
+        "model_retry.py": "sha256:4eba808399a976b8d79c246ee5f57ab72860f89b5e527a0844d5e82e100b0dd2",
+        "context.py": "sha256:82600b373872c1b6394bad6e14fcb0bbb940760b721f0c797e57659ecc31cbac",
+        "context_summary.py": "sha256:21a9eb553f9600e5608c028a5f2c27c36be60de5216a5e21be6ac422dec66fe1",
+        "context_cost.py": "sha256:7153a7bf6120eb5aceb0408587a87f2883bc8d07f22b0ebd427a2005a1b14c24",
+        "billing.py": "sha256:f9a193ee9d14c8f08e3715bf6fcaf86b0ac79cd50acb41ba56527c66b70d01d5",
+        "tokenization.py": "sha256:0afae4893b438a92f8d59338baf6611351f3f68a1e91ec092590373e5d057b0f",
+        "knowledge.py": "sha256:6925563593f8932e0b27a2c3c4706cef434535efcf79f1e2ae808e594a973d4b",
+        "knowledge_erasure.py": "sha256:7df4673914a9b33024814fbf544573fd245255fdde0e11b24403e774c7e853a8",
+        "skill_evolution.py": "sha256:3e4879a7d06e5784ba9da13f1c024d308d5564a0044be9c5096659ae343dc4b9"
+      },
+      "effects": {
+        "sandbox.py": "sha256:394e41dc505397ca69fb8e56ff524c7920dfb5df6b2d274a9cac92b9907ba24c",
+        "sandbox_manager.py": "sha256:25da437ebc656142b917c6779ce7712f63e9b5e1446ba799922b542a51e83f60",
+        "resources.py": "sha256:07913a0097dddd78e6e067860d128ef7462e5794818221492c2e08f1a64abbbf",
+        "observation.py": "sha256:4c82616f29a553fbec1a13aef008503d762eda23a3d18d9a45c3aee10eaa32ca",
+        "workspace.py": "sha256:a2b373c8ae0695a70fa5a6b608651540a404b906d1135e8ac742e856549c286b",
+        "repository.py": "sha256:e32d7dcc7066b010e69f400c56a8a5304cc1c98ac0af986827d9591c9b2b2f93",
+        "repo_tools.py": "sha256:24508028603867fb5bae61521c9413f6ee6c141359977405676df83b363e312a",
+        "remote.py": "sha256:dbfb9ff5e1f91ed4296b4d457ddfce2eb6c98775d46adabacd9000640ef578da",
+        "remote_contracts.py": "sha256:9eb0456b620e94a9b6d85331e0778008dced61b99bacf219f0ee83412717cce8",
+        "storage.py": "sha256:c260a3c3ba7d2f32f5e345ea75e6b5e89514ac0847a2b5e24ea4789f79a4fc21"
+      },
+      "verification": {
+        "verification.py": "sha256:8408a2325c3935518be87eb2167f2c402e5c54cd9b8f7b5d82880e0f9c269792"
+      }
+    }
+  },
+  "runs": [
+    "5a15a90e-62c6-49a3-9384-db2c5df7842c",
+    "913dde97-666f-494a-ad04-278356cb9f55",
+    "11292cc5-7f08-47d0-9ef6-b041f3769798",
+    "fe8b3c37-34aa-432b-8979-6a83ef163625",
+    "0c7a1116-df0c-4028-afac-c8b2ae7f3f5e",
+    "c1b646ab-b141-4702-8a93-8dce58f41277",
+    "cb085c55-bf41-4079-a834-13fbaf18a084",
+    "f486eabc-430e-470b-85c4-ddf083bac89e"
+  ],
+  "entries": [
+    {
+      "id": "5a15a90e-62c6-49a3-9384-db2c5df7842c",
+      "case_id": "addition-fixture",
+      "config": "no_plan",
+      "repeat": 1,
+      "project_id": "runtime-lab",
+      "expected_status": "SUCCEEDED",
+      "expected_reason": ""
+    },
+    {
+      "id": "913dde97-666f-494a-ad04-278356cb9f55",
+      "case_id": "addition-fixture",
+      "config": "no_summary",
+      "repeat": 0,
+      "project_id": "runtime-lab",
+      "expected_status": "SUCCEEDED",
+      "expected_reason": ""
+    },
+    {
+      "id": "11292cc5-7f08-47d0-9ef6-b041f3769798",
+      "case_id": "addition-fixture",
+      "config": "fusion",
+      "repeat": 0,
+      "project_id": "runtime-lab",
+      "expected_status": "SUCCEEDED",
+      "expected_reason": ""
+    },
+    {
+      "id": "fe8b3c37-34aa-432b-8979-6a83ef163625",
+      "case_id": "addition-fixture",
+      "config": "fusion",
+      "repeat": 1,
+      "project_id": "runtime-lab",
+      "expected_status": "SUCCEEDED",
+      "expected_reason": ""
+    },
+    {
+      "id": "0c7a1116-df0c-4028-afac-c8b2ae7f3f5e",
+      "case_id": "addition-fixture",
+      "config": "no_plan",
+      "repeat": 0,
+      "project_id": "runtime-lab",
+      "expected_status": "SUCCEEDED",
+      "expected_reason": ""
+    },
+    {
+      "id": "c1b646ab-b141-4702-8a93-8dce58f41277",
+      "case_id": "addition-fixture",
+      "config": "no_summary",
+      "repeat": 1,
+      "project_id": "runtime-lab",
+      "expected_status": "SUCCEEDED",
+      "expected_reason": ""
+    },
+    {
+      "id": "cb085c55-bf41-4079-a834-13fbaf18a084",
+      "case_id": "addition-fixture",
+      "config": "baseline",
+      "repeat": 0,
+      "project_id": "runtime-lab",
+      "expected_status": "SUCCEEDED",
+      "expected_reason": ""
+    },
+    {
+      "id": "f486eabc-430e-470b-85c4-ddf083bac89e",
+      "case_id": "addition-fixture",
+      "config": "baseline",
+      "repeat": 1,
+      "project_id": "runtime-lab",
+      "expected_status": "SUCCEEDED",
+      "expected_reason": ""
+    }
+  ],
+  "results": [
+    {
+      "id": "5a15a90e-62c6-49a3-9384-db2c5df7842c",
+      "case_id": "addition-fixture",
+      "config": "no_plan",
+      "repeat": 1,
+      "project_id": "runtime-lab",
+      "expected_status": "SUCCEEDED",
+      "expected_reason": "",
+      "status": "SUCCEEDED",
+      "reason": "Verification PASS",
+      "correct_disposition": true,
+      "cost": 0.0,
+      "reserved": 0.0,
+      "seconds": 14.718573,
+      "verdict": "PASS",
+      "state_digest": "sha256:d12d9c779af4eba58bbe95e0715ce36bd029e1330f956cff53129bcc5946f68b",
+      "version": 40,
+      "research": {
+        "version": 1,
+        "run_id": "5a15a90e-62c6-49a3-9384-db2c5df7842c",
+        "assumptions_digest": "sha256:3f8afb4cf13ca6379272121cb58bab02475a674e01138eecc9b7af1f40e2a31d",
+        "components": {
+          "model_usd": 0.0,
+          "cpu_usd": 0.0,
+          "storage_usd": null,
+          "environment_usd": null,
+          "tools_usd": null,
+          "human_usd": 0.0
+        },
+        "model_usage_settled": true,
+        "known_cost_usd": 0.0,
+        "total_cost_usd": null,
+        "complete": false,
+        "missing": [
+          "environment_usd",
+          "storage_usd",
+          "tool:repo.write"
+        ],
+        "model_calls": 2,
+        "tool_calls": {
+          "repo.write": 1
+        },
+        "cpu_seconds_upper_bound": 0,
+        "stored_bytes_charged": 12200,
+        "wall_seconds": 14.718573,
+        "failure_category": "Verification PASS",
+        "recovery_to_progress_seconds": [],
+        "recovery_pickup_seconds": [],
+        "legacy_ambiguous_recoveries": 0,
+        "pending_recoveries": 0,
+        "manual_decisions": 0,
+        "limitations": [
+          "Storage byte-hours use the charged byte peak over task wall time; CPU uses conservative sandbox charges.",
+          "Infrastructure, external tool and human tariffs are declared assumptions, not provider invoices.",
+          "Model ledger includes all family calls; unknown usage keeps the total incomplete."
+        ]
+      }
+    },
+    {
+      "id": "913dde97-666f-494a-ad04-278356cb9f55",
+      "case_id": "addition-fixture",
+      "config": "no_summary",
+      "repeat": 0,
+      "project_id": "runtime-lab",
+      "expected_status": "SUCCEEDED",
+      "expected_reason": "",
+      "status": "SUCCEEDED",
+      "reason": "Verification PASS",
+      "correct_disposition": true,
+      "cost": 0.0,
+      "reserved": 0.0,
+      "seconds": 16.19148,
+      "verdict": "PASS",
+      "state_digest": "sha256:10066341271f209e3aaffa3a6961adde9539a98b8f9e19b7e90157e9ddfe9494",
+      "version": 40,
+      "research": {
+        "version": 1,
+        "run_id": "913dde97-666f-494a-ad04-278356cb9f55",
+        "assumptions_digest": "sha256:3f8afb4cf13ca6379272121cb58bab02475a674e01138eecc9b7af1f40e2a31d",
+        "components": {
+          "model_usd": 0.0,
+          "cpu_usd": 0.0,
+          "storage_usd": null,
+          "environment_usd": null,
+          "tools_usd": null,
+          "human_usd": 0.0
+        },
+        "model_usage_settled": true,
+        "known_cost_usd": 0.0,
+        "total_cost_usd": null,
+        "complete": false,
+        "missing": [
+          "environment_usd",
+          "storage_usd",
+          "tool:repo.write"
+        ],
+        "model_calls": 2,
+        "tool_calls": {
+          "repo.write": 1
+        },
+        "cpu_seconds_upper_bound": 0,
+        "stored_bytes_charged": 12845,
+        "wall_seconds": 16.19148,
+        "failure_category": "Verification PASS",
+        "recovery_to_progress_seconds": [],
+        "recovery_pickup_seconds": [],
+        "legacy_ambiguous_recoveries": 0,
+        "pending_recoveries": 0,
+        "manual_decisions": 0,
+        "limitations": [
+          "Storage byte-hours use the charged byte peak over task wall time; CPU uses conservative sandbox charges.",
+          "Infrastructure, external tool and human tariffs are declared assumptions, not provider invoices.",
+          "Model ledger includes all family calls; unknown usage keeps the total incomplete."
+        ]
+      }
+    },
+    {
+      "id": "11292cc5-7f08-47d0-9ef6-b041f3769798",
+      "case_id": "addition-fixture",
+      "config": "fusion",
+      "repeat": 0,
+      "project_id": "runtime-lab",
+      "expected_status": "SUCCEEDED",
+      "expected_reason": "",
+      "status": "SUCCEEDED",
+      "reason": "Verification PASS",
+      "correct_disposition": true,
+      "cost": 0.0,
+      "reserved": 0.0,
+      "seconds": 17.773305,
+      "verdict": "PASS",
+      "state_digest": "sha256:379f9919f6ff2df8e7913ba4cc89a9201b41f91392bc653822ed864e8f64f39a",
+      "version": 40,
+      "research": {
+        "version": 1,
+        "run_id": "11292cc5-7f08-47d0-9ef6-b041f3769798",
+        "assumptions_digest": "sha256:3f8afb4cf13ca6379272121cb58bab02475a674e01138eecc9b7af1f40e2a31d",
+        "components": {
+          "model_usd": 0.0,
+          "cpu_usd": 0.0,
+          "storage_usd": null,
+          "environment_usd": null,
+          "tools_usd": null,
+          "human_usd": 0.0
+        },
+        "model_usage_settled": true,
+        "known_cost_usd": 0.0,
+        "total_cost_usd": null,
+        "complete": false,
+        "missing": [
+          "environment_usd",
+          "storage_usd",
+          "tool:repo.write"
+        ],
+        "model_calls": 2,
+        "tool_calls": {
+          "repo.write": 1
+        },
+        "cpu_seconds_upper_bound": 0,
+        "stored_bytes_charged": 12845,
+        "wall_seconds": 17.773305,
+        "failure_category": "Verification PASS",
+        "recovery_to_progress_seconds": [],
+        "recovery_pickup_seconds": [],
+        "legacy_ambiguous_recoveries": 0,
+        "pending_recoveries": 0,
+        "manual_decisions": 0,
+        "limitations": [
+          "Storage byte-hours use the charged byte peak over task wall time; CPU uses conservative sandbox charges.",
+          "Infrastructure, external tool and human tariffs are declared assumptions, not provider invoices.",
+          "Model ledger includes all family calls; unknown usage keeps the total incomplete."
+        ]
+      }
+    },
+    {
+      "id": "fe8b3c37-34aa-432b-8979-6a83ef163625",
+      "case_id": "addition-fixture",
+      "config": "fusion",
+      "repeat": 1,
+      "project_id": "runtime-lab",
+      "expected_status": "SUCCEEDED",
+      "expected_reason": "",
+      "status": "SUCCEEDED",
+      "reason": "Verification PASS",
+      "correct_disposition": true,
+      "cost": 0.0,
+      "reserved": 0.0,
+      "seconds": 19.522912,
+      "verdict": "PASS",
+      "state_digest": "sha256:d3a9ff035442d35e0839fdbddfce39231a8efe5c5bdaf1ab14eb83244b5d056f",
+      "version": 40,
+      "research": {
+        "version": 1,
+        "run_id": "fe8b3c37-34aa-432b-8979-6a83ef163625",
+        "assumptions_digest": "sha256:3f8afb4cf13ca6379272121cb58bab02475a674e01138eecc9b7af1f40e2a31d",
+        "components": {
+          "model_usd": 0.0,
+          "cpu_usd": 0.0,
+          "storage_usd": null,
+          "environment_usd": null,
+          "tools_usd": null,
+          "human_usd": 0.0
+        },
+        "model_usage_settled": true,
+        "known_cost_usd": 0.0,
+        "total_cost_usd": null,
+        "complete": false,
+        "missing": [
+          "environment_usd",
+          "storage_usd",
+          "tool:repo.write"
+        ],
+        "model_calls": 2,
+        "tool_calls": {
+          "repo.write": 1
+        },
+        "cpu_seconds_upper_bound": 0,
+        "stored_bytes_charged": 12845,
+        "wall_seconds": 19.522912,
+        "failure_category": "Verification PASS",
+        "recovery_to_progress_seconds": [],
+        "recovery_pickup_seconds": [],
+        "legacy_ambiguous_recoveries": 0,
+        "pending_recoveries": 0,
+        "manual_decisions": 0,
+        "limitations": [
+          "Storage byte-hours use the charged byte peak over task wall time; CPU uses conservative sandbox charges.",
+          "Infrastructure, external tool and human tariffs are declared assumptions, not provider invoices.",
+          "Model ledger includes all family calls; unknown usage keeps the total incomplete."
+        ]
+      }
+    },
+    {
+      "id": "0c7a1116-df0c-4028-afac-c8b2ae7f3f5e",
+      "case_id": "addition-fixture",
+      "config": "no_plan",
+      "repeat": 0,
+      "project_id": "runtime-lab",
+      "expected_status": "SUCCEEDED",
+      "expected_reason": "",
+      "status": "SUCCEEDED",
+      "reason": "Verification PASS",
+      "correct_disposition": true,
+      "cost": 0.0,
+      "reserved": 0.0,
+      "seconds": 21.175842,
+      "verdict": "PASS",
+      "state_digest": "sha256:321abb7ac32dd84e221ea24d972da5ec8a12b96ea057be34fac7d3158ba6e39f",
+      "version": 40,
+      "research": {
+        "version": 1,
+        "run_id": "0c7a1116-df0c-4028-afac-c8b2ae7f3f5e",
+        "assumptions_digest": "sha256:3f8afb4cf13ca6379272121cb58bab02475a674e01138eecc9b7af1f40e2a31d",
+        "components": {
+          "model_usd": 0.0,
+          "cpu_usd": 0.0,
+          "storage_usd": null,
+          "environment_usd": null,
+          "tools_usd": null,
+          "human_usd": 0.0
+        },
+        "model_usage_settled": true,
+        "known_cost_usd": 0.0,
+        "total_cost_usd": null,
+        "complete": false,
+        "missing": [
+          "environment_usd",
+          "storage_usd",
+          "tool:repo.write"
+        ],
+        "model_calls": 2,
+        "tool_calls": {
+          "repo.write": 1
+        },
+        "cpu_seconds_upper_bound": 0,
+        "stored_bytes_charged": 12183,
+        "wall_seconds": 21.175842,
+        "failure_category": "Verification PASS",
+        "recovery_to_progress_seconds": [],
+        "recovery_pickup_seconds": [],
+        "legacy_ambiguous_recoveries": 0,
+        "pending_recoveries": 0,
+        "manual_decisions": 0,
+        "limitations": [
+          "Storage byte-hours use the charged byte peak over task wall time; CPU uses conservative sandbox charges.",
+          "Infrastructure, external tool and human tariffs are declared assumptions, not provider invoices.",
+          "Model ledger includes all family calls; unknown usage keeps the total incomplete."
+        ]
+      }
+    },
+    {
+      "id": "c1b646ab-b141-4702-8a93-8dce58f41277",
+      "case_id": "addition-fixture",
+      "config": "no_summary",
+      "repeat": 1,
+      "project_id": "runtime-lab",
+      "expected_status": "SUCCEEDED",
+      "expected_reason": "",
+      "status": "SUCCEEDED",
+      "reason": "Verification PASS",
+      "correct_disposition": true,
+      "cost": 0.0,
+      "reserved": 0.0,
+      "seconds": 23.213519,
+      "verdict": "PASS",
+      "state_digest": "sha256:393cdf10d313d83428b555e0664d0535e92ab7c8ae1eb79d1b89a87000b38dfb",
+      "version": 40,
+      "research": {
+        "version": 1,
+        "run_id": "c1b646ab-b141-4702-8a93-8dce58f41277",
+        "assumptions_digest": "sha256:3f8afb4cf13ca6379272121cb58bab02475a674e01138eecc9b7af1f40e2a31d",
+        "components": {
+          "model_usd": 0.0,
+          "cpu_usd": 0.0,
+          "storage_usd": null,
+          "environment_usd": null,
+          "tools_usd": null,
+          "human_usd": 0.0
+        },
+        "model_usage_settled": true,
+        "known_cost_usd": 0.0,
+        "total_cost_usd": null,
+        "complete": false,
+        "missing": [
+          "environment_usd",
+          "storage_usd",
+          "tool:repo.write"
+        ],
+        "model_calls": 2,
+        "tool_calls": {
+          "repo.write": 1
+        },
+        "cpu_seconds_upper_bound": 0,
+        "stored_bytes_charged": 12845,
+        "wall_seconds": 23.213519,
+        "failure_category": "Verification PASS",
+        "recovery_to_progress_seconds": [],
+        "recovery_pickup_seconds": [],
+        "legacy_ambiguous_recoveries": 0,
+        "pending_recoveries": 0,
+        "manual_decisions": 0,
+        "limitations": [
+          "Storage byte-hours use the charged byte peak over task wall time; CPU uses conservative sandbox charges.",
+          "Infrastructure, external tool and human tariffs are declared assumptions, not provider invoices.",
+          "Model ledger includes all family calls; unknown usage keeps the total incomplete."
+        ]
+      }
+    },
+    {
+      "id": "cb085c55-bf41-4079-a834-13fbaf18a084",
+      "case_id": "addition-fixture",
+      "config": "baseline",
+      "repeat": 0,
+      "project_id": "runtime-lab",
+      "expected_status": "SUCCEEDED",
+      "expected_reason": "",
+      "status": "SUCCEEDED",
+      "reason": "Verification PASS",
+      "correct_disposition": true,
+      "cost": 0.0,
+      "reserved": 0.0,
+      "seconds": 25.035906,
+      "verdict": "PASS",
+      "state_digest": "sha256:af695d985c3b06bc52df450d74d18820e6457c6a4c004bdfb7c7ae6f90bec652",
+      "version": 40,
+      "research": {
+        "version": 1,
+        "run_id": "cb085c55-bf41-4079-a834-13fbaf18a084",
+        "assumptions_digest": "sha256:3f8afb4cf13ca6379272121cb58bab02475a674e01138eecc9b7af1f40e2a31d",
+        "components": {
+          "model_usd": 0.0,
+          "cpu_usd": 0.0,
+          "storage_usd": null,
+          "environment_usd": null,
+          "tools_usd": null,
+          "human_usd": 0.0
+        },
+        "model_usage_settled": true,
+        "known_cost_usd": 0.0,
+        "total_cost_usd": null,
+        "complete": false,
+        "missing": [
+          "environment_usd",
+          "storage_usd",
+          "tool:repo.write"
+        ],
+        "model_calls": 2,
+        "tool_calls": {
+          "repo.write": 1
+        },
+        "cpu_seconds_upper_bound": 0,
+        "stored_bytes_charged": 12845,
+        "wall_seconds": 25.035906,
+        "failure_category": "Verification PASS",
+        "recovery_to_progress_seconds": [],
+        "recovery_pickup_seconds": [],
+        "legacy_ambiguous_recoveries": 0,
+        "pending_recoveries": 0,
+        "manual_decisions": 0,
+        "limitations": [
+          "Storage byte-hours use the charged byte peak over task wall time; CPU uses conservative sandbox charges.",
+          "Infrastructure, external tool and human tariffs are declared assumptions, not provider invoices.",
+          "Model ledger includes all family calls; unknown usage keeps the total incomplete."
+        ]
+      }
+    },
+    {
+      "id": "f486eabc-430e-470b-85c4-ddf083bac89e",
+      "case_id": "addition-fixture",
+      "config": "baseline",
+      "repeat": 1,
+      "project_id": "runtime-lab",
+      "expected_status": "SUCCEEDED",
+      "expected_reason": "",
+      "status": "SUCCEEDED",
+      "reason": "Verification PASS",
+      "correct_disposition": true,
+      "cost": 0.0,
+      "reserved": 0.0,
+      "seconds": 26.630238,
+      "verdict": "PASS",
+      "state_digest": "sha256:4d2a4046fbe6bdfb1ebc6f5bc8c1d13c78ace51a4e83cfeae4a2eefea4973e12",
+      "version": 40,
+      "research": {
+        "version": 1,
+        "run_id": "f486eabc-430e-470b-85c4-ddf083bac89e",
+        "assumptions_digest": "sha256:3f8afb4cf13ca6379272121cb58bab02475a674e01138eecc9b7af1f40e2a31d",
+        "components": {
+          "model_usd": 0.0,
+          "cpu_usd": 0.0,
+          "storage_usd": null,
+          "environment_usd": null,
+          "tools_usd": null,
+          "human_usd": 0.0
+        },
+        "model_usage_settled": true,
+        "known_cost_usd": 0.0,
+        "total_cost_usd": null,
+        "complete": false,
+        "missing": [
+          "environment_usd",
+          "storage_usd",
+          "tool:repo.write"
+        ],
+        "model_calls": 2,
+        "tool_calls": {
+          "repo.write": 1
+        },
+        "cpu_seconds_upper_bound": 0,
+        "stored_bytes_charged": 12845,
+        "wall_seconds": 26.630238,
+        "failure_category": "Verification PASS",
+        "recovery_to_progress_seconds": [],
+        "recovery_pickup_seconds": [],
+        "legacy_ambiguous_recoveries": 0,
+        "pending_recoveries": 0,
+        "manual_decisions": 0,
+        "limitations": [
+          "Storage byte-hours use the charged byte peak over task wall time; CPU uses conservative sandbox charges.",
+          "Infrastructure, external tool and human tariffs are declared assumptions, not provider invoices.",
+          "Model ledger includes all family calls; unknown usage keeps the total incomplete."
+        ]
+      }
+    }
+  ],
+  "total": 8,
+  "successes": 8,
+  "independent_cases": 1,
+  "summaries": {
+    "baseline": {
+      "correct_disposition_rate": 1,
+      "cluster_95_ci": null,
+      "cost": 0.0,
+      "cost_per_success": 0.0,
+      "latency_mean": 25.833072,
+      "latency_p50": 25.035906,
+      "latency_p95": 25.035906,
+      "research": {
+        "full_cost_complete": false,
+        "full_cost_usd": null,
+        "known_cost_usd": 0.0,
+        "full_cost_per_success_usd": null,
+        "failure_distribution": {},
+        "recovery_samples_seconds": [],
+        "pending_recoveries": 0,
+        "recovery_pickup_samples_seconds": [],
+        "legacy_ambiguous_recoveries": 0,
+        "missing_cost_components": [
+          "environment_usd",
+          "storage_usd",
+          "tool:repo.write"
+        ]
+      }
+    },
+    "no_plan": {
+      "correct_disposition_rate": 1,
+      "cluster_95_ci": null,
+      "cost": 0.0,
+      "cost_per_success": 0.0,
+      "latency_mean": 17.947207499999998,
+      "latency_p50": 14.718573,
+      "latency_p95": 14.718573,
+      "research": {
+        "full_cost_complete": false,
+        "full_cost_usd": null,
+        "known_cost_usd": 0.0,
+        "full_cost_per_success_usd": null,
+        "failure_distribution": {},
+        "recovery_samples_seconds": [],
+        "pending_recoveries": 0,
+        "recovery_pickup_samples_seconds": [],
+        "legacy_ambiguous_recoveries": 0,
+        "missing_cost_components": [
+          "environment_usd",
+          "storage_usd",
+          "tool:repo.write"
+        ]
+      }
+    },
+    "no_summary": {
+      "correct_disposition_rate": 1,
+      "cluster_95_ci": null,
+      "cost": 0.0,
+      "cost_per_success": 0.0,
+      "latency_mean": 19.702499500000002,
+      "latency_p50": 16.19148,
+      "latency_p95": 16.19148,
+      "research": {
+        "full_cost_complete": false,
+        "full_cost_usd": null,
+        "known_cost_usd": 0.0,
+        "full_cost_per_success_usd": null,
+        "failure_distribution": {},
+        "recovery_samples_seconds": [],
+        "pending_recoveries": 0,
+        "recovery_pickup_samples_seconds": [],
+        "legacy_ambiguous_recoveries": 0,
+        "missing_cost_components": [
+          "environment_usd",
+          "storage_usd",
+          "tool:repo.write"
+        ]
+      }
+    },
+    "fusion": {
+      "correct_disposition_rate": 1,
+      "cluster_95_ci": null,
+      "cost": 0.0,
+      "cost_per_success": 0.0,
+      "latency_mean": 18.6481085,
+      "latency_p50": 17.773305,
+      "latency_p95": 17.773305,
+      "research": {
+        "full_cost_complete": false,
+        "full_cost_usd": null,
+        "known_cost_usd": 0.0,
+        "full_cost_per_success_usd": null,
+        "failure_distribution": {},
+        "recovery_samples_seconds": [],
+        "pending_recoveries": 0,
+        "recovery_pickup_samples_seconds": [],
+        "legacy_ambiguous_recoveries": 0,
+        "missing_cost_components": [
+          "environment_usd",
+          "storage_usd",
+          "tool:repo.write"
+        ]
+      }
+    }
+  },
+  "comparisons": {
+    "no_plan": {
+      "baseline": "baseline",
+      "paired_difference": 0,
+      "cluster_95_ci": null,
+      "cost_ratio": null,
+      "noninferiority_supported": false
+    },
+    "no_summary": {
+      "baseline": "baseline",
+      "paired_difference": 0,
+      "cluster_95_ci": null,
+      "cost_ratio": null,
+      "noninferiority_supported": false
+    },
+    "fusion": {
+      "baseline": "baseline",
+      "paired_difference": 0,
+      "cluster_95_ci": null,
+      "cost_ratio": null,
+      "noninferiority_supported": false
+    }
+  },
+  "limitations": "Cluster bootstrap keeps repetitions together within registered cases. Incomplete full-cost estimates cannot establish total savings. External benchmark and oracle evidence require separate reports.",
+  "execution_provenance": {
+    "source_commit": "4e8a85bf39245f54e950b4cda4ff771f35a636c9",
+    "working_tree_dirty": true,
+    "evidence_kind": "local-fixture-mechanism-only"
+  }
+}

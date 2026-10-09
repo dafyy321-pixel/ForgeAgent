@@ -143,7 +143,7 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
     ):
         raise Fault("FIXTURE_SCOPE", "Fixture model is restricted to Runtime Lab", 422)
     if parent:
-        if parent.parent_id or "delegate" not in parent.state["capabilities"]:
+        if parent.parent_id or "delegate" not in parent.state["capabilities"] or not parent.state["semantic"].get("harness", {}).get("delegation", True):
             raise Fault("DELEGATION_LIMIT", "Delegation depth or capability exceeded")
         if spec.project_id != parent.project_id or not set(spec.capabilities) <= set(parent.state["capabilities"]):
             raise Fault("CHILD_SCOPE", "Child capabilities and project must remain inside the parent scope", 403)
@@ -485,6 +485,8 @@ def control(s, tenant, id, command, expected_version, reason, executor="current"
                 db.emit(s, child, "CANCEL_REQUESTED", "Parent task cancelled")
                 db.schedule(s, child)
     elif command == "pause":
+        if r.cancel_requested:
+            raise Fault("CANCEL_PENDING", "Cancellation must finish; it cannot be suspended by pause")
         r.pause_requested = True
         if not r.lease_owner:
             r.status = "PAUSED"

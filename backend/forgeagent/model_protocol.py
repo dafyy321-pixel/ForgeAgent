@@ -123,12 +123,18 @@ def decode_calls(calls, names, schemas=None):
 
 def build_request(messages, state, catalog):
     mode, provider, protocol = settings.model_output_mode, settings.model_provider, settings.model_protocol
+    harness = state.get("semantic", {}).get("harness", {})
+    if harness.get("tool_form", "profile") != "profile":
+        mode = harness["tool_form"]
+    capabilities = list(state.get("capabilities", []))
+    if not harness.get("delegation", True):
+        capabilities = [capability for capability in capabilities if capability != "delegate"]
     names, tools = {}, []
     messages = copy.deepcopy(messages)
     if mode == "native":
         if not settings.model_supports_tools:
             raise Fault("MODEL_CAPABILITY", "Selected model profile does not support native tools")
-        tools, names = native_tools(catalog, state.get("capabilities", []))
+        tools, names = native_tools(catalog, capabilities)
         messages[0]["content"] = messages[0]["content"].split("\nJSON decision schema:", 1)[0].replace(
             "Return only a JSON decision matching the supplied schema.", "Use the supplied native functions for scoped actions and control decisions.")
     schema = None

@@ -56,3 +56,12 @@ test('OIDC authorization code callback verifies PKCE and restores the task route
  expect(await page.evaluate(()=>sessionStorage.getItem('forge-access-token'))).toBe('fixture-access');
  await page.getByRole('button',{name:'退出登录'}).click();await expect(page.getByRole('button',{name:'登录工作空间'})).toBeVisible();
 });
+
+test('sealed dataset metadata and erased reports render without disclosing missing bodies',async({page})=>{
+ const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+ await page.route('**/v1/evaluation-datasets',route=>route.fulfill({json:[{id:'sealed@1',split:'held_out',case_count:20}]}));
+ await page.route('**/v1/evaluations',route=>route.fulfill({json:[{id:'erased',status:'erased',limitations:'Knowledge evidence erased'}]}));
+ await page.goto('/evaluations');
+ await expect(page.getByText('held_out · 20 个任务',{exact:true})).toBeVisible();
+ await expect(page.getByText(/评测正文已擦除/)).toBeVisible();expect(errors).toEqual([]);
+});

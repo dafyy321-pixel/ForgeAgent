@@ -32,7 +32,9 @@ def compact_schema(value):
 
 def decision_schema(state):
     schema = compact_schema(Decision.model_json_schema())
-    if "delegate" in state.get("capabilities", []):
+    if not state.get("semantic", {}).get("harness", {}).get("action_fusion", True):
+        schema["properties"]["calls"]["maxItems"] = 1
+    if "delegate" in state.get("capabilities", []) and state.get("semantic", {}).get("harness", {}).get("delegation", True):
         return schema
     schema["properties"].pop("child", None)
     schema["properties"]["kind"]["enum"].remove("delegate")
@@ -73,6 +75,12 @@ def compile_context(task, state, observations, skills, memories, window, output)
     mandatory.append({"type": "facts", "trust": "runtime", "content": {k: state.get(k) for k in (
         "workspace_digest", "artifact_version", "last_failure", "child_results", "reason"
     )}})
+    if harness.get("planning", True):
+        mandatory.append({"type": "plan", "trust": "runtime", "content": {
+            "method": "constraint_checklist@1", "steps": ["Inspect relevant files and failure evidence",
+                "Make a change inside the allowed paths", "Run relevant checks", "Propose independent verification"],
+            "allowed_paths": task.get("allowed_paths", []), "criteria": task.get("criteria", []),
+            "acceptance_conditions": task.get("acceptance_conditions", [])}})
     if state.get("remote_connections"):
         from .remote_contracts import catalog
 
@@ -125,13 +133,21 @@ def compile_context(task, state, observations, skills, memories, window, output)
                 raise Fault(
                     "CONTEXT_OVERFLOW", "Full context exceeds the input budget; constraints cannot be truncated"
                 )
-            summary = summarize(item) if item["type"] == "observation" else None
+            summary = summarize(item) if item["type"] == "observation" and harness.get("summarization", True) else None
             if summary and used + size(summary) <= budget:
                 selected.append(summary)
                 used += size(summary)
                 omitted.append({"digest": d, "reason": "summarized_with_source", "type": item["type"]})
             else:
                 omitted.append({"digest": d, "reason": "input_budget", "type": item["type"]})
+    if harness.get("observation_fusion", False):
+        observations_selected = [item for item in selected if item["type"] == "observation"]
+        if len(observations_selected) > 1:
+            fused = {"type": "observation_batch", "trust": "untrusted_tool_output",
+                     "content": [item["content"] for item in observations_selected]}
+            if size(fused) <= sum(size(item) for item in observations_selected):
+                selected = [item for item in selected if item["type"] != "observation"] + [fused]
+                used = sum(map(size, selected))
     manifest = {
         "policy": "full@1" if harness.get("context_policy") == "full" else "constraints-first-elision@1",
         "items": selected,
@@ -144,7 +160,7 @@ def compile_context(task, state, observations, skills, memories, window, output)
         "stable_prefix_digest": digest(system),
         "stable_prefix_tokens": count(system),
         "full_local_tokens": sum(size(i) for i in mandatory + candidates),
-        "summary": validate(phase_summary(task, state, selected), task, state, selected),
+        "summary": validate(phase_summary(task, state, selected), task, state, selected) if harness.get("summarization", True) else None,
     }
     manifest["digest"] = digest(manifest)
     return [

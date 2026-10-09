@@ -1502,6 +1502,25 @@ export interface components {
              */
             executor?: "current" | "archived";
         };
+        /** CostAssumptions */
+        CostAssumptions: {
+            /** Cpu Usd Per Second */
+            cpu_usd_per_second?: number | string | null;
+            /** Storage Usd Per Gib Hour */
+            storage_usd_per_gib_hour?: number | string | null;
+            /** Tool Usd Per Call */
+            tool_usd_per_call?: {
+                [key: string]: number | string;
+            };
+            /** Environment Usd Per Run */
+            environment_usd_per_run?: number | string | null;
+            /** Human Usd Per Hour */
+            human_usd_per_hour?: number | string | null;
+            /** Human Seconds By Run */
+            human_seconds_by_run?: {
+                [key: string]: number;
+            };
+        };
         /** CreateRun */
         CreateRun: {
             /** Project Id */
@@ -1597,6 +1616,7 @@ export interface components {
              * @default 1
              */
             max_cost_ratio?: number;
+            cost_assumptions?: components["schemas"]["CostAssumptions"];
         };
         /** FileEntry */
         FileEntry: {
@@ -1646,6 +1666,37 @@ export interface components {
              * @default true
              */
             observation_recall?: boolean;
+            /**
+             * Planning
+             * @default true
+             */
+            planning?: boolean;
+            /**
+             * Summarization
+             * @default true
+             */
+            summarization?: boolean;
+            /**
+             * Tool Form
+             * @default profile
+             * @enum {string}
+             */
+            tool_form?: "profile" | "native" | "structured" | "json";
+            /**
+             * Observation Fusion
+             * @default false
+             */
+            observation_fusion?: boolean;
+            /**
+             * Action Fusion
+             * @default true
+             */
+            action_fusion?: boolean;
+            /**
+             * Delegation
+             * @default true
+             */
+            delegation?: boolean;
         };
         /** MaintenanceRequest */
         MaintenanceRequest: {

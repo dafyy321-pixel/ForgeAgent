@@ -7,7 +7,14 @@ permissions:
   contents: read
   packages: write
 jobs:
+  contracts:
+    uses: ./.github/workflows/runtime.yml
+  gates:
+    needs: contracts
+    uses: ./.github/workflows/release-gates.yml
+    secrets: inherit
   build:
+    needs: gates
     runs-on: ubuntu-latest
     strategy:
       matrix:

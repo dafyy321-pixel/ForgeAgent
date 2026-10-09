@@ -23,6 +23,14 @@ from .workspace import clear_tree, write_tree
 log = logging.getLogger("forge.worker")
 
 
+def ordered_actions(actions):
+    def order(action):
+        parts = action.logical_key.split(":")
+        ordinal = tuple(map(int, parts)) if len(parts) == 2 and all(part.isdigit() for part in parts) else (10 ** 9, 0)
+        return action.created_at, ordinal, action.id
+    return sorted(actions, key=order)
+
+
 class Worker:
     def __init__(self, owner=None, model=None, target_run=None):
         self.owner = owner or uid()
@@ -81,7 +89,8 @@ class Worker:
                     db.get(s, db.Job, tenant, r.id).status = "DONE"
                     return None
                 r.state = recovered["state"]
-            prior_epoch = r.epoch
+            expired_at = r.lease_until.isoformat() if r.lease_owner and r.lease_until else None
+            interrupted = False
             r.epoch += 1
             r.lease_owner, r.lease_until = self.owner, time + timedelta(seconds=settings.lease_seconds)
             job = db.get(s, db.Job, tenant, r.id, True)
@@ -92,9 +101,11 @@ class Worker:
             for a in db.rows(s, db.Action, tenant, run_id=r.id):
                 if a.status in {"DISPATCHED", "RUNNING", "CANCEL_REQUESTED"}:
                     if not (a.receipt and a.receipt.get("remote_task_id")):
+                        interrupted = True
                         a.status = "READY" if a.effect_class in {"read", "workspace_write"} else "UNKNOWN"
             for call in db.rows(s, db.ModelCall, tenant, run_id=r.id):
                 if call.status == "DISPATCHED":
+                    interrupted = True
                     call.status = "UNKNOWN"
                     service.settle(s, r, call.id, None)
                     r.status = "CANCELLING" if r.cancel_requested else "PAUSED"
@@ -104,7 +115,8 @@ class Worker:
                     }
             if r.status == "QUEUED":
                 r.status = "ACTIVE"
-            db.emit(s, r, "LEASE_CLAIMED", "Worker acquired exclusive decision lease", recovered=prior_epoch > 0)
+            db.emit(s, r, "LEASE_CLAIMED", "Worker acquired exclusive decision lease", recovered=bool(expired_at or interrupted),
+                    recovery_version=2, expired_at=expired_at)
             return r.id, r.epoch
 
     def renew(self, tenant, id, epoch):
@@ -219,7 +231,7 @@ class Worker:
                 if state.get("deadline") and datetime.fromisoformat(state["deadline"]) <= db.clock(s) and not r.cancel_requested:
                     service.control(s, tenant, id, "cancel", r.version, "Child deadline reached")
                     state = r.state
-                actions = db.rows(s, db.Action, tenant, run_id=id)
+                actions = ordered_actions(db.rows(s, db.Action, tenant, run_id=id))
                 unknown = [a for a in actions if a.status == "UNKNOWN"]
                 children = db.rows(s, db.Run, tenant, parent_id=id)
                 if unknown:
@@ -583,6 +595,12 @@ class Worker:
             actions = db.rows(s, db.Action, tenant, run_id=id)
             decision = models.parse_decision(json.dumps(call.data["decision"])) if call.data.get("decision") else None
             validation_error = call.data.get("validation_error")
+            if decision and len(decision.calls) > 1:
+                if not state["semantic"].get("harness", {}).get("action_fusion", True):
+                    validation_error = "Action fusion is disabled; propose one call per decision"
+                elif any(proposed.tool not in service.TOOLS or service.TOOLS[proposed.tool]["effect"] not in {"read", "workspace_write"}
+                         for proposed in decision.calls):
+                    validation_error = "Only scoped local operations may share a decision batch; external effects require separate decisions"
             usage = call.data.get("usage")
             call.status = "RECONCILED" if call.status == "RECONCILED" else "SUCCEEDED"
             call.data = {**call.data, "receipt_state": "applied", "applied_at": db.clock(s).isoformat()}
