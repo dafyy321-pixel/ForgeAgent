@@ -5,7 +5,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, Header, Request
+from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import AwareDatetime, Field, model_validator
@@ -252,6 +252,18 @@ def fork(id: str, body: Control, actor: Actor, idempotency_key: Annotated[str, H
 def replay(id: str, actor: Actor):
     with db.transaction(actor.tenant) as s:
         return service.public_payload(service.replay(s, actor.tenant, id))
+
+
+@app.get("/v1/runs/{id}/case-replay")
+def case_replay(id: str, actor: Actor, after: Annotated[int, Query(ge=0)] = 0,
+                through_seq: Annotated[int | None, Query(ge=0)] = None,
+                limit: Annotated[int, Query(ge=1, le=100)] = 100):
+    from .case_replay import page
+
+    with db.transaction(actor.tenant) as s:
+        run = db.get(s, db.Run, actor.tenant, id)
+        require_run_access(s, actor, run)
+        return page(s, run, after, through_seq, limit)
 
 
 @app.get("/v1/runs/{id}/events")

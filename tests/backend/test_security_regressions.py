@@ -28,7 +28,7 @@ def test_same_tenant_resource_reads_and_explicit_sharing(client, tenant, make_ru
         s.flush()
         artifact_id = artifact.id
     app.dependency_overrides[identity] = lambda: Identity(tenant, "outsider")
-    for suffix in ["", "/actions", "/checkpoints", "/replay", "/events", "/budget", "/artifacts", "/context/1"]:
+    for suffix in ["", "/actions", "/checkpoints", "/replay", "/case-replay", "/events", "/budget", "/artifacts", "/context/1"]:
         assert client.get(f"/v1/runs/{run_id}{suffix}").status_code == 403
     assert client.get(f"/v1/artifacts/{artifact_id}/download").status_code == 403
     assert client.get("/v1/workspace").json()["runs"] == []

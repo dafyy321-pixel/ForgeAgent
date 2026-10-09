@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "python-invoice-rounding",
+      "commit": "da1538eefd8d9250b0ae9d1df2b49ea57a7dfa8a",
+      "baseline_digest": "sha256:a23dd54f27e2f54541a2408cd1a9d39e5890144e4bd08a2612da99d0d02dbac0",
+      "patch_digest": "sha256:07a7860d50f2320dca054e2d8642330b70bfb9cef07ab15e7aa6c96f179a6737",
+      "runtime": "Python >=3.12 (stdlib only)",
+      "baseline": {
+        "exit_code": 1,
+        "output": "FF.FF\n======================================================================\nFAIL: test_adjustment (test_invoice.Acceptance.test_adjustment)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"C:\\Users\\PC\\AppData\\Local\\Temp\\forge-controlled-case-bnd1wyo5\\private_acceptance\\test_invoice.py\", line 6, in test_adjustment\n    def test_adjustment(self): self.assertEqual(invoice_total([('-0.005', 1)]), -1)\n                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 0 != -1\n\n======================================================================\nFAIL: test_decimal (test_invoice.Acceptance.test_decimal)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"C:\\Users\\PC\\AppData\\Local\\Temp\\forge-controlled-case-bnd1wyo5\\private_acceptance\\test_invoice.py\", line 5, in test_decimal\n    def test_decimal(self): self.assertEqual(invoice_total([('2.675', 1)]), 268)\n                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 267 != 268\n\n======================================================================\nFAIL: test_half_cent (test_invoice.Acceptance.test_half_cent)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"C:\\Users\\PC\\AppData\\Local\\Temp\\forge-controlled-case-bnd1wyo5\\private_acceptance\\test_invoice.py\", line 4, in test_half_cent\n    def test_half_cent(self): self.assertEqual(invoice_total([('1.005', 2)]), 202)\n                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 200 != 202\n\n======================================================================\nFAIL: test_multiple (test_invoice.Acceptance.test_multiple)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"C:\\Users\\PC\\AppData\\Local\\Temp\\forge-controlled-case-bnd1wyo5\\private_acceptance\\test_invoice.py\", line 7, in test_multiple\n    def test_multiple(self): self.assertEqual(invoice_total([('2.00', 3), ('1.005', 1)]), 701)\n                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 700 != 701\n\n----------------------------------------------------------------------\nRan 5 tests in 0.002s\n\nFAILED (failures=4)\n"
+      },
+      "reference": {
+        "exit_code": 0,
+        "output": ".....\n----------------------------------------------------------------------\nRan 5 tests in 0.000s\n\nOK\n"
+      },
+      "patch_application": {
+        "name": "\u4ea4\u4ed8\u8865\u4e01\u53ef\u5e94\u7528",
+        "status": "passed",
+        "evidence": "git apply --check; applied tree digest matches"
+      },
+      "retrieval": {
+        "lexical": {
+          "paths": [
+            "src/invoice.py",
+            "src/a_invoice_guide.py"
+          ],
+          "target_recall_at_2": 0.5,
+          "local_tokens": 228
+        },
+        "structure": {
+          "paths": [
+            "src/invoice.py",
+            "src/z_money.py"
+          ],
+          "target_recall_at_2": 1.0,
+          "local_tokens": 297
+        }
+      },
+      "model_run": "not_run",
+      "sandbox_run": "not_run",
+      "case_origin": "authored development case"
+    },
+    {
+      "id": "typescript-invoice-fraction",
+      "commit": "8110ba714ed15182bb6c92889782ed55a63ad263",
+      "baseline_digest": "sha256:d42c72ef46b4da75fd85834d16d2f1c4d8392534890bea45fdcaf0f170d369d7",
+      "patch_digest": "sha256:7ec25f491b31becc30909e6fc75ce111be7d4a93fcc5b6c3e92f04201622d7f4",
+      "runtime": "Node >=24 native erasable TypeScript (no npm dependencies)",
+      "baseline": {
+        "exit_code": 1,
+        "output": "\u2716 one fractional digit and quantity (2.4223ms)\n\u2714 whole and hundredths (0.4ms)\n\u2716 negative adjustment (0.4615ms)\n\u2714 empty (0.2217ms)\n\u2714 invalid precision stays rejected (0.4311ms)\n\u2139 tests 5\n\u2139 suites 0\n\u2139 pass 3\n\u2139 fail 2\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 203.0825\n\n\u2716 failing tests:\n\ntest at private_acceptance\\invoice.test.mjs:4:1\n\u2716 one fractional digit and quantity (2.4223ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  \n  410 !== 500\n  \n      at TestContext.<anonymous> (file:///C:/Users/PC/AppData/Local/Temp/forge-controlled-case-i0c5lwf7/private_acceptance/invoice.test.mjs:4:56)\n      at Test.runInAsyncScope (node:async_hooks:227:14)\n      at Test.run (node:internal/test_runner/test:1382:25)\n      at Test.start (node:internal/test_runner/test:1242:17)\n      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: 410,\n    expected: 500,\n    operator: 'strictEqual',\n    diff: 'simple'\n  }\n\ntest at private_acceptance\\invoice.test.mjs:6:1\n\u2716 negative adjustment (0.4615ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  \n  -5 !== -50\n  \n      at TestContext.<anonymous> (file:///C:/Users/PC/AppData/Local/Temp/forge-controlled-case-i0c5lwf7/private_acceptance/invoice.test.mjs:6:42)\n      at Test.runInAsyncScope (node:async_hooks:227:14)\n      at Test.run (node:internal/test_runner/test:1382:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)\n      at Test.postRun (node:internal/test_runner/test:1522:19)\n      at Test.run (node:internal/test_runner/test:1447:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: -5,\n    expected: -50,\n    operator: 'strictEqual',\n    diff: 'simple'\n  }\n"
+      },
+      "reference": {
+        "exit_code": 0,
+        "output": "\u2714 one fractional digit and quantity (1.4035ms)\n\u2714 whole and hundredths (0.2714ms)\n\u2714 negative adjustment (0.1903ms)\n\u2714 empty (0.1674ms)\n\u2714 invalid precision stays rejected (0.4226ms)\n\u2139 tests 5\n\u2139 suites 0\n\u2139 pass 5\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 208.6988\n"
+      },
+      "patch_application": {
+        "name": "\u4ea4\u4ed8\u8865\u4e01\u53ef\u5e94\u7528",
+        "status": "passed",
+        "evidence": "git apply --check; applied tree digest matches"
+      },
+      "retrieval": {
+        "lexical": {
+          "paths": [
+            "src/z_money.ts",
+            "src/invoice.ts"
+          ],
+          "target_recall_at_2": 1.0,
+          "local_tokens": 424
+        },
+        "structure": {
+          "paths": [
+            "src/z_money.ts",
+            "src/invoice.ts"
+          ],
+          "target_recall_at_2": 1.0,
+          "local_tokens": 440
+        }
+      },
+      "model_run": "not_run",
+      "sandbox_run": "not_run",
+      "case_origin": "authored development case"
+    }
+  ],
+  "limitations": "Two authored local development cases; reference patches are human-authored. No real model, production sandbox, blind holdout or generalization claim."
+}

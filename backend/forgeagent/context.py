@@ -59,7 +59,7 @@ def decision_schema(state):
     return schema
 
 
-def compile_context(task, state, observations, skills, memories, window, output):
+def compile_context(task, state, observations, skills, memories, window, output, workspace=None, code_retrieval=None):
     harness = state.get("semantic", {}).get("harness", {})
     if not harness.get("memory", True):
         memories = []
@@ -110,9 +110,20 @@ def compile_context(task, state, observations, skills, memories, window, output)
         + [{"type": "skill", "content": metadata(s), "trust": "untrusted_knowledge"} for s in skills]
         + [{"type": "memory", "content": m, "trust": "untrusted_knowledge"} for m in memories]
     )
+    retrieval = code_retrieval
+    if workspace is not None and harness.get("code_retrieval", "off") != "off":
+        from .code_index import retrieve
+
+        retrieval = retrieve(workspace, task.get("goal", "") + " " + str(state.get("input", "")),
+                             harness["code_retrieval"], state.get("relevant_paths", []))
+    if retrieval:
+        candidates += [{"type": "code_context", "content": item, "trust": "untrusted_repository"}
+                       for item in retrieval["items"]]
     query = set(str(task.get("goal", "")).lower().split()) | set(task.get("allowed_paths", []))
     dependencies = set(state.get("relevant_paths", []))
     def relevance(item):
+        if item["type"] == "code_context":
+            return item["content"]["score"]
         text = canonical(item["content"]).decode().lower()
         return (sum(word in text for word in query if len(word) >= 3)
                 + 3 * sum(path in text for path in dependencies)
@@ -160,6 +171,7 @@ def compile_context(task, state, observations, skills, memories, window, output)
         "stable_prefix_digest": digest(system),
         "stable_prefix_tokens": count(system),
         "full_local_tokens": sum(size(i) for i in mandatory + candidates),
+        "code_retrieval": {k: v for k, v in retrieval.items() if k != "items"} if retrieval else None,
         "summary": validate(phase_summary(task, state, selected), task, state, selected) if harness.get("summarization", True) else None,
     }
     manifest["digest"] = digest(manifest)

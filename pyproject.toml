@@ -24,6 +24,8 @@ dependencies = [
   "a2a-sdk>=0.3,<1",
   "tiktoken>=0.9,<1",
   "jsonschema>=4.23,<5",
+  "tree-sitter>=0.25,<0.26",
+  "tree-sitter-typescript>=0.23,<0.24",
 ]
 [dependency-groups]
 dev = [

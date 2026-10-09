@@ -360,9 +360,18 @@ def test_core_context_overflow_stops():
         compile_context({"goal": "x" * 10000}, {}, [], [], [], 3000, 1000)
 
 
-@given(st.lists(st.text(min_size=0, max_size=200), max_size=50))
+@pytest.fixture(scope="session")
+def initialized_tokenizer():
+    # Load the BPE vocabulary before per-example timing. The property checks
+    # context budgets; tokenizer startup is not a generated input property.
+    from forgeagent.tokenization import count
+
+    count("tokenizer initialization")
+
+
+@given(values=st.lists(st.text(min_size=0, max_size=200), max_size=50))
 @hypothesis_settings(max_examples=100)
-def test_context_budget_invariant(values):
+def test_context_budget_invariant(initialized_tokenizer, values):
     _, m = compile_context({"goal": "required"}, {}, [{"output": v} for v in values], [], [], 8000, 1000)
     assert m["estimated_tokens_upper_bound"] <= m["input_budget"]
     assert m["items"][1]["content"]["goal"] == "required"

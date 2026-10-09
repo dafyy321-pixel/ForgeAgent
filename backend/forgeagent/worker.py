@@ -336,9 +336,9 @@ class Worker:
             return
         if state["turn"] >= state["budget"]["max_turns"]:
             raise Fault("TURN_LIMIT", "Maximum model turns reached")
-        await self.decide(tenant, id, epoch)
+        await self.decide(tenant, id, epoch, state)
 
-    async def decide(self, tenant, id, epoch):
+    async def decide(self, tenant, id, epoch, snapshot):
         async with self.provider_slots:
             from .concurrency import admission, provider_key
 
@@ -352,9 +352,24 @@ class Worker:
                             db.emit(s, r, "PROVIDER_BACKPRESSURE", "Provider capacity exhausted; no request reserved or sent")
                     await asyncio.to_thread(defer)
                     return
-                await self.decide_with_slot(tenant, id, epoch)
+                await self.decide_with_slot(tenant, id, epoch, snapshot)
 
-    async def decide_with_slot(self, tenant, id, epoch):
+    async def decide_with_slot(self, tenant, id, epoch, snapshot):
+        def prepare_code_context():
+            # Reuse the already fenced snapshot; object reads and syntax parsing
+            # happen outside the transaction. Recheck inputs before consumption.
+            st = snapshot
+            policy = st["semantic"].get("harness", {}).get("code_retrieval", "off")
+            binding = digest({k: st.get(k) for k in ("workspace_digest", "task", "input", "input_revision", "semantic", "relevant_paths")})
+            if policy == "off":
+                return binding, None
+            ref, task, extra, relevant = st["workspace_ref"], st["task"], st.get("input", ""), st.get("relevant_paths", [])
+            from .code_index import retrieve
+
+            content = json.loads(objects.get(tenant, ref))
+            return binding, retrieve(content, task["goal"] + " " + str(extra), policy, relevant)
+
+        code_binding, code_context = await asyncio.to_thread(prepare_code_context)
         def prepare_request():
             with db.transaction(tenant) as s:
                 r = db.fence(s, tenant, id, self.owner, epoch)
@@ -362,6 +377,10 @@ class Worker:
 
                 refresh(s, r)
                 state = r.state
+                if code_binding is not None and code_binding != digest({k: state.get(k) for k in (
+                    "workspace_digest", "task", "input", "input_revision", "semantic", "relevant_paths"
+                )}):
+                    return None
                 actions = db.rows(s, db.Action, tenant, run_id=id)
                 observations = [
                     observation.project(a) for a in actions if a.receipt and (
@@ -384,6 +403,7 @@ class Worker:
                     state["memories"],
                     settings.context_window,
                     settings.max_output,
+                    code_retrieval=code_context,
                 )
                 call_id = uid()
                 reservation = 0 if state["fixture"] else models.estimate_cost(len(canonical(messages)), settings.max_output)
@@ -402,7 +422,10 @@ class Worker:
                     ):
                         raise Fault("MODEL_BINDING_CHANGED", "Explicitly bind the configured model before resuming")
             return state, actions, messages, call_id, manifest, reservation
-        state, actions, messages, call_id, manifest, reservation = await asyncio.to_thread(prepare_request)
+        prepared = await asyncio.to_thread(prepare_request)
+        if prepared is None:
+            return
+        state, actions, messages, call_id, manifest, reservation = prepared
         request = None
         input_bound = len(canonical(messages)) + 2048
         if not state["fixture"] and self.model == models.generate:

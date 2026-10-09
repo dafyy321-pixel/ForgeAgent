@@ -15,14 +15,14 @@ from .storage import objects
 STAGES = {
     "state": ["domain.py", "db.py", "reducer.py", "auth.py"],
     "runtime": ["service.py", "worker.py", "progress.py", "concurrency.py", "semantic.py"],
-    "decision": ["models.py", "model_protocol.py", "model_retry.py", "context.py", "context_summary.py", "context_cost.py", "billing.py", "tokenization.py", "knowledge.py", "knowledge_erasure.py", "skill_evolution.py"],
+    "decision": ["models.py", "model_protocol.py", "model_retry.py", "context.py", "context_summary.py", "context_cost.py", "billing.py", "tokenization.py", "knowledge.py", "knowledge_erasure.py", "skill_evolution.py", "code_index.py"],
     "effects": ["sandbox.py", "sandbox_manager.py", "resources.py", "observation.py", "workspace.py", "repository.py", "repo_tools.py", "remote.py", "remote_contracts.py", "storage.py"],
     "verification": ["verification.py"],
 }
 DEPENDENCIES = ["sqlalchemy", "psycopg", "pydantic", "pydantic-settings", "httpx", "boto3",
                 "openai", "anthropic", "mcp", "a2a-sdk", "opentelemetry-api", "fastapi", "starlette",
                 "PyJWT", "cryptography", "httpcore", "anyio", "pydantic-core", "botocore",
-                "opentelemetry-sdk", "opentelemetry-exporter-otlp-proto-http", "prometheus-client", "tiktoken", "regex", "jsonschema"]
+                "opentelemetry-sdk", "opentelemetry-exporter-otlp-proto-http", "prometheus-client", "tiktoken", "regex", "jsonschema", "tree-sitter", "tree-sitter-typescript"]
 
 
 def environment():

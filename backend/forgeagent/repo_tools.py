@@ -1,12 +1,9 @@
 """Bounded repository operations with explicit preimages and declared file scope."""
 
-import ast
 import base64
 import fnmatch
-import re
 import tempfile
 from pathlib import Path
-from typing import Any
 
 from .domain import Fault, digest
 from .sandbox import git, raw_attributes
@@ -72,26 +69,18 @@ def execute(root, tool, args, state):
         return {"exit_code": 0, "matches": matches, "truncated": truncated,
                 "source_digest": digest([digest(before), args["query"], matches])}, None
     if tool == "repo.symbols":
+        from .code_index import analyze
+
         if args["path"] not in before:
             raise Fault("NOT_FOUND", "Source path does not exist", 404)
         source = text(before, args["path"])
         if len(source.encode()) > 1024 * 1024:
             raise Fault("READ_LIMIT", "Symbol query exceeds bounded source size")
-        symbols: list[dict[str, Any]]
-        if args["path"].endswith(".py"):
-            try:
-                tree = ast.parse(source)
-            except SyntaxError as exc:
-                raise Fault("SYNTAX_ERROR", "Source cannot be parsed for symbols", 422) from exc
-            symbols = [{"name": node.name, "kind": type(node).__name__, "line": node.lineno,
-                        "end_line": node.end_lineno} for node in ast.walk(tree)
-                       if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
-        else:
-            symbols = [{"name": match.group(2), "kind": match.group(1), "line": i + 1}
-                       for i, line in enumerate(source.splitlines())
-                       if (match := re.match(r"\s*(?:export\s+)?(?:async\s+)?(function|class)\s+(\w+)", line))]
+        index = analyze(args["path"], source)
+        symbols = index["symbols"]
         selected = [s for s in symbols if args.get("query", "") in s["name"]]
         return {"exit_code": 0, "symbols": selected[:200], "truncated": len(selected) > 200,
+                "parser": index["parser"], "imports": index["imports"], "references": index["references"],
                 "source_digest": digest([body(before[args["path"]]), selected[:200]])}, None
     after = dict(before)
     if tool == "repo.apply_patch":

@@ -260,6 +260,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/runs/{id}/case-replay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Case Replay */
+        get: operations["case_replay_v1_runs__id__case_replay_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/runs/{id}/events": {
         parameters: {
             query?: never;
@@ -1707,6 +1724,12 @@ export interface components {
              * @enum {string}
              */
             context_policy?: "elide" | "full";
+            /**
+             * Code Retrieval
+             * @default off
+             * @enum {string}
+             */
+            code_retrieval?: "off" | "lexical" | "structure";
             /**
              * Memory
              * @default true
@@ -3384,6 +3407,86 @@ export interface operations {
     replay_v1_runs__id__replay_get: {
         parameters: {
             query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Structured API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+        };
+    };
+    case_replay_v1_runs__id__case_replay_get: {
+        parameters: {
+            query?: {
+                after?: number;
+                through_seq?: number | null;
+                limit?: number;
+            };
             header?: never;
             path: {
                 id: string;

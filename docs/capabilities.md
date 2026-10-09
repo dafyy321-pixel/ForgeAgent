@@ -11,11 +11,11 @@
 | 类型化验收、有限修复回路 | verification/domain | 独立验收契约、测试保护、INCONCLUSIVE、反馈修复 | 真实模型 Python/TS 修复效果未测 |
 | 模型协议、计费和 Token | model_protocol/billing/tokenization | native/structured/JSON、缓存/推理、未知费用、真实 BPE | 提供方计数/计费/缓存收益待真实 API |
 | root 资源与子任务契约 | resources/service | CPU 上界、存储、墙钟、分配/join/返还 | gVisor 实际计量/隔离待 Linux；默认单 Agent |
-| 检索、摘要、规划 | context/context_summary/knowledge | 关键词与路径基线、来源保留、固定约束检查清单 | 不是模型语义规划器；收益需配对真实任务验证 |
+| 检索、摘要、规划 | context/code_index/context_summary/knowledge | Python AST、TS/TSX Tree-sitter、可切换词法/导入检索、来源保留与固定检查清单 | 结构检索默认关闭；两个自编案例定位测量不代表模型收益；不是语义规划器 |
 | 技能包与离线候选提炼 | knowledge/skill_evolution/evaluations | 包摘要、读取、开发轨迹规则候选、评测审核/灰度/回退 | 未证明持续自主学习或质量增益 |
 | 控制台与登录 | catalog/dashboard/console | 完整权限聚合、独立分页、OIDC PKCE、SSE、错误与幂等 | 真实组织 IdP 待环境；notifications 为兼容保留字段，无外部通知投递 |
 | 存储生命周期与联合备份 | maintenance/backup/storage | 本地对象、引用图、删除、隔离 PostgreSQL 恢复 | S3/gVisor/镜像发布 live 门禁未运行 |
-| 评测与研究 | evaluations/research/benchmarks | 配对 case 聚类、全成本缺项、恢复 censoring、SWE-bench 准备/预测导出 | 已有 6 个公开历史缺陷与单 fixture 机制样本；不是独立盲测或官方分数 |
+| 评测与研究 | evaluations/research/benchmarks | 配对结果表、全成本缺项、恢复 censoring、只读案例回放、SWE-bench 准备/预测导出 | 6 个公开历史缺陷、单 fixture 机制样本及 2 个自编 Python/TS 案例；不是独立盲测或官方分数 |
 
 ## 验证基线和复现
 
@@ -25,3 +25,5 @@
 - 使用 `npm run start:local` 启动；使用 `npm run test:backend`、`npm run test:ui` 验证。模型与容器未配置时只运行机制自检，不计为模型修复效果。
 
 真实发布要求见 [研究与发布验收](research-acceptance.md)；部署组合与回退见 [运维部署](operations-deployment.md)。旧方案、旧验收报告和资料摘录保留历史语境，当前结论以本表、实现和对应 commit 的实际运行记录为准。
+
+案例、检索单变量配置和测量局限见 [编码案例复现](coding-cases-and-retrieval.md)。

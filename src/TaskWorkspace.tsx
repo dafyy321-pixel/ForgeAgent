@@ -37,6 +37,7 @@ import {
 import type { Runtime } from './useRuntime';
 import { EventStream, RunBadge, useFollowing } from './TaskViews';
 import { ActionLedger, RealContext } from './RuntimePanels';
+import { CaseReplay } from './CaseReplay';
 
 export function TaskWorkspace({ runtime: rt }: { runtime: Runtime }) {
   const r = rt.state.runs.find((r) => r.id === rt.route.id);
@@ -73,6 +74,7 @@ function RunWorkspace({ runtime: rt, run: r }: { runtime: Runtime; run: Executio
     ...(approvals.length ? [['review', '审查操作']] : []),
     ['recovery', '恢复诊断'],
     ['context', '上下文'],
+    ['replay', '案例回放'],
   ];
   const active = r.status === 'ACTIVE';
   const verifying = r.verification.status === 'running';
@@ -247,6 +249,7 @@ function RunWorkspace({ runtime: rt, run: r }: { runtime: Runtime; run: Executio
       {tab === 'changes' && <EvidencePanel runtime={rt} run={r} />}
       {tab === 'verification' && <VerificationPanel runtime={rt} run={r} />}
       {tab === 'context' && <RealContext runtime={rt} run={r} />}
+      {tab === 'replay' && <CaseReplay runtime={rt} run={r} />}
       {!tabs.some(([id]) => id === tab) && (
         <Empty title="此任务页面不存在" description="请从上方选择有效的任务页面。">
           <Button onClick={() => rt.setTab('timeline')}>执行记录</Button>
@@ -504,6 +507,18 @@ function RecoveryPanel({ runtime: rt, run: r }: { runtime: Runtime; run: Executi
       <p className="muted">
         恢复 {r.checkpoint.id}，复用已经确认的动作；原始记录和固定执行配置始终保留。
       </p>
+      {(r.budget_unknown || r.unknownEffect) && (
+        <div className="notice warning">
+          <p>
+            {r.budget_unknown ? '模型账单仍有未知用量或预算预留。' : ''}
+            {r.unknownEffect ? '工具外部效果尚未确认。' : ''}
+          </p>
+          <p>
+            先在动作账本查询原请求或提交供应商账单、远端回执；记录“已发生”或“未发生”的依据，再重新检查恢复条件。缺少证据时保留暂停，避免重复收费或重复操作。
+          </p>
+          <Button onClick={() => rt.setTab('actions')}>打开账本处理未知事项</Button>
+        </div>
+      )}
       <div className="recovery-checks">
         {checks.map((c) => (
           <div className={`recovery-check ${c.ok ? 'ok' : 'blocked'}`} key={c.name}>

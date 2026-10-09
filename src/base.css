@@ -1161,3 +1161,30 @@ button svg {
   bottom: 16px;
   z-index: 20;
 }
+:root .comparison-scroll {
+  overflow-x: auto;
+}
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+.comparison-table th,
+.comparison-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border, #ddd);
+  vertical-align: top;
+}
+.replay-events {
+  padding-left: 24px;
+}
+.replay-events li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border, #ddd);
+  overflow-wrap: anywhere;
+}
+.replay-events time {
+  font-size: 12px;
+  color: var(--muted, #666);
+}

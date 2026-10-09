@@ -140,6 +140,7 @@ class Task(Strict):
 
 class Harness(Strict):
     context_policy: Literal["elide", "full"] = "elide"
+    code_retrieval: Literal["off", "lexical", "structure"] = "off"
     memory: bool = True
     observation_recall: bool = True
     planning: bool = True

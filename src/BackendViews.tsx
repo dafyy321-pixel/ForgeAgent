@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import { useCatalog } from './useCatalog';
 import { ProjectWizard } from './ProjectWizard';
+import { ExperimentComparison } from './ExperimentComparison';
 import type { AppController } from './types';
 import { Button, Dialog, Empty, Heading, Metric, Panel } from './components';
 
@@ -496,9 +497,10 @@ export function Evaluations({ app }: { app: AppController }) {
     <>
       <Heading eyebrow="EVALUATIONS" title="评测实验" description="固定任务集与配对运行结果。">
         <Button onClick={() => setForm('dataset')}>登记任务集</Button>
-        <Button onClick={() => setForm('experiment')}>新建配对实验</Button>
+        <Button primary onClick={() => setForm('experiment')}>
+          新建配对实验
+        </Button>
         <Button
-          primary
           disabled={busy}
           onClick={async () => {
             setBusy(true);
@@ -512,7 +514,7 @@ export function Evaluations({ app }: { app: AppController }) {
             }
           }}
         >
-          运行契约评测
+          运行时自检
         </Button>
       </Heading>
       {error && <p role="alert">{error}</p>}
@@ -538,18 +540,27 @@ export function Evaluations({ app }: { app: AppController }) {
                 {e.status === 'erased' ? '评测正文已擦除' : `${e.successes} / ${e.total} 通过`} ·
                 模型 {e.model || '未配置'}
               </p>
+              {e.model?.startsWith('fixture') && (
+                <p className="notice warning">
+                  确定性 fixture 机制自检，不代表真实模型修复能力或泛化效果。
+                </p>
+              )}
               {e.kind === 'paired' ? (
                 <>
                   <p className="muted">
                     独立任务：{e.independent_cases} · 每配置重复：{e.repetitions}
                   </p>
-                  <pre className="code-block">
-                    {JSON.stringify(
-                      { configurations: e.summaries, comparisons: e.comparisons },
-                      null,
-                      2,
-                    )}
-                  </pre>
+                  <ExperimentComparison report={e} />
+                  <details>
+                    <summary>配置与统计原始数据</summary>
+                    <pre className="code-block">
+                      {JSON.stringify(
+                        { configurations: e.summaries, comparisons: e.comparisons },
+                        null,
+                        2,
+                      )}
+                    </pre>
+                  </details>
                 </>
               ) : (
                 <p className="muted">
@@ -601,10 +612,16 @@ export function Evaluations({ app }: { app: AppController }) {
                 }
               : {
                   dataset_id: datasets.data?.[0]?.id || 'local-tasks@1',
-                  model: 'fixture',
+                  model: 'configured',
                   configurations: [
-                    { name: 'baseline', harness: { context_policy: 'full' } },
-                    { name: 'elision', harness: { context_policy: 'elide' } },
+                    {
+                      name: 'lexical',
+                      harness: { code_retrieval: 'lexical', memory: false, delegation: false },
+                    },
+                    {
+                      name: 'structure',
+                      harness: { code_retrieval: 'structure', memory: false, delegation: false },
+                    },
                   ],
                   repetitions: 3,
                   seed: 42,
