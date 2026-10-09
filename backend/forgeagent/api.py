@@ -9,7 +9,7 @@ from fastapi import Depends, FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import AwareDatetime, Field, model_validator
-from sqlalchemy import Integer, String, cast, func, select, text
+from sqlalchemy import Integer, cast, func, select, text
 
 from . import db, domain, presenters, service
 from . import evaluations as experiments
@@ -124,7 +124,7 @@ def auth_config():
 def ready():
     with db.engine.connect() as c:
         c.execute(text("SELECT 1"))
-        if c.scalar(text("SELECT version_num FROM alembic_version")) != "0008":
+        if c.scalar(text("SELECT version_num FROM alembic_version")) != "0009":
             raise Fault("SCHEMA_VERSION", "Database migration is not ready for this runtime", 503)
     return {"status": "ready", "database": "postgresql"}
 
@@ -138,21 +138,10 @@ def workspace(actor: Actor, project: str | None = None, status: str | None = Non
 
 @app.get("/v1/workspace/revision")
 def workspace_revision(actor: Actor):
-    from .pagination import visible
-
     with db.transaction(actor.tenant) as s:
-        run_revision = s.execute(select(func.count(), func.coalesce(func.sum(db.Run.version), 0)).where(visible(s, actor))).one()
-        metadata = []
-        for cls in [db.Approval, db.Artifact, db.SkillVersion, db.Memory, db.Evaluation, db.Project]:
-            status_column = cls.decision if cls == db.Approval else cls.status if hasattr(cls, "status") else cls.verified
-            from sqlalchemy.dialects.postgresql import aggregate_order_by
-
-            metadata.append(s.scalar(select(func.md5(func.string_agg(
-                cls.id + ":" + cast(status_column, String), aggregate_order_by(",", cls.id)
-            ))).where(cls.tenant_id == actor.tenant)))
-        config = s.get(db.PolicyVersion, (actor.tenant, "settings"))
-        authorization = s.get(db.Authorization, (actor.tenant, actor.actor))
-        return {"revision": digest([list(run_revision), metadata, config.data if config else {}, authorization.data if authorization else {}])}
+        rows = s.execute(select(db.WorkspaceRevision.id, db.WorkspaceRevision.version).where(
+            db.WorkspaceRevision.tenant_id == actor.tenant).order_by(db.WorkspaceRevision.id)).all()
+        return {"revision": digest([actor.tenant, actor.actor, actor.admin, [list(row) for row in rows]])}
 
 
 @app.get("/v1/workspace/summary")

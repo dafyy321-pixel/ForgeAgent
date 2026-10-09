@@ -1,0 +1,124 @@
+{
+  "kind": "local_read_path_pilot",
+  "tenant": "history-pilot-6f6fa32a-53a2-4200-aa70-07e70a33acb7",
+  "run_id": "8cc70388-f2a8-4ef2-935a-2718b9ebc665",
+  "environment": {
+    "platform": "Windows-10-10.0.19045-SP0",
+    "python": "3.12.14",
+    "cpu_count": 8,
+    "postgres": "18.4"
+  },
+  "history": {
+    "checkpoints": 1001,
+    "inactive_memories": 1000
+  },
+  "samples": 20,
+  "concurrency": 4,
+  "p50_ms": 919.6693500271067,
+  "p95_ms": 1015.0399000849575,
+  "peak_sampled_lock_waiters": 0,
+  "peak_sampled_connections": 4,
+  "observations": [
+    {
+      "latency_ms": 879.7296000411734,
+      "lock_waiters": 0,
+      "connections": 4
+    },
+    {
+      "latency_ms": 1010.0476000225171,
+      "lock_waiters": 0,
+      "connections": 4
+    },
+    {
+      "latency_ms": 1067.03140004538,
+      "lock_waiters": 0,
+      "connections": 4
+    },
+    {
+      "latency_ms": 1000.3833000082523,
+      "lock_waiters": 0,
+      "connections": 4
+    },
+    {
+      "latency_ms": 730.2671999204904,
+      "lock_waiters": 0,
+      "connections": 4
+    },
+    {
+      "latency_ms": 799.3825000012293,
+      "lock_waiters": 0,
+      "connections": 4
+    },
+    {
+      "latency_ms": 714.5641000242904,
+      "lock_waiters": 0,
+      "connections": 4
+    },
+    {
+      "latency_ms": 778.0339999590069,
+      "lock_waiters": 0,
+      "connections": 4
+    },
+    {
+      "latency_ms": 869.9316999409348,
+      "lock_waiters": 0,
+      "connections": 4
+    },
+    {
+      "latency_ms": 941.2596999900416,
+      "lock_waiters": 0,
+      "connections": 4
+    },
+    {
+      "latency_ms": 975.3554000053555,
+      "lock_waiters": 0,
+      "connections": 4
+    },
+    {
+      "latency_ms": 958.6210999405012,
+      "lock_waiters": 0,
+      "connections": 4
+    },
+    {
+      "latency_ms": 1014.642299967818,
+      "lock_waiters": 0,
+      "connections": 4
+    },
+    {
+      "latency_ms": 982.0652999915183,
+      "lock_waiters": 0,
+      "connections": 4
+    },
+    {
+      "latency_ms": 1015.0399000849575,
+      "lock_waiters": 0,
+      "connections": 4
+    },
+    {
+      "latency_ms": 941.8658000649884,
+      "lock_waiters": 0,
+      "connections": 4
+    },
+    {
+      "latency_ms": 898.0790000641719,
+      "lock_waiters": 0,
+      "connections": 4
+    },
+    {
+      "latency_ms": 860.8543999725953,
+      "lock_waiters": 0,
+      "connections": 3
+    },
+    {
+      "latency_ms": 833.3895000396296,
+      "lock_waiters": 0,
+      "connections": 2
+    },
+    {
+      "latency_ms": 846.8028999632224,
+      "lock_waiters": 0,
+      "connections": 1
+    }
+  ],
+  "limitations": "Shared local host; read-only workload; sampled waits may miss transients. No throughput, write contention, real recovery or production SLO claim. Isolated pilot data retained for reproduction."
+}

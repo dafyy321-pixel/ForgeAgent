@@ -42,7 +42,7 @@ class EventReducer:
 
 
 def rebuild(s, tenant, run_id, through_seq=None, checkpoint_id=None):
-    from sqlalchemy import select
+    from sqlalchemy import BigInteger, cast, select
 
     from . import db
 
@@ -50,14 +50,15 @@ def rebuild(s, tenant, run_id, through_seq=None, checkpoint_id=None):
     through_seq = run.seq if through_seq is None else through_seq
     if not 0 <= through_seq <= run.seq:
         raise Fault("INVALID_CURSOR", "Reconstruction sequence is outside committed history", 422)
-    checkpoints = db.rows(s, db.Checkpoint, tenant, run_id=run_id)
-    compatible = [c for c in checkpoints if c.status == "READY" and c.data.get("schema_version") == 2
-                  and c.data["event_seq"] <= through_seq]
+    cls = db.Checkpoint
+    event_seq = cast(cls.data["event_seq"].as_string(), BigInteger)
+    query = select(cls).where(cls.tenant_id == tenant, cls.run_id == run_id, cls.status == "READY",
+                              cls.data["schema_version"].as_string() == "2", event_seq <= through_seq)
     if checkpoint_id:
-        compatible = [c for c in compatible if c.id == checkpoint_id]
-        if not compatible:
-            raise Fault("CHECKPOINT_SCOPE", "Checkpoint is incompatible or outside the requested event range", 422)
-    checkpoint = max(compatible, key=lambda c: c.data["event_seq"], default=None)
+        query = query.where(cls.id == checkpoint_id)
+    checkpoint = s.scalar(query.order_by(event_seq.desc(), cls.id.desc()).limit(1))
+    if checkpoint_id and not checkpoint:
+        raise Fault("CHECKPOINT_SCOPE", "Checkpoint is incompatible or outside the requested event range", 422)
     projection, seq = {}, 0
     if checkpoint:
         from .service import checkpoint_manifest

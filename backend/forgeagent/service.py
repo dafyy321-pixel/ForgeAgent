@@ -118,7 +118,6 @@ def authorization(s, run, capability=None):
 def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_id=None, admin=False):
     from . import knowledge
 
-    knowledge.lock(s, tenant)
     if not key or len(key) > 200:
         raise Fault("IDEMPOTENCY_REQUIRED", "A bounded Idempotency-Key is required", 422)
     if not parent and not evaluation_id and not project_access(s, Identity(tenant, actor, admin), spec.project_id, "create"):
@@ -166,6 +165,15 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
     if not parent and len(baseline_bytes) > spec.budget.max_storage_bytes:
         raise Fault("ROOT_STORAGE_LIMIT", "Baseline exceeds the root storage quota", 422)
     baseline_ref = parent.state["workspace_ref"] if parent else objects.put(tenant, run_id, baseline_bytes)
+    acceptance = parent.state["acceptance"] if parent else seal_acceptance(tenant, run_id, project.data.get("acceptance", {}))
+    # Publish objects before the tenant lifecycle lock; then re-read mutable authorization/knowledge.
+    # The idempotency lock is per request key, so equal requests still serialize safely.
+    knowledge.lock(s, tenant)
+    s.refresh(auth)
+    if not set(spec.capabilities) <= set(auth.data["capabilities"]) or (
+        not parent and not evaluation_id and not project_access(s, Identity(tenant, actor, admin), spec.project_id, "create")
+    ):
+        raise Fault("PERMISSION_REVOKED", "Creation permissions changed during object publication", 403)
     skill_data = []
     skill_assignments = []
     for skill_id in spec.skills:
@@ -179,7 +187,6 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
     memories = knowledge.retrieve(s, tenant, spec.project_id, spec.task.model_dump(),
                                   (project.data.get("repository") or {}).get("commit")) if spec.harness.memory else []
     model = "fixture@1" if spec.model == "fixture" else settings.model_id
-    acceptance = parent.state["acceptance"] if parent else seal_acceptance(tenant, run_id, project.data.get("acceptance", {}))
     from .remote_contracts import pin
 
     remote_connections = pin(s, tenant, spec.connections, parent)

@@ -45,6 +45,11 @@ class Document(Row, Base):
     status: Mapped[str] = mapped_column(String(40), default="active")
 
 
+class WorkspaceRevision(Row, Base):
+    __tablename__ = "workspace_revisions"
+    version: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
 class Project(Document):
     __tablename__ = "projects"
 

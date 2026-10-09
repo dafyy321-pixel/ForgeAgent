@@ -3,7 +3,7 @@
 import re
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from . import db
 from .domain import TERMINAL, Fault, canonical, digest
@@ -40,7 +40,8 @@ def retrieve(s, tenant, project, task, revision=None, limit=20):
     time = db.clock(s)
     # Shared row locks ensure an erasure cannot miss a concurrently committed
     # task snapshot that consumed the memory just before withdrawal.
-    for memory in s.scalars(select(db.Memory).where(db.Memory.tenant_id == tenant).with_for_update(read=True)):
+    for memory in s.scalars(select(db.Memory).where(db.Memory.tenant_id == tenant, db.Memory.status == "active",
+        or_(db.Memory.data["project"].as_string().is_(None), db.Memory.data["project"].as_string() == project)).with_for_update(read=True)):
         data = memory.data
         if memory.status != "active" or data.get("project") not in (None, project) or not valid(data, time, revision):
             continue

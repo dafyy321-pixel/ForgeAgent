@@ -16,6 +16,7 @@ from forgeagent.reducer import rebuild
 from forgeagent.sandbox import files, sandbox
 from forgeagent.storage import objects
 from forgeagent.worker import Worker
+from sqlalchemy import select
 
 
 def child_run(s, tenant, parent, **kwargs):
@@ -86,9 +87,11 @@ async def test_twenty_active_runs_finish_under_bounded_fair_scheduler(tenant, mo
         result, leased = {}, 0
         for scope in run_ids:
             with db.transaction(scope) as s:
-                runs = [db.get(s, db.Run, scope, id) for id in run_ids[scope]]
+                runs = list(s.scalars(select(db.Run).where(db.Run.tenant_id == scope, db.Run.id.in_(run_ids[scope]))))
+                assert len(runs) == len(run_ids[scope])
+                time = db.clock(s)
                 result[scope] = sum(r.status == "SUCCEEDED" for r in runs)
-                active = sum(bool(r.lease_until and r.lease_until > db.clock(s)) for r in runs)
+                active = sum(bool(r.lease_until and r.lease_until > time) for r in runs)
                 assert active <= 2
                 leased += active
         assert leased <= 4
