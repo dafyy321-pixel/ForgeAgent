@@ -1,6 +1,7 @@
 import asyncio
 import json
 import math
+import time
 from contextlib import asynccontextmanager
 from typing import Annotated, Literal
 
@@ -8,12 +9,13 @@ from fastapi import Depends, FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import AwareDatetime, Field, model_validator
-from sqlalchemy import select, text
+from sqlalchemy import Integer, String, cast, func, select, text
 
 from . import db, domain, presenters, service
 from . import evaluations as experiments
-from .auth import Identity, authorized_identity, project_access, require_admin, require_run_access, run_access
+from .auth import Identity, authorized_identity, project_access, require_admin, require_run_access
 from .config import settings
+from .contracts import CatalogPage, RunPage, RunView, WorkspaceIndex
 from .domain import (
     TERMINAL,
     ApprovalDecision,
@@ -106,22 +108,61 @@ def live():
     return {"status": "ok"}
 
 
+@app.get("/v1/auth/config")
+def auth_config():
+    if settings.auth_mode == "local":
+        return {"mode": "local"}
+    if settings.auth_mode != "oidc" or not settings.oidc_issuer.startswith("https://") or not settings.oidc_client_id:
+        raise Fault("AUTH_CONFIG", "Configure an HTTPS OIDC authority and public browser client ID", 503)
+    return {"mode": "oidc", "authority": settings.oidc_issuer, "client_id": settings.oidc_client_id,
+            "scope": settings.oidc_scope, "audience": settings.oidc_audience}
+
+
 @app.get("/health/ready")
 def ready():
     with db.engine.connect() as c:
         c.execute(text("SELECT 1"))
-        if c.scalar(text("SELECT version_num FROM alembic_version")) != "0007":
+        if c.scalar(text("SELECT version_num FROM alembic_version")) != "0008":
             raise Fault("SCHEMA_VERSION", "Database migration is not ready for this runtime", 503)
     return {"status": "ready", "database": "postgresql"}
 
 
-@app.get("/v1/workspace")
-def workspace(actor: Actor):
+@app.get("/v1/workspace", response_model=WorkspaceIndex)
+def workspace(actor: Actor, project: str | None = None, status: str | None = None, q: str = "",
+              cursor: str | None = None, limit: int = 50, run_id: str | None = None):
     with db.transaction(actor.tenant) as s:
-        return presenters.workspace(s, actor.tenant, actor)
+        return presenters.workspace(s, actor.tenant, actor, project, status, q, cursor, limit, run_id)
 
 
-@app.post("/v1/runs", status_code=202)
+@app.get("/v1/workspace/revision")
+def workspace_revision(actor: Actor):
+    from .pagination import visible
+
+    with db.transaction(actor.tenant) as s:
+        run_revision = s.execute(select(func.count(), func.coalesce(func.sum(db.Run.version), 0)).where(visible(s, actor))).one()
+        metadata = []
+        for cls in [db.Approval, db.Artifact, db.SkillVersion, db.Memory, db.Evaluation, db.Project]:
+            status_column = cls.decision if cls == db.Approval else cls.status if hasattr(cls, "status") else cls.verified
+            from sqlalchemy.dialects.postgresql import aggregate_order_by
+
+            metadata.append(s.scalar(select(func.md5(func.string_agg(
+                cls.id + ":" + cast(status_column, String), aggregate_order_by(",", cls.id)
+            ))).where(cls.tenant_id == actor.tenant)))
+        config = s.get(db.PolicyVersion, (actor.tenant, "settings"))
+        authorization = s.get(db.Authorization, (actor.tenant, actor.actor))
+        return {"revision": digest([list(run_revision), metadata, config.data if config else {}, authorization.data if authorization else {}])}
+
+
+@app.get("/v1/catalog/{collection}", response_model=CatalogPage)
+def catalog(collection: str, actor: Actor, cursor: str | None = None, limit: int = 50,
+            status: str | None = None, run_id: str | None = None):
+    from .catalog import page
+
+    with db.transaction(actor.tenant) as s:
+        return page(s, actor, collection, cursor, limit, status, run_id)
+
+
+@app.post("/v1/runs", status_code=202, response_model=RunView)
 def create(body: CreateRun, actor: Actor, idempotency_key: Annotated[str, Header()]):
     with db.transaction(actor.tenant) as s:
         if not project_access(s, actor, body.project_id, "create"):
@@ -130,25 +171,19 @@ def create(body: CreateRun, actor: Actor, idempotency_key: Annotated[str, Header
         return presenters.run_view(s, r)
 
 
-@app.get("/v1/runs")
+@app.get("/v1/runs", response_model=RunPage)
 def runs(
-    actor: Actor, project: str | None = None, status: str | None = None, cursor: str | None = None, limit: int = 50
+    actor: Actor, project: str | None = None, status: str | None = None, cursor: str | None = None, limit: int = 50, q: str = ""
 ):
     with db.transaction(actor.tenant) as s:
-        q = select(db.Run).where(db.Run.tenant_id == actor.tenant)
-        if project:
-            q = q.where(db.Run.project_id == project)
-        if status:
-            q = q.where(db.Run.status == status)
-        if cursor:
-            q = q.where(db.Run.id > cursor)
-        values = [r for r in s.scalars(q.order_by(db.Run.id)) if run_access(s, actor, r)]
-        more = len(values) > min(max(limit, 1), 100)
-        values = values[: min(max(limit, 1), 100)]
-        return {"items": [presenters.run_view(s, r) for r in values], "next_cursor": values[-1].id if more else None}
+        from .pagination import runs as page_runs
+
+        values, next_cursor = page_runs(s, actor, project, status, q, cursor, limit)
+        cache = presenters.run_cache(s, values)
+        return {"items": [presenters.run_view(s, r, cache) for r in values], "next_cursor": next_cursor}
 
 
-@app.get("/v1/runs/{id}")
+@app.get("/v1/runs/{id}", response_model=RunView)
 def run(id: str, actor: Actor):
     with db.transaction(actor.tenant) as s:
         return presenters.run_view(s, db.get(s, db.Run, actor.tenant, id))
@@ -239,9 +274,18 @@ async def events(
 
     async def stream():
         nonlocal cursor
+        opened = time.monotonic()
         while not await request.is_disconnected():
+            if actor.expires_at is not None and time.time() >= actor.expires_at:
+                yield 'event: auth_expired\ndata: {"code":"UNAUTHORIZED"}\n\n'
+                break
+            if time.monotonic() - opened > 300:
+                break
             def read_event_batch():
                 with db.transaction(actor.tenant) as s:
+                    authorization = s.get(db.Authorization, (actor.tenant, actor.actor))
+                    if not authorization or authorization.status != "active":
+                        raise Fault("FORBIDDEN", "Stream identity was revoked", 403)
                     r = db.get(s, db.Run, actor.tenant, id)
                     require_run_access(s, actor, r)
                     batch = list(
@@ -254,12 +298,17 @@ async def events(
                     )
                     done = r.status in TERMINAL
                 return batch, done
-            batch, done = await asyncio.to_thread(read_event_batch)
+            try:
+                batch, done = await asyncio.to_thread(read_event_batch)
+            except Fault as exc:
+                yield f"event: authorization_error\ndata: {canonical({'code': exc.code}).decode()}\n\n"
+                break
             for e in batch:
                 cursor = e.seq
                 value = service.public_payload({"seq": e.seq, "type": e.type, "payload": e.payload})
                 yield f"id: {e.seq}\nevent: domain\ndata: {canonical(value).decode()}\n\n"
             if done and not batch:
+                yield 'event: end\ndata: {"terminal":true}\n\n'
                 break
             if not batch:
                 yield ": keepalive\n\n"
@@ -272,7 +321,9 @@ async def events(
 def actions(id: str, actor: Actor):
     with db.transaction(actor.tenant) as s:
         db.get(s, db.Run, actor.tenant, id)
-        return [presenters.action_view(s, a) for a in db.rows(s, db.Action, actor.tenant, run_id=id)]
+        values = db.list_rows(s, db.Action, actor.tenant, run_id=id)
+        cache = presenters.action_cache(s, values)
+        return [presenters.action_view(s, a, cache) for a in values]
 
 
 @app.get("/v1/actions/{action_id}")
@@ -413,7 +464,7 @@ def checkpoints(id: str, actor: Actor):
     with db.transaction(actor.tenant) as s:
         db.get(s, db.Run, actor.tenant, id)
         return service.public_payload([
-            {"id": c.id, "status": c.status, **c.data} for c in db.rows(s, db.Checkpoint, actor.tenant, run_id=id)
+            {"id": c.id, "status": c.status, **c.data} for c in db.list_rows(s, db.Checkpoint, actor.tenant, run_id=id)
         ])
 
 
@@ -562,7 +613,7 @@ def artifacts(id: str, actor: Actor):
                 "verified": a.verified,
                 "download_url": f"/v1/artifacts/{a.id}/download",
             }
-            for a in db.rows(s, db.Artifact, actor.tenant, run_id=id)
+            for a in db.list_rows(s, db.Artifact, actor.tenant, run_id=id)
         ]
 
 
@@ -696,10 +747,13 @@ class ProjectInput(Strict):
 
 @app.get("/v1/projects")
 def projects(actor: Actor):
+    from .catalog import page
+
     with db.transaction(actor.tenant) as s:
+        ids = [row["id"] for row in page(s, actor, "projects", limit=100)["items"]]
         return service.public_payload([
-            {"id": p.id, **p.data} for p in db.rows(s, db.Project, actor.tenant)
-            if project_access(s, actor, p.id, "read")
+            {"id": p.id, **p.data} for p in s.scalars(select(db.Project).where(db.Project.tenant_id == actor.tenant,
+                db.Project.id.in_(ids)).order_by(db.Project.created_at.desc(), db.Project.id.desc()))
         ])
 
 
@@ -902,6 +956,15 @@ class SkillRelease(Strict):
     rollout_percent: int = Field(100, ge=0, le=100)
 
 
+@app.get("/v1/skills/{id}/content")
+def skill_content(id: str, actor: Actor):
+    with db.transaction(actor.tenant) as s:
+        skill = db.get(s, db.SkillVersion, actor.tenant, id)
+        if skill.status == "erased":
+            raise Fault("SKILL_ERASED", "Skill content has been erased", 410)
+        return {"content": skill.data.get("content", "")}
+
+
 @app.get("/v1/skills/{id}/release-options")
 def skill_release_options(id: str, actor: Actor):
     require_admin(actor)
@@ -1078,7 +1141,7 @@ def connections(actor: Actor):
     with db.transaction(actor.tenant) as s:
         return [
             {"id": c.id, "status": c.status, **c.data}
-            for c in db.rows(s, db.ToolVersion, actor.tenant)
+            for c in db.list_rows(s, db.ToolVersion, actor.tenant)
             if c.data.get("kind") in {"mcp", "a2a"}
         ]
 
@@ -1304,7 +1367,7 @@ def datasets(actor: Actor):
     with db.transaction(actor.tenant) as s:
         return [{"id": e.id, **({"split": "held_out", "digest": e.data["digest"], "status": e.status,
                                 "case_count": len(e.data["cases"])} if e.data.get("split") == "held_out" else e.data)}
-                for e in db.rows(s, db.EvaluationDataset, actor.tenant)]
+                for e in db.list_rows(s, db.EvaluationDataset, actor.tenant)]
 
 
 @app.post("/v1/experiments", status_code=202)
@@ -1398,7 +1461,7 @@ def evaluation_view(s, e, tenant):
 def evaluations(actor: Actor):
     require_admin(actor)
     with db.transaction(actor.tenant) as s:
-        return [evaluation_view(s, e, actor.tenant) for e in db.rows(s, db.Evaluation, actor.tenant)]
+        return [evaluation_view(s, e, actor.tenant) for e in db.list_rows(s, db.Evaluation, actor.tenant)]
 
 
 @app.get("/v1/evaluations/{id}")
@@ -1437,18 +1500,16 @@ async def diagnostics(actor: Actor):
 def metrics(actor: Actor):
     require_admin(actor)
     with db.transaction(actor.tenant) as s:
-        runs = db.rows(s, db.Run, actor.tenant)
-        actions = db.rows(s, db.Action, actor.tenant)
-        accounts = db.rows(s, db.BudgetAccount, actor.tenant)
+        runs = s.execute(select(func.count(), func.count().filter(db.Run.status == "SUCCEEDED"),
+            func.count().filter(db.Run.status == "WAITING"),
+            func.coalesce(func.sum(cast(db.Run.state["tokens"].as_string(), Integer)), 0)).where(db.Run.tenant_id == actor.tenant)).one()
+        actions = s.execute(select(func.count(), func.count().filter(db.Action.status == "UNKNOWN")).where(db.Action.tenant_id == actor.tenant)).one()
+        accounts = s.execute(select(func.coalesce(func.sum(db.BudgetAccount.spent), 0),
+            func.coalesce(func.sum(db.BudgetAccount.reserved), 0)).where(db.BudgetAccount.tenant_id == actor.tenant)).one()
         return {
-            "runs": len(runs),
-            "succeeded": sum(r.status == "SUCCEEDED" for r in runs),
-            "waiting": sum(r.status == "WAITING" for r in runs),
-            "unknown_actions": sum(a.status == "UNKNOWN" for a in actions),
-            "cost_usd": sum(a.spent for a in accounts) / 1e6,
-            "reserved_usd": sum(a.reserved for a in accounts) / 1e6,
-            "tokens": sum(r.state["tokens"] for r in runs),
-            "actions": len(actions),
+            "runs": runs[0], "succeeded": runs[1], "waiting": runs[2], "tokens": runs[3],
+            "actions": actions[0], "unknown_actions": actions[1],
+            "cost_usd": float(accounts[0]) / 1e6, "reserved_usd": float(accounts[1]) / 1e6,
         }
 
 
@@ -1526,7 +1587,7 @@ def maintenance_jobs(actor: Actor):
     require_admin(actor)
     with db.transaction(actor.tenant) as s:
         return [{"id": job.id, "status": job.status, "data": job.data}
-                for job in db.rows(s, db.PolicyVersion, actor.tenant) if job.data.get("kind") == "maintenance_job"]
+                for job in db.list_rows(s, db.PolicyVersion, actor.tenant) if job.data.get("kind") == "maintenance_job"]
 
 
 @app.post("/v1/operations/jobs/{id}/retry")

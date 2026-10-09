@@ -34,6 +34,7 @@ def test_frozen_migrations_build_current_schema_without_live_metadata():
                 revision("0005_knowledge_erasure.py").upgrade()
                 revision("0006_settled_erasure_guards.py").upgrade()
                 revision("0007_record_integrity.py").upgrade()
+                revision("0008_query_pages.py").upgrade()
             inspector = inspect(connection)
             assert set(inspector.get_table_names(schema=schema)) == set(db.Base.metadata.tables)
             for name, table in db.Base.metadata.tables.items():

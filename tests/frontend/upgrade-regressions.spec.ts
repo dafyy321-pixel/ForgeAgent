@@ -7,6 +7,8 @@ test('settings wait for async data, preserve dirty drafts and reject stale saves
  let current=structuredClone(workspace);let lastBody:any;
  await page.route('**/v1/**',async route=>{
   const path=new URL(route.request().url()).pathname;
+  if(path==='/v1/auth/config'){await route.fulfill({json:{mode:'local'}});return}
+  if(path==='/v1/workspace/revision'){await route.fulfill({json:{revision:String(Date.now())}});return}
   if(path==='/v1/workspace'){await new Promise(resolve=>setTimeout(resolve,400));await route.fulfill({json:current});return}
   if(path==='/v1/settings'){
    lastBody=route.request().postDataJSON();
@@ -43,6 +45,8 @@ test('skill release selects eligible evidence and submits the reviewed configura
  let releaseBody:any;
  await page.route('**/v1/**',async route=>{
   const path=new URL(route.request().url()).pathname;
+  if(path==='/v1/auth/config'){await route.fulfill({json:{mode:'local'}});return}
+  if(path==='/v1/workspace/revision'){await route.fulfill({json:{revision:String(Date.now())}});return}
   if(path==='/v1/workspace'){await route.fulfill({json:{...workspace,skills:[skill]}});return}
   if(path.endsWith('/release-options')){await route.fulfill({json:[
    {evaluation_id:'invalid-experiment',configuration:'candidate',eligible:false,reason:'Cost gate failed'},

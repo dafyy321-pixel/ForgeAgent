@@ -13,6 +13,7 @@ class Identity:
     tenant: str
     actor: str
     admin: bool = False
+    expires_at: int | None = None
 
 
 @lru_cache
@@ -50,7 +51,10 @@ def identity(request: Request):
             issuer=settings.oidc_issuer,
             options={"require": ["exp", "sub", "iss", "aud", "tenant_id"]},
         )
-        return Identity(claims["tenant_id"], claims["sub"], "forge-admin" in claims.get("roles", []))
+        if not isinstance(claims["tenant_id"], str) or not isinstance(claims["sub"], str):
+            raise jwt.InvalidTokenError("Invalid identity claims")
+        roles = claims.get("roles", [])
+        return Identity(claims["tenant_id"], claims["sub"], isinstance(roles, list) and "forge-admin" in roles, claims["exp"])
     except jwt.PyJWTError:
         raise Fault("UNAUTHORIZED", "Invalid or expired access token", 401)
 
@@ -91,11 +95,14 @@ def authorized_identity(request: Request, actor: Identity = Depends(identity)):
     from . import db
 
     parts = request.url.path.strip("/").split("/")
-    if len(parts) < 3 or parts[0] != "v1":
-        return actor
-    resource, resource_id = parts[1:3]
-    operation = "read" if request.method == "GET" else "edit"
     with db.transaction(actor.tenant) as s:
+        authorization = s.get(db.Authorization, (actor.tenant, actor.actor))
+        if (authorization is not None and authorization.status != "active") or (settings.auth_mode == "oidc" and authorization is None):
+            raise Fault("FORBIDDEN", "Workspace identity is not active", 403)
+        if len(parts) < 3 or parts[0] != "v1":
+            return actor
+        resource, resource_id = parts[1:3]
+        operation = "read" if request.method == "GET" else "edit"
         run = None
         if resource == "runs":
             run = db.get(s, db.Run, actor.tenant, resource_id)

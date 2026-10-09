@@ -6,6 +6,8 @@ test('remote connection discovery and task selection use the reviewed server cat
  let submitted:any;
  await page.route('**/v1/**',async route=>{
   const path=new URL(route.request().url()).pathname;
+  if(path==='/v1/auth/config'){await route.fulfill({json:{mode:'local'}});return}
+  if(path==='/v1/workspace/revision'){await route.fulfill({json:{revision:String(Date.now())}});return}
   if(path==='/v1/workspace'){await route.fulfill({json:workspace});return}
   if(path==='/v1/connections'){await route.fulfill({json:[connection]});return}
   if(path==='/v1/connections/reviewed-connection/discover'){connection={...connection,status:'active',negotiated:{time:'2026-10-09'}};await route.fulfill({json:connection});return}

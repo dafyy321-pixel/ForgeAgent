@@ -231,6 +231,14 @@ def rows(s, cls, tenant, **filters):
     return list(s.scalars(query.order_by(cls.created_at, cls.id)))
 
 
+def list_rows(s, cls, tenant, limit=100, **filters):
+    """Bound legacy console lists; use the signed catalog cursor for later pages."""
+    query = select(cls).where(cls.tenant_id == tenant)
+    for key, value in filters.items():
+        query = query.where(getattr(cls, key) == value)
+    return list(s.scalars(query.order_by(cls.created_at.desc(), cls.id.desc()).limit(limit)))
+
+
 def projection(run):
     return {
         "status": run.status,

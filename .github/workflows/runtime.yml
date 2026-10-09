@@ -29,6 +29,13 @@ jobs:
         run: psql -h 127.0.0.1 -p 55432 -U postgres -f infra/init.sql
       - run: uv run alembic upgrade head
       - run: uv run ruff check backend tests/backend migrations
+      - run: uv run ty check backend/forgeagent/sdk.py backend/forgeagent/contracts.py
+      - run: npm run types:check
+      - run: uv build --out-dir .forge/dist
+      - name: Verify isolated wheel imports and CLI entry point
+        run: |
+          uv run --no-project --isolated --with .forge/dist/forgeagent-0.2.0-py3-none-any.whl python -c "from forgeagent.sdk import Client; from forgeagent.contracts import RunView; from forgeagent.cli import app"
+          uv run --no-project --isolated --with .forge/dist/forgeagent-0.2.0-py3-none-any.whl forge --help
       - run: docker build -t forgeagent-sandbox:local sandbox
       - run: uv run pytest tests/backend -q
         env:

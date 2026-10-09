@@ -17,9 +17,12 @@
     "test:backend": "uv run pytest tests/backend -q",
     "test:ui": "playwright test",
     "check": "uv run ruff check backend tests/backend",
-    "sandbox:build": "docker build -t forgeagent-sandbox:local sandbox"
+    "sandbox:build": "docker build -t forgeagent-sandbox:local sandbox",
+    "types:api": "uv run python scripts/export-api.py && openapi-typescript .forge/openapi.json -o src/generated/api-schema.d.ts --default-non-nullable false",
+    "types:check": "uv run python scripts/export-api.py && openapi-typescript .forge/openapi.json -o src/generated/api-schema.d.ts --default-non-nullable false --check"
   },
   "dependencies": {
+    "oidc-client-ts": "^3.5.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
@@ -29,6 +32,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "embedded-postgres": "^18.4.0-beta.17",
+    "openapi-typescript": "^7.13.0",
     "typescript": "~5.7.2",
     "vite": "^6.0.5"
   }

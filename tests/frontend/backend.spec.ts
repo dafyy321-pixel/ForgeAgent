@@ -17,7 +17,7 @@ test('durable task completes and opens in a separate browser context',async({pag
 });
 
 test('create real-model task persists and reports missing configuration',async({page})=>{
- await page.goto('/');await page.keyboard.press('Alt+n');
+ await page.goto('/');await expect(page.getByRole('button',{name:'创建任务',exact:true}).first()).toBeVisible();await page.keyboard.press('Alt+n');
  const form=page.getByRole('dialog',{name:'创建任务',exact:true});
  await form.getByLabel('任务目标',{exact:true}).fill('API integration task '+Date.now());
  await form.getByLabel('任务说明',{exact:true}).fill('检查注册项目中的代码并提出符合验收契约的修改。');
@@ -46,11 +46,13 @@ test('paired evaluation forms persist cases and complete on the worker',async({p
  await page.goto('/evaluations');
  await page.getByRole('button',{name:'登记任务集',exact:true}).click();
  const name='ui-cases-'+Date.now()+'@1';
+ await page.getByRole('button',{name:'高级 JSON 配置'}).click();
  await page.getByRole('textbox',{name:'配置内容'}).fill(JSON.stringify({id:name,source:'UI test',cases:[{id:'addition',project_id:'runtime-lab',task:{goal:'Fix add',allowed_paths:['src']},budget:{max_cost_usd:'0.10'}}]}));
  await page.getByRole('button',{name:'保存到服务端'}).click();
  await expect(page.getByRole('dialog')).toHaveCount(0);
  await expect(page.locator('#main-content')).toContainText(name);
  await page.getByRole('button',{name:'新建配对实验'}).click();
+ await page.getByRole('button',{name:'高级 JSON 配置'}).click();
  await page.getByRole('textbox',{name:'配置内容'}).fill(JSON.stringify({dataset_id:name,model:'fixture',configurations:[{name:'baseline'},{name:'candidate',harness:{memory:false}}],repetitions:1,max_total_cost_usd:'0.20'}));
  await page.getByRole('button',{name:'保存到服务端'}).click();
  await expect(page.getByRole('dialog')).toHaveCount(0);

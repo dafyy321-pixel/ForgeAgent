@@ -1,15 +1,43 @@
+from datetime import timedelta
+
+from sqlalchemy import func, select
+
 from . import db, service
-from .auth import project_access, run_access
+from .auth import run_access
 from .domain import canonical, digest
-from .storage import objects
 
 
-def run_view(s, r):
+def run_cache(s, runs):
+    if not runs:
+        return {}
+    tenant, ids = runs[0].tenant_id, [r.id for r in runs]
+    roots = {r.root_id for r in runs}
+    actions = {row.run_id: row for row in s.execute(select(db.Action.run_id, func.count().label("count"),
+        func.bool_or(db.Action.status == "SUCCEEDED").label("succeeded"),
+        func.bool_or(db.Action.status == "UNKNOWN").label("unknown")).where(
+            db.Action.tenant_id == tenant, db.Action.run_id.in_(ids)).group_by(db.Action.run_id))}
+    return {"accounts": {a.id: a for a in s.scalars(select(db.BudgetAccount).where(db.BudgetAccount.tenant_id == tenant, db.BudgetAccount.id.in_(roots)))},
+            "actions": actions,
+            "auth": {a.id: a for a in s.scalars(select(db.Authorization).where(db.Authorization.tenant_id == tenant, db.Authorization.id.in_({r.actor for r in runs})))},
+            "roots": {r.id: r for r in s.scalars(select(db.Run).where(db.Run.tenant_id == tenant, db.Run.id.in_(roots)))},
+            "unknown_billing": set(s.scalars(select(db.BudgetEntry.account_id).where(db.BudgetEntry.tenant_id == tenant, db.BudgetEntry.account_id.in_(roots), db.BudgetEntry.status == "unknown"))),
+            "time": db.clock(s)}
+
+
+def run_view(s, r, cache=None):
     st = r.state
-    account = db.get(s, db.BudgetAccount, r.tenant_id, r.root_id)
-    actions = db.rows(s, db.Action, r.tenant_id, run_id=r.id)
+    cache = cache or run_cache(s, [r])
+    account = cache["accounts"][r.root_id]
+    action_summary = cache["actions"].get(r.id)
+    authorization = cache["auth"].get(r.actor)
+    root = cache["roots"][r.root_id]
+    deadline = root.created_at + timedelta(seconds=root.state["budget"]["max_wall_seconds"])
+    if st.get("deadline"):
+        from datetime import datetime
+
+        deadline = min(deadline, datetime.fromisoformat(st["deadline"]))
     report = service.public_report(st["acceptance"], st["verification"]) if st.get("verification") else None
-    elapsed = max(0, int((db.clock(s) - r.created_at).total_seconds()))
+    elapsed = max(0, int(((r.updated_at if r.status in {"SUCCEEDED", "FAILED", "CANCELLED"} else cache["time"]) - r.created_at).total_seconds()))
     semantic = st["semantic"]
     return {
         "id": r.id,
@@ -18,13 +46,17 @@ def run_view(s, r):
         "project": r.project_id,
         "status": r.status,
         "phase": st.get("reason") if r.status == "PAUSED" else r.phase,
-        "progress": 100 if r.status == "SUCCEEDED" else min(90, st["turn"] * 10),
+        "progress": 100 if r.status == "SUCCEEDED" else 0,
+        "progress_kind": "verified" if r.status == "SUCCEEDED" else "indeterminate",
+        "progress_facts": st.get("progress", {}),
+        "resources": account.resources,
+        "budget_unknown": r.root_id in cache["unknown_billing"],
         "model": semantic["model_id"] or "尚未配置",
         "cost": account.spent / 1_000_000,
         "reserved": account.reserved / 1_000_000,
         "budget": account.limit_micros / 1_000_000,
         "tokens": st["tokens"],
-        "steps": len(actions),
+        "steps": action_summary.count if action_summary else 0,
         "started": r.created_at.isoformat(),
         "duration": f"{elapsed // 60}m {elapsed % 60}s",
         "updatedAt": int(r.updated_at.timestamp() * 1000),
@@ -37,7 +69,7 @@ def run_view(s, r):
             for label, done in [
                 ("任务契约", True),
                 ("定位与规划", st["turn"] > 0),
-                ("修改与执行", any(a.status == "SUCCEEDED" for a in actions)),
+                ("修改与执行", bool(action_summary and action_summary.succeeded)),
                 ("独立验证", r.status == "SUCCEEDED"),
             ]
         ],
@@ -53,19 +85,22 @@ def run_view(s, r):
             "compatible": semantic.get("implementation") == service.implementation_bindings()
             and semantic["tools_digest"] == digest(service.TOOLS),
             "permission": set(st["capabilities"])
-            <= set(db.get(s, db.Authorization, r.tenant_id, r.actor).data["capabilities"]),
-            "environment": st.get("environment_ready", not st.get("reason", "").startswith("SANDBOX_UNAVAILABLE")),
+            <= set(authorization.data.get("capabilities", []) if authorization else []),
+            "environment": st.get("environment_ready") is True,
+            "environment_status": "ready" if st.get("environment_ready") is True else "unavailable" if st.get("environment_ready") is False else "unknown",
         },
-        "unknownEffect": any(a.status == "UNKNOWN" for a in actions),
+        "unknownEffect": bool(action_summary and action_summary.unknown),
         "cancelRequested": r.cancel_requested,
         "version": st["artifact_version"],
         "stateVersion": r.version,
-        "deadline": None,
+        "deadline": int(deadline.timestamp() * 1000),
         "verification": {
             "status": "passed"
             if report and report["verdict"] == "PASS"
             else "failed"
             if report and report["verdict"] == "FAIL"
+            else "inconclusive"
+            if report and report["verdict"] == "INCONCLUSIVE"
             else "running"
             if r.phase == "VERIFYING" and r.status == "ACTIVE"
             else "not_run",
@@ -80,7 +115,22 @@ def run_view(s, r):
     }
 
 
-def action_view(s, a):
+def action_cache(s, actions):
+    result = {a.id: {"input_deliveries": [], "attempts": []} for a in actions}
+    if not actions:
+        return result
+    tenant = actions[0].tenant_id
+    for cls, key in [(db.Outbox, "input_deliveries"), (db.Attempt, "attempts")]:
+        for row in s.scalars(select(cls).where(cls.tenant_id == tenant, cls.data["action_id"].as_string().in_(result))):
+            value = {"id": row.id, "status": row.status}
+            if cls == db.Attempt:
+                value.update(row.data)
+            result[row.data["action_id"]][key].append(value)
+    return result
+
+
+def action_view(s, a, cache=None):
+    cache = cache if cache is not None else action_cache(s, [a])
     return {
         "id": a.id,
         "run_id": a.run_id,
@@ -91,26 +141,41 @@ def action_view(s, a):
         "status": a.status,
         "idempotency_key": a.id,
         "receipt": a.receipt,
-        "input_deliveries": [
-            {"id": o.id, "status": o.status}
-            for o in db.rows(s, db.Outbox, a.tenant_id)
-            if o.data.get("action_id") == a.id
-        ],
-        "attempts": [
-            {"id": p.id, "status": p.status, **p.data}
-            for p in db.rows(s, db.Attempt, a.tenant_id, run_id=a.run_id)
-            if p.data["action_id"] == a.id
-        ],
+        **cache[a.id],
     }
 
 
-def workspace(s, tenant, actor=None):
-    runs = [r for r in db.rows(s, db.Run, tenant) if actor is None or run_access(s, actor, r)]
+def event_view(e):
+    kind = next((kind for marker, kind in [("APPROVAL", "approval"), ("VERIFICATION", "verification"),
+        ("CANCEL", "cancel"), ("LEASE", "recovery"), ("PAUSED", "recovery"),
+        ("ACTION", "tool"), ("DECISION", "plan")] if marker in e.type), "task")
+    return {"id": e.id, "runId": e.run_id, "kind": kind, "title": e.payload["message"],
+            "detail": canonical(service.public_payload({k: v for k, v in e.payload.items()
+                if k not in {"projection", "transition", "prior_digest", "projection_digest"}})).decode(),
+            "time": int(e.created_at.timestamp() * 1000)}
+
+
+def workspace(s, tenant, actor=None, project=None, status=None, q="", cursor=None, limit=50, run_id=None):
+    from .catalog import page as catalog_page
+    from .pagination import runs as page_runs
+
+    runs, next_cursor = page_runs(s, actor, project, status, q, cursor, limit)
+    if run_id and all(run.id != run_id for run in runs):
+        focused = db.get(s, db.Run, tenant, run_id)
+        if run_access(s, actor, focused):
+            runs.append(focused)
+    cache = run_cache(s, runs)
+    authorizations = s.get(db.Authorization, (tenant, actor.actor))
+    grants = authorizations.data.get("project_permissions", {}) if authorizations else {}
+    def permitted(project_id, operation):
+        return actor.admin or operation in grants.get(project_id, []) or operation in grants.get("*", [])
     by_id = {r.id: r for r in runs}
     approvals = []
-    for p in db.rows(s, db.Approval, tenant):
-        a = db.get(s, db.Action, tenant, p.action_id)
-        if a.run_id not in by_id or (actor and not run_access(s, actor, by_id[a.run_id], "approve")):
+    for p, a in s.execute(select(db.Approval, db.Action).join(db.Action,
+        (db.Action.tenant_id == db.Approval.tenant_id) & (db.Action.id == db.Approval.action_id)).where(
+            db.Approval.tenant_id == tenant, db.Action.run_id.in_([r.id for r in runs if permitted(r.project_id, "approve")])).order_by(
+                db.Approval.created_at.desc(), db.Approval.id.desc()).limit(200)):
+        if a.run_id not in by_id or (actor and not permitted(by_id[a.run_id].project_id, "approve")):
             continue
         r = by_id[a.run_id]
         approvals.append(
@@ -131,13 +196,7 @@ def workspace(s, tenant, actor=None):
             }
         )
     artifacts = []
-    for a in db.rows(s, db.Artifact, tenant):
-        if a.run_id not in by_id:
-            continue
-        content = objects.get(tenant, a.ref).decode("utf-8", errors="replace")
-        if a.kind == "test_report":
-            import json
-            content = canonical(service.public_report(by_id[a.run_id].state["acceptance"], json.loads(content))).decode()
+    for a in s.scalars(select(db.Artifact).where(db.Artifact.tenant_id == tenant, db.Artifact.run_id.in_(by_id)).order_by(db.Artifact.created_at.desc(), db.Artifact.id.desc()).limit(200)):
         artifacts.append(
             {
                 "id": a.id,
@@ -146,62 +205,39 @@ def workspace(s, tenant, actor=None):
                 "type": {"patch": "代码补丁", "test_report": "验证报告", "summary": "交付说明"}.get(a.kind, a.kind),
                 "size": f"{a.ref['bytes']} bytes",
                 "verified": a.verified,
-                "content": content,
+                "content": "",
+                "download_url": f"/v1/artifacts/{a.id}/download",
                 "version": a.version,
                 "digest": a.ref["digest"],
             }
         )
-    events = []
-    for e in db.rows(s, db.Event, tenant):
-        if e.run_id not in by_id:
-            continue
-        kind = (
-            "approval"
-            if "APPROVAL" in e.type
-            else "verification"
-            if "VERIFICATION" in e.type
-            else "cancel"
-            if "CANCEL" in e.type
-            else "recovery"
-            if "LEASE" in e.type or "PAUSED" in e.type
-            else "tool"
-            if "ACTION" in e.type
-            else "plan"
-            if "DECISION" in e.type
-            else "task"
-        )
-        events.append(
-            {
-                "id": e.id,
-                "runId": e.run_id,
-                "kind": kind,
-                "title": e.payload["message"],
-                "detail": canonical({k: v for k, v in e.payload.items()
-                                     if k not in {"projection", "transition", "prior_digest", "projection_digest"}}).decode(),
-                "time": int(e.created_at.timestamp() * 1000),
-            }
-        )
+    event_page = catalog_page(s, actor, "events", limit=100, run_id=run_id) if run_id else None
+    events = event_page["items"] if event_page else [event_view(e) for e in s.scalars(select(db.Event).where(
+        db.Event.tenant_id == tenant, db.Event.run_id.in_(by_id)).order_by(db.Event.created_at.desc(), db.Event.id.desc()).limit(100))]
+    projects = catalog_page(s, actor, "projects", limit=100)["items"]
+    memory_query = select(db.Memory).where(db.Memory.tenant_id == tenant, db.Memory.status == "active")
+    if not actor.admin and "read" not in grants.get("*", []):
+        memory_query = memory_query.where(db.Memory.data["project"].as_string().in_([key for key, ops in grants.items() if "read" in ops]))
     config = db.get(s, db.PolicyVersion, tenant, "settings")
     return {
         "schema": 2,
-        "runs": [run_view(s, r) for r in reversed(runs)],
+        "runs": [run_view(s, r, cache) for r in runs],
+        "next_cursor": next_cursor,
+        "event_next_cursor": event_page["next_cursor"] if event_page else None,
+        "window": {"limit": limit, "events": 200, "artifacts": 200, "approvals": 200},
         "approvals": approvals,
         "artifacts": artifacts,
         "skills": [
-            {"id": x.id, "enabled": x.status == "active", "calls": 0, **x.data}
-            for x in db.rows(s, db.SkillVersion, tenant)
-            if x.status != "erased"
+            {"id": x.id, "enabled": x.status == "active", "calls": 0,
+             **{key: value for key, value in x.data.items() if key in {"name", "version", "description", "category", "digest"}}}
+            for x in s.scalars(select(db.SkillVersion).where(db.SkillVersion.tenant_id == tenant, db.SkillVersion.status != "erased").order_by(db.SkillVersion.created_at.desc(), db.SkillVersion.id.desc()).limit(100))
         ],
-        "memories": [{"id": m.id, **m.data} for m in db.rows(s, db.Memory, tenant)
-                     if m.status == "active" and (actor is None or actor.admin
-                     or project_access(s, actor, m.data.get("project"), "read"))],
+        "memories": [{"id": m.id, **m.data} for m in s.scalars(memory_query.order_by(db.Memory.created_at.desc(), db.Memory.id.desc()).limit(100))],
         "events": sorted(events, key=lambda e: e["time"], reverse=True),
         "settings": {k: v for k, v in config.data.items() if k != "_revision"},
         "settings_revision": config.data.get("_revision", 1),
-        "evalCompleted": any(e.status == "completed" for e in db.rows(s, db.Evaluation, tenant)),
+        "evalCompleted": bool(s.scalar(select(db.Evaluation.id).where(db.Evaluation.tenant_id == tenant, db.Evaluation.status == "completed").limit(1))),
         "projects": [
-            {"id": p.id, "name": p.data.get("name", p.id), "acceptance": p.data.get("acceptance", {}).get("id")}
-            for p in db.rows(s, db.Project, tenant)
-            if actor is None or project_access(s, actor, p.id, "read")
+            {"id": p["id"], "name": p.get("name", p["id"])} for p in projects
         ],
     }

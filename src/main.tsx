@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useRuntime } from './useRuntime';
 import Twitter from './variants/twitter';
+import { AuthGate } from './AuthGate';
 import './base.css';
 
 function Workspace() {
@@ -20,4 +21,4 @@ function Workspace() {
  },[runtime.overlay]);
  return <Twitter runtime={runtime}/>;
 }
-createRoot(document.getElementById('root')!).render(<Workspace/>);
+createRoot(document.getElementById('root')!).render(<AuthGate><Workspace/></AuthGate>);

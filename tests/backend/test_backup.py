@@ -73,10 +73,10 @@ def test_real_postgres_and_object_snapshot_restore_in_isolated_databases(tmp_pat
             connection.execute(text("SET ROLE forge"))
             with Operations.context(MigrationContext.configure(connection)):
                 for name in ["0001_runtime.py", "0002_constraints.py", "0003_evaluation_datasets.py", "0004_resource_budget.py",
-                             "0005_knowledge_erasure.py", "0006_settled_erasure_guards.py", "0007_record_integrity.py"]:
+                             "0005_knowledge_erasure.py", "0006_settled_erasure_guards.py", "0007_record_integrity.py", "0008_query_pages.py"]:
                     revision(name).upgrade()
             connection.execute(text("CREATE TABLE alembic_version(version_num varchar(32) PRIMARY KEY)"))
-            connection.execute(text("INSERT INTO alembic_version VALUES('0007')"))
+            connection.execute(text("INSERT INTO alembic_version VALUES('0008')"))
             connection.execute(text("RESET ROLE"))
         store = ObjectStore()
         store.s3, store.root = None, tmp_path / "source-objects"
