@@ -31,6 +31,7 @@ from .domain import (
 from .remote import accept_callback, prepare_remote, validate_url
 from .repository import RepositoryInput
 from .sandbox import safe_path, sandbox
+from .state_types import EvaluationResult
 from .storage import objects
 from .workspace import FileEntry, validate_manifest
 
@@ -956,7 +957,8 @@ def register_skill(body: SkillInput, actor: Actor):
 
         if str(PurePosixPath(path)) != path or "\\" in path or path.casefold() in {"skill.md", "forge-manifest.json"}:
             raise Fault("SKILL_RESOURCE", "Use canonical resource paths; SKILL.md and FORGE-MANIFEST.json are reserved", 422)
-        if isinstance(body.resources[path], FileEntry) and body.resources[path].mode == "120000":
+        resource = body.resources[path]
+        if isinstance(resource, FileEntry) and resource.mode == "120000":
             raise Fault("SKILL_RESOURCE", "Skill resources cannot be symbolic links", 422)
     if len({path.casefold() for path in body.resources}) != len(body.resources):
         raise Fault("SKILL_RESOURCE", "Resource paths cannot collide on a case-insensitive filesystem", 422)
@@ -1450,11 +1452,11 @@ def evaluation_view(s, e, tenant):
         e = db.get(s, db.Evaluation, tenant, e.id, True)
         return experiments.report(s, e, tenant)
     runs = [db.get(s, db.Run, tenant, id) for id in e.data["runs"]]
-    results = [
+    results: list[EvaluationResult] = [
         {
             "id": r.id,
             "status": r.status,
-            "cost": db.get(s, db.BudgetAccount, tenant, r.root_id).spent / 1e6,
+            "cost": float(db.get(s, db.BudgetAccount, tenant, r.root_id).spent) / 1e6,
             "verdict": r.state.get("verification", {}).get("verdict") if r.state.get("verification") else None,
         }
         for r in runs

@@ -1,68 +1,831 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';
-import {useCatalog} from './useCatalog';
-import {ProjectWizard} from './ProjectWizard';
+import { useCatalog } from './useCatalog';
+import { ProjectWizard } from './ProjectWizard';
 import type { AppController } from './types';
 import { Button, Dialog, Empty, Heading, Metric, Panel } from './components';
 
-export function useRemote(path:string,interval=0){
- const [data,setData]=useState<any>(null);const [error,setError]=useState('');const sequence=useRef(0);const request=useRef<AbortController|null>(null);
- const reload=useCallback(async()=>{const seq=++sequence.current;request.current?.abort();const controller=new AbortController();request.current=controller;try{const next=await api(path,'GET',undefined,undefined,{signal:controller.signal});if(seq===sequence.current){setData(next);setError('')}}catch(e){if(seq===sequence.current&&!controller.signal.aborted)setError((e as Error).message)}},[path]);
- useEffect(()=>{let disposed=false;let timer:ReturnType<typeof setTimeout>;setData(null);const poll=async()=>{await reload();if(interval&&!disposed)timer=setTimeout(poll,interval)};void poll();return()=>{disposed=true;clearTimeout(timer);request.current?.abort();sequence.current++}},[reload,interval]);
- return {data,error,reload};
+export function useRemote(path: string, interval = 0) {
+  const [data, setData] = useState<any>(null);
+  const [error, setError] = useState('');
+  const sequence = useRef(0);
+  const request = useRef<AbortController | null>(null);
+  const reload = useCallback(async () => {
+    const seq = ++sequence.current;
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    try {
+      const next = await api(path, 'GET', undefined, undefined, { signal: controller.signal });
+      if (seq === sequence.current) {
+        setData(next);
+        setError('');
+      }
+    } catch (e) {
+      if (seq === sequence.current && !controller.signal.aborted) setError((e as Error).message);
+    }
+  }, [path]);
+  useEffect(() => {
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    setData(null);
+    const poll = async () => {
+      await reload();
+      if (interval && !disposed) timer = setTimeout(poll, interval);
+    };
+    void poll();
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+      request.current?.abort();
+      sequence.current++;
+    };
+  }, [reload, interval]);
+  return { data, error, reload };
 }
 
-export function SkillReleaseForm({id,onDone}:{id:string;onDone:()=>void}){
- const {data,error:loadError}=useRemote(`/skills/${encodeURIComponent(id)}/release-options`);
- const [choice,setChoice]=useState('');const [review,setReview]=useState('');const [error,setError]=useState('');const [busy,setBusy]=useState(false);
- const eligible=(data||[]).filter((x:any)=>x.eligible);const selected=eligible.find((x:any)=>`${x.evaluation_id}/${x.configuration}`===choice);
- return <Dialog title="审核并发布技能版本" onClose={onDone}><form onSubmit={async e=>{e.preventDefault();if(!selected)return;setBusy(true);try{await api(`/skills/${encodeURIComponent(id)}/release`,'POST',{enabled:true,evaluation_id:selected.evaluation_id,configuration:selected.configuration,review});onDone()}catch(e){setError((e as Error).message)}finally{setBusy(false)}}}>
-  <label className="field">合格评测证据<select required value={choice} onChange={e=>setChoice(e.target.value)}><option value="">选择保留集配对实验</option>{eligible.map((x:any)=><option key={`${x.evaluation_id}/${x.configuration}`} value={`${x.evaluation_id}/${x.configuration}`}>{x.evaluation_id} · {x.configuration}</option>)}</select></label>
-  {selected&&<p className="muted">{selected.independent_cases} 个独立任务 · {selected.repetitions} 次重复 · 非劣门禁通过 · 费用比 {selected.comparison?.cost_ratio?.toFixed(3)}</p>}
-  {data&&eligible.length===0&&<p role="status">尚无合格发布证据，请先完成技能的保留集配对实验。</p>}
-  {(data||[]).filter((x:any)=>!x.eligible).map((x:any)=><p className="notice warning" key={`${x.evaluation_id}/${x.configuration}`}>{x.evaluation_id} · {x.configuration}：{x.reason}</p>)}
-  <label className="field">审核说明<textarea required minLength={5} maxLength={2000} value={review} onChange={e=>setReview(e.target.value)}/></label>
-  {(error||loadError)&&<p role="alert">{error||loadError}</p>}<div className="form-footer"><Button onClick={onDone}>关闭</Button><Button primary type="submit" disabled={!selected||busy||review.trim().length<5}>{busy?'发布中…':'发布技能'}</Button></div>
- </form></Dialog>
+export function SkillReleaseForm({ id, onDone }: { id: string; onDone: () => void }) {
+  const { data, error: loadError } = useRemote(`/skills/${encodeURIComponent(id)}/release-options`);
+  const [choice, setChoice] = useState('');
+  const [review, setReview] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const eligible = (data || []).filter((x: any) => x.eligible);
+  const selected = eligible.find((x: any) => `${x.evaluation_id}/${x.configuration}` === choice);
+  return (
+    <Dialog title="审核并发布技能版本" onClose={onDone}>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!selected) return;
+          setBusy(true);
+          try {
+            await api(`/skills/${encodeURIComponent(id)}/release`, 'POST', {
+              enabled: true,
+              evaluation_id: selected.evaluation_id,
+              configuration: selected.configuration,
+              review,
+            });
+            onDone();
+          } catch (e) {
+            setError((e as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <label className="field">
+          合格评测证据
+          <select required value={choice} onChange={(e) => setChoice(e.target.value)}>
+            <option value="">选择保留集配对实验</option>
+            {eligible.map((x: any) => (
+              <option
+                key={`${x.evaluation_id}/${x.configuration}`}
+                value={`${x.evaluation_id}/${x.configuration}`}
+              >
+                {x.evaluation_id} · {x.configuration}
+              </option>
+            ))}
+          </select>
+        </label>
+        {selected && (
+          <p className="muted">
+            {selected.independent_cases} 个独立任务 · {selected.repetitions} 次重复 · 非劣门禁通过 ·
+            费用比 {selected.comparison?.cost_ratio?.toFixed(3)}
+          </p>
+        )}
+        {data && eligible.length === 0 && (
+          <p role="status">尚无合格发布证据，请先完成技能的保留集配对实验。</p>
+        )}
+        {(data || [])
+          .filter((x: any) => !x.eligible)
+          .map((x: any) => (
+            <p className="notice warning" key={`${x.evaluation_id}/${x.configuration}`}>
+              {x.evaluation_id} · {x.configuration}：{x.reason}
+            </p>
+          ))}
+        <label className="field">
+          审核说明
+          <textarea
+            required
+            minLength={5}
+            maxLength={2000}
+            value={review}
+            onChange={(e) => setReview(e.target.value)}
+          />
+        </label>
+        {(error || loadError) && <p role="alert">{error || loadError}</p>}
+        <div className="form-footer">
+          <Button onClick={onDone}>关闭</Button>
+          <Button primary type="submit" disabled={!selected || busy || review.trim().length < 5}>
+            {busy ? '发布中…' : '发布技能'}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
 }
 
-const fieldLabels:Record<string,string>={id:'标识',name:'名称',kind:'类型',protocol:'协议版本',url:'服务地址',credential_ref:'凭据引用',callback_key_ref:'回调密钥引用',tools:'远程工具',operation:'工具名称',effect:'效果类型',input_schema:'参数契约',dataset_id:'任务集',model:'模型',configurations:'对照配置',repetitions:'重复次数',seed:'随机种子',max_total_cost_usd:'总费用上限',split:'任务集用途',source:'来源',cases:'任务',project_id:'项目',goal:'目标',allowed_paths:'允许路径',baseline:'基线文件',protected_tests:'隐藏验收文件',acceptance_id:'验收契约标识',verification_argv:'验证命令参数'};
-function ConfigField({name,value,onChange,depth=0}:{name:string;value:any;onChange:(value:any)=>void;depth?:number}){
- const [newKey,setNewKey]=useState('');const label=fieldLabels[name]||name;
- if(typeof value==='boolean')return <label className="field"><span>{label}</span><input type="checkbox" checked={value} onChange={e=>onChange(e.target.checked)}/></label>;
- if(Array.isArray(value))return <fieldset><legend>{label}</legend>{value.map((item,index)=><div key={index}><ConfigField name={`${name} ${index+1}`} value={item} onChange={next=>onChange(value.map((old,i)=>i===index?next:old))} depth={depth+1}/><Button onClick={()=>onChange(value.filter((_,i)=>i!==index))}>移除第 {index+1} 项</Button></div>)}<Button onClick={()=>onChange([...value,value.length?structuredClone(value[0]):''])}>添加{label}</Button></fieldset>;
- if(value&&typeof value==='object')return <fieldset><legend>{label}</legend>{Object.entries(value).map(([key,item])=><ConfigField key={key} name={key} value={item} onChange={next=>onChange({...value,[key]:next})} depth={depth+1}/>)}{['baseline','protected_tests','properties'].includes(name)&&<div className="field-row"><input aria-label={`${label}新增键`} value={newKey} onChange={e=>setNewKey(e.target.value)} placeholder={name==='properties'?'参数名':'相对文件路径'}/><Button onClick={()=>{if(newKey.trim()&&!Object.hasOwn(value,newKey.trim())){onChange({...value,[newKey.trim()]:name==='properties'?{type:'string'}:''});setNewKey('')}}}>添加字段</Button></div>}</fieldset>;
- const optional=value===null||name.endsWith('_ref');
- if(['kind','effect','split','model'].includes(name)){const choices=name==='kind'?['mcp','a2a']:name==='effect'?['read','external_write','irreversible']:name==='split'?['development','held_out']:['fixture','configured'];return <label className="field">{label}<select value={value||''} onChange={e=>onChange(e.target.value)}>{[...new Set([value,...choices])].filter(Boolean).map(item=><option key={item}>{item}</option>)}</select></label>}
- if(typeof value==='number')return <label className="field">{label}<input required type="number" step="any" min={0} value={value} onChange={e=>onChange(Number(e.target.value))}/></label>;
- return <label className="field">{label}{depth>1&&((typeof value==='string'&&value.includes('\n'))||name.includes('.'))?<textarea required={!optional} value={value||''} rows={4} onChange={e=>onChange(e.target.value)}/>:<input required={!optional} type={name==='url'?'url':'text'} value={value||''} onChange={e=>onChange(optional&&!e.target.value?null:e.target.value)}/>}</label>;
+const fieldLabels: Record<string, string> = {
+  id: '标识',
+  name: '名称',
+  kind: '类型',
+  protocol: '协议版本',
+  url: '服务地址',
+  credential_ref: '凭据引用',
+  callback_key_ref: '回调密钥引用',
+  tools: '远程工具',
+  operation: '工具名称',
+  effect: '效果类型',
+  input_schema: '参数契约',
+  dataset_id: '任务集',
+  model: '模型',
+  configurations: '对照配置',
+  repetitions: '重复次数',
+  seed: '随机种子',
+  max_total_cost_usd: '总费用上限',
+  split: '任务集用途',
+  source: '来源',
+  cases: '任务',
+  project_id: '项目',
+  goal: '目标',
+  allowed_paths: '允许路径',
+  baseline: '基线文件',
+  protected_tests: '隐藏验收文件',
+  acceptance_id: '验收契约标识',
+  verification_argv: '验证命令参数',
+};
+function ConfigField({
+  name,
+  value,
+  onChange,
+  depth = 0,
+}: {
+  name: string;
+  value: any;
+  onChange: (value: any) => void;
+  depth?: number;
+}) {
+  const [newKey, setNewKey] = useState('');
+  const label = fieldLabels[name] || name;
+  if (typeof value === 'boolean')
+    return (
+      <label className="field">
+        <span>{label}</span>
+        <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} />
+      </label>
+    );
+  if (Array.isArray(value))
+    return (
+      <fieldset>
+        <legend>{label}</legend>
+        {value.map((item, index) => (
+          <div key={index}>
+            <ConfigField
+              name={`${name} ${index + 1}`}
+              value={item}
+              onChange={(next) => onChange(value.map((old, i) => (i === index ? next : old)))}
+              depth={depth + 1}
+            />
+            <Button onClick={() => onChange(value.filter((_, i) => i !== index))}>
+              移除第 {index + 1} 项
+            </Button>
+          </div>
+        ))}
+        <Button onClick={() => onChange([...value, value.length ? structuredClone(value[0]) : ''])}>
+          添加{label}
+        </Button>
+      </fieldset>
+    );
+  if (value && typeof value === 'object')
+    return (
+      <fieldset>
+        <legend>{label}</legend>
+        {Object.entries(value).map(([key, item]) => (
+          <ConfigField
+            key={key}
+            name={key}
+            value={item}
+            onChange={(next) => onChange({ ...value, [key]: next })}
+            depth={depth + 1}
+          />
+        ))}
+        {['baseline', 'protected_tests', 'properties'].includes(name) && (
+          <div className="field-row">
+            <input
+              aria-label={`${label}新增键`}
+              value={newKey}
+              onChange={(e) => setNewKey(e.target.value)}
+              placeholder={name === 'properties' ? '参数名' : '相对文件路径'}
+            />
+            <Button
+              onClick={() => {
+                if (newKey.trim() && !Object.hasOwn(value, newKey.trim())) {
+                  onChange({
+                    ...value,
+                    [newKey.trim()]: name === 'properties' ? { type: 'string' } : '',
+                  });
+                  setNewKey('');
+                }
+              }}
+            >
+              添加字段
+            </Button>
+          </div>
+        )}
+      </fieldset>
+    );
+  const optional = value === null || name.endsWith('_ref');
+  if (['kind', 'effect', 'split', 'model'].includes(name)) {
+    const choices =
+      name === 'kind'
+        ? ['mcp', 'a2a']
+        : name === 'effect'
+          ? ['read', 'external_write', 'irreversible']
+          : name === 'split'
+            ? ['development', 'held_out']
+            : ['fixture', 'configured'];
+    return (
+      <label className="field">
+        {label}
+        <select value={value || ''} onChange={(e) => onChange(e.target.value)}>
+          {[...new Set([value, ...choices])].filter(Boolean).map((item) => (
+            <option key={item}>{item}</option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+  if (typeof value === 'number')
+    return (
+      <label className="field">
+        {label}
+        <input
+          required
+          type="number"
+          step="any"
+          min={0}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+        />
+      </label>
+    );
+  return (
+    <label className="field">
+      {label}
+      {depth > 1 && ((typeof value === 'string' && value.includes('\n')) || name.includes('.')) ? (
+        <textarea
+          required={!optional}
+          value={value || ''}
+          rows={4}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      ) : (
+        <input
+          required={!optional}
+          type={name === 'url' ? 'url' : 'text'}
+          value={value || ''}
+          onChange={(e) => onChange(optional && !e.target.value ? null : e.target.value)}
+        />
+      )}
+    </label>
+  );
 }
-export function JsonForm({title,path,initial,onDone}:{title:string;path:string;initial:object;onDone:()=>void}){
- const [draft,setDraft]=useState(initial);const [advanced,setAdvanced]=useState(false);const [body,setBody]=useState(JSON.stringify(initial,null,2));const [error,setError]=useState('');const [busy,setBusy]=useState(false);
- return <Dialog title={title} onClose={onDone} wide><form onSubmit={async e=>{e.preventDefault();setBusy(true);try{await api(path,'POST',advanced?JSON.parse(body):draft);onDone()}catch(e){setError((e as Error).message)}finally{setBusy(false)}}}><Button onClick={()=>{if(!advanced)setBody(JSON.stringify(draft,null,2));else{try{setDraft(JSON.parse(body))}catch{setError('配置 JSON 无效');return}}setAdvanced(!advanced)}}>{advanced?'返回表单':'高级 JSON 配置'}</Button>{advanced?<label className="field">配置内容<textarea aria-label="配置内容" rows={17} value={body} onChange={e=>setBody(e.target.value)} spellCheck={false}/></label>:<ConfigField name="配置" value={draft} onChange={setDraft}/>}<p className="small-note">字段按服务端契约校验，错误会保留当前草稿。</p>{error&&<p role="alert" className="notice warning">{error}</p>}<div className="form-footer"><Button onClick={onDone}>关闭</Button><Button primary type="submit" disabled={busy}>{busy?'正在保存…':'保存到服务端'}</Button></div></form></Dialog>
+export function JsonForm({
+  title,
+  path,
+  initial,
+  onDone,
+}: {
+  title: string;
+  path: string;
+  initial: object;
+  onDone: () => void;
+}) {
+  const [draft, setDraft] = useState(initial);
+  const [advanced, setAdvanced] = useState(false);
+  const [body, setBody] = useState(JSON.stringify(initial, null, 2));
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  return (
+    <Dialog title={title} onClose={onDone} wide>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          try {
+            await api(path, 'POST', advanced ? JSON.parse(body) : draft);
+            onDone();
+          } catch (e) {
+            setError((e as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <Button
+          onClick={() => {
+            if (!advanced) setBody(JSON.stringify(draft, null, 2));
+            else {
+              try {
+                setDraft(JSON.parse(body));
+              } catch {
+                setError('配置 JSON 无效');
+                return;
+              }
+            }
+            setAdvanced(!advanced);
+          }}
+        >
+          {advanced ? '返回表单' : '高级 JSON 配置'}
+        </Button>
+        {advanced ? (
+          <label className="field">
+            配置内容
+            <textarea
+              aria-label="配置内容"
+              rows={17}
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              spellCheck={false}
+            />
+          </label>
+        ) : (
+          <ConfigField name="配置" value={draft} onChange={setDraft} />
+        )}
+        <p className="small-note">字段按服务端契约校验，错误会保留当前草稿。</p>
+        {error && (
+          <p role="alert" className="notice warning">
+            {error}
+          </p>
+        )}
+        <div className="form-footer">
+          <Button onClick={onDone}>关闭</Button>
+          <Button primary type="submit" disabled={busy}>
+            {busy ? '正在保存…' : '保存到服务端'}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
 }
 
-export function Tools({app}:{app:AppController}){
- const {data,error,reload}=useRemote('/connections');const [diagnostic,setDiagnostic]=useState<any>(null);const [busy,setBusy]=useState(false);const [adding,setAdding]=useState(false);
- async function test(){setBusy(true);try{setDiagnostic(await api('/diagnostics'))}catch(e){app.notify((e as Error).message)}finally{setBusy(false)}}
- async function connectionAction(id:string,action:string){setBusy(true);try{await api(`/connections/${encodeURIComponent(id)}/${action}`,'POST');await reload()}catch(e){app.notify((e as Error).message)}finally{setBusy(false)}}
- return <><Heading eyebrow="CAPABILITIES" title="工具连接" description="检查执行环境并登记受控的 MCP / A2A 连接。"><Button onClick={test} disabled={busy}>{busy?'正在检查…':'检查实际连接'}</Button><Button primary onClick={()=>setAdding(true)}>登记连接</Button></Heading>{error&&<p role="alert">{error}</p>}<Panel title="内置工具"><div className="panel-pad"><p>repo.list · repo.read · repo.write · tests.run</p><p className="muted">写入受路径和前置摘要约束。命令只在无网 Docker 沙箱执行。</p></div></Panel>{diagnostic&&<Panel title="实时环境检查"><div className="panel-pad"><p>模型：{diagnostic.model.configured?'已配置':'未配置'} · 沙箱：{diagnostic.sandbox.ready?'可用':'不可用'}</p><pre className="code-block">{JSON.stringify(diagnostic,null,2)}</pre></div></Panel>}{data?.map((c:any)=><Panel title={`${c.name} · ${c.status}`} key={c.id}><div className="panel-pad"><p>{c.kind.toUpperCase()} · {c.protocol}</p><p className="mono wrap">{c.url}</p><p className="muted">{c.negotiated?`已协商 · ${c.tools.length} 个审核工具 · ${c.negotiated.time}`:'待协议发现与 schema 核对'}</p><Button disabled={busy} onClick={()=>connectionAction(c.id,'discover')}>发现并核对契约</Button><Button disabled={busy||c.status==='disabled'} onClick={()=>connectionAction(c.id,'disable')}>停用连接</Button></div></Panel>)}{data?.length===0&&<Empty title="尚未登记外部连接" description="管理员先在服务端配置允许访问的主机，再登记具体协议端点。"/>}{adding&&<JsonForm title="登记外部连接" path="/connections" initial={{name:'My MCP server',kind:'mcp',protocol:'2026-07-28',url:'https://example.com/mcp',credential_ref:null,callback_key_ref:null,tools:[{operation:'填写远端工具名称',effect:'external_write',input_schema:{type:'object',properties:{},additionalProperties:false}}]}} onDone={()=>{setAdding(false);void reload()}}/>}</>
+export function Tools({ app }: { app: AppController }) {
+  const { data, error, reload } = useRemote('/connections');
+  const [diagnostic, setDiagnostic] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState(false);
+  async function test() {
+    setBusy(true);
+    try {
+      setDiagnostic(await api('/diagnostics'));
+    } catch (e) {
+      app.notify((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function connectionAction(id: string, action: string) {
+    setBusy(true);
+    try {
+      await api(`/connections/${encodeURIComponent(id)}/${action}`, 'POST');
+      await reload();
+    } catch (e) {
+      app.notify((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <Heading
+        eyebrow="CAPABILITIES"
+        title="工具连接"
+        description="检查执行环境并登记受控的 MCP / A2A 连接。"
+      >
+        <Button onClick={test} disabled={busy}>
+          {busy ? '正在检查…' : '检查实际连接'}
+        </Button>
+        <Button primary onClick={() => setAdding(true)}>
+          登记连接
+        </Button>
+      </Heading>
+      {error && <p role="alert">{error}</p>}
+      <Panel title="内置工具">
+        <div className="panel-pad">
+          <p>repo.list · repo.read · repo.write · tests.run</p>
+          <p className="muted">写入受路径和前置摘要约束。命令只在无网 Docker 沙箱执行。</p>
+        </div>
+      </Panel>
+      {diagnostic && (
+        <Panel title="实时环境检查">
+          <div className="panel-pad">
+            <p>
+              模型：{diagnostic.model.configured ? '已配置' : '未配置'} · 沙箱：
+              {diagnostic.sandbox.ready ? '可用' : '不可用'}
+            </p>
+            <pre className="code-block">{JSON.stringify(diagnostic, null, 2)}</pre>
+          </div>
+        </Panel>
+      )}
+      {data?.map((c: any) => (
+        <Panel title={`${c.name} · ${c.status}`} key={c.id}>
+          <div className="panel-pad">
+            <p>
+              {c.kind.toUpperCase()} · {c.protocol}
+            </p>
+            <p className="mono wrap">{c.url}</p>
+            <p className="muted">
+              {c.negotiated
+                ? `已协商 · ${c.tools.length} 个审核工具 · ${c.negotiated.time}`
+                : '待协议发现与 schema 核对'}
+            </p>
+            <Button disabled={busy} onClick={() => connectionAction(c.id, 'discover')}>
+              发现并核对契约
+            </Button>
+            <Button
+              disabled={busy || c.status === 'disabled'}
+              onClick={() => connectionAction(c.id, 'disable')}
+            >
+              停用连接
+            </Button>
+          </div>
+        </Panel>
+      ))}
+      {data?.length === 0 && (
+        <Empty
+          title="尚未登记外部连接"
+          description="管理员先在服务端配置允许访问的主机，再登记具体协议端点。"
+        />
+      )}
+      {adding && (
+        <JsonForm
+          title="登记外部连接"
+          path="/connections"
+          initial={{
+            name: 'My MCP server',
+            kind: 'mcp',
+            protocol: '2026-07-28',
+            url: 'https://example.com/mcp',
+            credential_ref: null,
+            callback_key_ref: null,
+            tools: [
+              {
+                operation: '填写远端工具名称',
+                effect: 'external_write',
+                input_schema: { type: 'object', properties: {}, additionalProperties: false },
+              },
+            ],
+          }}
+          onDone={() => {
+            setAdding(false);
+            void reload();
+          }}
+        />
+      )}
+    </>
+  );
 }
 
-export function Evaluations({app}:{app:AppController}){
- const {data,error,reload}=useRemote('/evaluations',2000);const [busy,setBusy]=useState(false);
- const [form,setForm]=useState<'dataset'|'experiment'|null>(null);const datasets=useRemote('/evaluation-datasets');
- return <><Heading eyebrow="EVALUATIONS" title="评测实验" description="固定任务集与配对运行结果。"><Button onClick={()=>setForm('dataset')}>登记任务集</Button><Button onClick={()=>setForm('experiment')}>新建配对实验</Button><Button primary disabled={busy} onClick={async()=>{setBusy(true);try{await api('/evaluations','POST',{repetitions:3,seed:42});await reload()}catch(e){app.notify((e as Error).message)}finally{setBusy(false)}}}>运行契约评测</Button></Heading>{error&&<p role="alert">{error}</p>}{datasets.data?.length>0&&<Panel title="已登记任务集">{datasets.data.map((d:any)=><div className="list-row" key={d.id}><strong>{d.id}</strong><span>{d.split} · {d.case_count??d.cases?.length??0} 个任务</span></div>)}</Panel>}{data?.slice().reverse().map((e:any)=><Panel key={e.id} title={`${e.dataset} · ${e.status}`}><div className="panel-pad"><p>{e.status==='erased'?'评测正文已擦除':`${e.successes} / ${e.total} 通过`} · 模型 {e.model||'未配置'}</p>{e.kind==='paired'?<><p className="muted">独立任务：{e.independent_cases} · 每配置重复：{e.repetitions}</p><pre className="code-block">{JSON.stringify({configurations:e.summaries,comparisons:e.comparisons},null,2)}</pre></>:<p className="muted">Wilson 95% 区间：{(e.wilson_95_ci||[]).map((x:number)=>(x*100).toFixed(1)+'%').join(' – ')}。重复确定性用例不视为独立任务样本。</p>}{(e.results||[]).map((r:any)=><div className="list-row" key={r.id}><span className="mono wrap">{r.case_id?`${r.case_id} / ${r.config}`:r.id}</span><span>{r.status}</span><Button onClick={()=>app.openRun(r.id)}>执行记录</Button></div>)}<Button onClick={()=>app.download(`evaluation-${e.id}.json`,JSON.stringify(e,null,2))}>导出原始报告</Button></div></Panel>)}{data?.length===0&&<Empty title="尚无评测结果" description="任务集与实验结果将保存在工作空间。"/>}{form&&<JsonForm title={form==='dataset'?'登记评测任务集':'新建配对实验'} path={form==='dataset'?'/evaluation-datasets':'/experiments'} initial={form==='dataset'?{id:'local-tasks@1',split:'development',source:'Project acceptance contracts',cases:[{id:'addition',project_id:'runtime-lab',task:{goal:'Fix addition',allowed_paths:['src']},budget:{max_cost_usd:'0.10'}}]}:{dataset_id:datasets.data?.[0]?.id||'local-tasks@1',model:'fixture',configurations:[{name:'baseline',harness:{context_policy:'full'}},{name:'elision',harness:{context_policy:'elide'}}],repetitions:3,seed:42,max_total_cost_usd:'10',noninferiority_margin:0.02,max_cost_ratio:1}} onDone={()=>{setForm(null);void reload();void datasets.reload()}}/>}</>
+export function Evaluations({ app }: { app: AppController }) {
+  const { data, error, reload } = useRemote('/evaluations', 2000);
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState<'dataset' | 'experiment' | null>(null);
+  const datasets = useRemote('/evaluation-datasets');
+  return (
+    <>
+      <Heading eyebrow="EVALUATIONS" title="评测实验" description="固定任务集与配对运行结果。">
+        <Button onClick={() => setForm('dataset')}>登记任务集</Button>
+        <Button onClick={() => setForm('experiment')}>新建配对实验</Button>
+        <Button
+          primary
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await api('/evaluations', 'POST', { repetitions: 3, seed: 42 });
+              await reload();
+            } catch (e) {
+              app.notify((e as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          运行契约评测
+        </Button>
+      </Heading>
+      {error && <p role="alert">{error}</p>}
+      {datasets.data?.length > 0 && (
+        <Panel title="已登记任务集">
+          {datasets.data.map((d: any) => (
+            <div className="list-row" key={d.id}>
+              <strong>{d.id}</strong>
+              <span>
+                {d.split} · {d.case_count ?? d.cases?.length ?? 0} 个任务
+              </span>
+            </div>
+          ))}
+        </Panel>
+      )}
+      {data
+        ?.slice()
+        .reverse()
+        .map((e: any) => (
+          <Panel key={e.id} title={`${e.dataset} · ${e.status}`}>
+            <div className="panel-pad">
+              <p>
+                {e.status === 'erased' ? '评测正文已擦除' : `${e.successes} / ${e.total} 通过`} ·
+                模型 {e.model || '未配置'}
+              </p>
+              {e.kind === 'paired' ? (
+                <>
+                  <p className="muted">
+                    独立任务：{e.independent_cases} · 每配置重复：{e.repetitions}
+                  </p>
+                  <pre className="code-block">
+                    {JSON.stringify(
+                      { configurations: e.summaries, comparisons: e.comparisons },
+                      null,
+                      2,
+                    )}
+                  </pre>
+                </>
+              ) : (
+                <p className="muted">
+                  Wilson 95% 区间：
+                  {(e.wilson_95_ci || [])
+                    .map((x: number) => (x * 100).toFixed(1) + '%')
+                    .join(' – ')}
+                  。重复确定性用例不视为独立任务样本。
+                </p>
+              )}
+              {(e.results || []).map((r: any) => (
+                <div className="list-row" key={r.id}>
+                  <span className="mono wrap">
+                    {r.case_id ? `${r.case_id} / ${r.config}` : r.id}
+                  </span>
+                  <span>{r.status}</span>
+                  <Button onClick={() => app.openRun(r.id)}>执行记录</Button>
+                </div>
+              ))}
+              <Button
+                onClick={() => app.download(`evaluation-${e.id}.json`, JSON.stringify(e, null, 2))}
+              >
+                导出原始报告
+              </Button>
+            </div>
+          </Panel>
+        ))}
+      {data?.length === 0 && (
+        <Empty title="尚无评测结果" description="任务集与实验结果将保存在工作空间。" />
+      )}
+      {form && (
+        <JsonForm
+          title={form === 'dataset' ? '登记评测任务集' : '新建配对实验'}
+          path={form === 'dataset' ? '/evaluation-datasets' : '/experiments'}
+          initial={
+            form === 'dataset'
+              ? {
+                  id: 'local-tasks@1',
+                  split: 'development',
+                  source: 'Project acceptance contracts',
+                  cases: [
+                    {
+                      id: 'addition',
+                      project_id: 'runtime-lab',
+                      task: { goal: 'Fix addition', allowed_paths: ['src'] },
+                      budget: { max_cost_usd: '0.10' },
+                    },
+                  ],
+                }
+              : {
+                  dataset_id: datasets.data?.[0]?.id || 'local-tasks@1',
+                  model: 'fixture',
+                  configurations: [
+                    { name: 'baseline', harness: { context_policy: 'full' } },
+                    { name: 'elision', harness: { context_policy: 'elide' } },
+                  ],
+                  repetitions: 3,
+                  seed: 42,
+                  max_total_cost_usd: '10',
+                  noninferiority_margin: 0.02,
+                  max_cost_ratio: 1,
+                }
+          }
+          onDone={() => {
+            setForm(null);
+            void reload();
+            void datasets.reload();
+          }}
+        />
+      )}
+    </>
+  );
 }
 
-export function Observability({app}:{app:AppController}){
- const {data,error}=useRemote('/metrics',3000);
- return <><Heading eyebrow="OBSERVABILITY" title="运行观测" description="从持久执行记录统计任务、费用与待对账动作。">{data&&<Button onClick={()=>app.download('runtime-metrics.json',JSON.stringify(data,null,2))}>导出指标</Button>}</Heading>{error&&<p role="alert">{error}</p>}{data&&<div className="metric-grid"><Metric label="运行次数" value={data.runs} note="当前租户"/><Metric label="已验证完成" value={data.succeeded} note="凭证通过且效果已结算"/><Metric label="累计费用" value={`$${data.cost_usd.toFixed(6)}`} note={`另有 $${data.reserved_usd.toFixed(6)} 预留`}/><Metric label="未知动作" value={data.unknown_actions} note="需要对账"/></div>}<Panel title="任务执行记录">{app.runs.map(r=><div className="list-row" key={r.id}><div className="grow"><strong>{r.title}</strong><p className="muted">{r.status} · {r.steps} 个动作 · {r.duration}</p></div><Button onClick={()=>app.openRun(r.id)}>查看详情</Button></div>)}</Panel><p className="muted">Prometheus 指标：/metrics。业务事件永久按序号读取；诊断 Trace 不参与状态一致性。</p></>
+export function Observability({ app }: { app: AppController }) {
+  const { data, error } = useRemote('/metrics', 3000);
+  return (
+    <>
+      <Heading
+        eyebrow="OBSERVABILITY"
+        title="运行观测"
+        description="从持久执行记录统计任务、费用与待对账动作。"
+      >
+        {data && (
+          <Button
+            onClick={() => app.download('runtime-metrics.json', JSON.stringify(data, null, 2))}
+          >
+            导出指标
+          </Button>
+        )}
+      </Heading>
+      {error && <p role="alert">{error}</p>}
+      {data && (
+        <div className="metric-grid">
+          <Metric label="运行次数" value={data.runs} note="当前租户" />
+          <Metric label="已验证完成" value={data.succeeded} note="凭证通过且效果已结算" />
+          <Metric
+            label="累计费用"
+            value={`$${data.cost_usd.toFixed(6)}`}
+            note={`另有 $${data.reserved_usd.toFixed(6)} 预留`}
+          />
+          <Metric label="未知动作" value={data.unknown_actions} note="需要对账" />
+        </div>
+      )}
+      <Panel title="任务执行记录">
+        {app.runs.map((r) => (
+          <div className="list-row" key={r.id}>
+            <div className="grow">
+              <strong>{r.title}</strong>
+              <p className="muted">
+                {r.status} · {r.steps} 个动作 · {r.duration}
+              </p>
+            </div>
+            <Button onClick={() => app.openRun(r.id)}>查看详情</Button>
+          </div>
+        ))}
+      </Panel>
+      <p className="muted">
+        Prometheus 指标：/metrics。业务事件永久按序号读取；诊断 Trace 不参与状态一致性。
+      </p>
+    </>
+  );
 }
 
-export function Settings({app}:{app:AppController}){
- const [wizard,setWizard]=useState(false);const [draft,setDraft]=useState(app.settings);const [dirty,setDirty]=useState(false);const [revision,setRevision]=useState(app.settingsRevision);const [saving,setSaving]=useState(false);const [adding,setAdding]=useState(false);const projects=useCatalog<{id:string;name:string}>('/catalog/projects?limit=50');
- useEffect(()=>{if(app.settingsReady&&!dirty){setDraft(app.settings);setRevision(app.settingsRevision)}},[app.settings,app.settingsRevision,app.settingsReady,dirty]);
- const updateDraft=(next:AppController['settings'])=>{setDirty(true);setDraft(next)};
- return <><Heading eyebrow="WORKSPACE" title="工作空间设置" description="预算、并发配置保存在服务端；已创建任务保留其固定契约。"/><form onSubmit={async e=>{e.preventDefault();if(!app.settingsReady)return;setSaving(true);try{if(await app.saveSettings({...draft,redact:true},revision))setDirty(false)}finally{setSaving(false)}}}><fieldset disabled={!app.settingsReady||saving} style={{border:0,padding:0,margin:0}}><Panel title="运行设置"><div className="panel-pad field-row"><label className="field">默认任务预算（USD）<input type="number" min="0.1" max="100" step="0.1" value={draft.budget} onChange={e=>updateDraft({...draft,budget:Number(e.target.value)})}/></label><label className="field">租户并发上限<select value={draft.concurrency} onChange={e=>updateDraft({...draft,concurrency:Number(e.target.value)})}>{[1,2,3,4].map(n=><option key={n}>{n}</option>)}</select></label></div><div className="panel-pad"><Button primary type="submit" disabled={!dirty}>{saving?'正在保存…':'保存设置'}</Button>{dirty&&app.settingsRevision!==revision&&<p role="alert">服务端设置已变更，草稿尚未覆盖新版本。<Button onClick={()=>setDirty(false)}>重新加载设置</Button></p>}{!app.settingsReady&&<p role="status">正在读取服务端设置，连接恢复后可编辑。</p>}</div></Panel></fieldset></form><Panel title="已登记项目" action={<><Button primary onClick={()=>setWizard(true)}>接入 Git 仓库</Button><Button onClick={()=>setAdding(true)}>登记小型文件基线</Button></>}>{projects.error&&<p>{projects.error}</p>}{projects.items.map((p:any)=><div className="list-row" key={p.id}><div><strong>{p.name}</strong><p className="muted">{p.id}</p></div></div>)}{projects.cursor&&<Button disabled={projects.loading} onClick={()=>void projects.more()}>加载更多项目</Button>}</Panel><Panel title="模型与执行环境"><div className="panel-pad"><p>在服务端 .env 中配置模型提供方、精确模型 ID、API 密钥与单价。密钥不会发送到前端。</p><p>启动沙箱前构建 sandbox/Dockerfile；真实模型生成的代码只在隔离容器运行。</p><Button onClick={()=>app.navigate('tools')}>检查连接与环境</Button></div></Panel><Panel title="共享服务登录"><div className="panel-pad"><p className="muted">共享部署通过身份服务登录，使用授权码与 PKCE；访问令牌仅保存在当前会话并自动处理到期。本机模式无需登录。</p></div></Panel>{wizard&&<ProjectWizard onClose={()=>setWizard(false)} onDone={()=>{setWizard(false);void projects.reload()}}/>}{adding&&<JsonForm title="登记项目基线与验收" path="/projects" initial={{id:'my-project-v1',name:'My Project',baseline:{'src/example.py':'def answer():\n    return 0\n'},acceptance_id:'answer@1',verification_argv:['python','-m','unittest','discover','-s','hidden_tests'],protected_tests:{'hidden_tests/test_answer.py':'import unittest\nfrom src.example import answer\nclass Contract(unittest.TestCase):\n    def test_answer(self):\n        self.assertEqual(answer(),42)\n'}}} onDone={()=>{setAdding(false);void projects.reload()}}/>}</>
+export function Settings({ app }: { app: AppController }) {
+  const [wizard, setWizard] = useState(false);
+  const [draft, setDraft] = useState(app.settings);
+  const [dirty, setDirty] = useState(false);
+  const [revision, setRevision] = useState(app.settingsRevision);
+  const [saving, setSaving] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const projects = useCatalog<{ id: string; name: string }>('/catalog/projects?limit=50');
+  useEffect(() => {
+    if (app.settingsReady && !dirty) {
+      setDraft(app.settings);
+      setRevision(app.settingsRevision);
+    }
+  }, [app.settings, app.settingsRevision, app.settingsReady, dirty]);
+  const updateDraft = (next: AppController['settings']) => {
+    setDirty(true);
+    setDraft(next);
+  };
+  return (
+    <>
+      <Heading
+        eyebrow="WORKSPACE"
+        title="工作空间设置"
+        description="预算、并发配置保存在服务端；已创建任务保留其固定契约。"
+      />
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!app.settingsReady) return;
+          setSaving(true);
+          try {
+            if (await app.saveSettings({ ...draft, redact: true }, revision)) setDirty(false);
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        <fieldset
+          disabled={!app.settingsReady || saving}
+          style={{ border: 0, padding: 0, margin: 0 }}
+        >
+          <Panel title="运行设置">
+            <div className="panel-pad field-row">
+              <label className="field">
+                默认任务预算（USD）
+                <input
+                  type="number"
+                  min="0.1"
+                  max="100"
+                  step="0.1"
+                  value={draft.budget}
+                  onChange={(e) => updateDraft({ ...draft, budget: Number(e.target.value) })}
+                />
+              </label>
+              <label className="field">
+                租户并发上限
+                <select
+                  value={draft.concurrency}
+                  onChange={(e) => updateDraft({ ...draft, concurrency: Number(e.target.value) })}
+                >
+                  {[1, 2, 3, 4].map((n) => (
+                    <option key={n}>{n}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="panel-pad">
+              <Button primary type="submit" disabled={!dirty}>
+                {saving ? '正在保存…' : '保存设置'}
+              </Button>
+              {dirty && app.settingsRevision !== revision && (
+                <p role="alert">
+                  服务端设置已变更，草稿尚未覆盖新版本。
+                  <Button onClick={() => setDirty(false)}>重新加载设置</Button>
+                </p>
+              )}
+              {!app.settingsReady && <p role="status">正在读取服务端设置，连接恢复后可编辑。</p>}
+            </div>
+          </Panel>
+        </fieldset>
+      </form>
+      <Panel
+        title="已登记项目"
+        action={
+          <>
+            <Button primary onClick={() => setWizard(true)}>
+              接入 Git 仓库
+            </Button>
+            <Button onClick={() => setAdding(true)}>登记小型文件基线</Button>
+          </>
+        }
+      >
+        {projects.error && <p>{projects.error}</p>}
+        {projects.items.map((p: any) => (
+          <div className="list-row" key={p.id}>
+            <div>
+              <strong>{p.name}</strong>
+              <p className="muted">{p.id}</p>
+            </div>
+          </div>
+        ))}
+        {projects.cursor && (
+          <Button disabled={projects.loading} onClick={() => void projects.more()}>
+            加载更多项目
+          </Button>
+        )}
+      </Panel>
+      <Panel title="模型与执行环境">
+        <div className="panel-pad">
+          <p>在服务端 .env 中配置模型提供方、精确模型 ID、API 密钥与单价。密钥不会发送到前端。</p>
+          <p>启动沙箱前构建 sandbox/Dockerfile；真实模型生成的代码只在隔离容器运行。</p>
+          <Button onClick={() => app.navigate('tools')}>检查连接与环境</Button>
+        </div>
+      </Panel>
+      <Panel title="共享服务登录">
+        <div className="panel-pad">
+          <p className="muted">
+            共享部署通过身份服务登录，使用授权码与
+            PKCE；访问令牌仅保存在当前会话并自动处理到期。本机模式无需登录。
+          </p>
+        </div>
+      </Panel>
+      {wizard && (
+        <ProjectWizard
+          onClose={() => setWizard(false)}
+          onDone={() => {
+            setWizard(false);
+            void projects.reload();
+          }}
+        />
+      )}
+      {adding && (
+        <JsonForm
+          title="登记项目基线与验收"
+          path="/projects"
+          initial={{
+            id: 'my-project-v1',
+            name: 'My Project',
+            baseline: { 'src/example.py': 'def answer():\n    return 0\n' },
+            acceptance_id: 'answer@1',
+            verification_argv: ['python', '-m', 'unittest', 'discover', '-s', 'hidden_tests'],
+            protected_tests: {
+              'hidden_tests/test_answer.py':
+                'import unittest\nfrom src.example import answer\nclass Contract(unittest.TestCase):\n    def test_answer(self):\n        self.assertEqual(answer(),42)\n',
+            },
+          }}
+          onDone={() => {
+            setAdding(false);
+            void projects.reload();
+          }}
+        />
+      )}
+    </>
+  );
 }

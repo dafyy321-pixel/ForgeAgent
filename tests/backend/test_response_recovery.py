@@ -1,4 +1,4 @@
-from forgeagent import db, service
+from forgeagent import db, models, service
 from forgeagent.domain import Fault
 from forgeagent.worker import Worker
 
@@ -6,6 +6,17 @@ from forgeagent.worker import Worker
 class CrashBeforeApply(Worker):
     async def consume_response(self, *args):
         raise Fault("INJECTED_CRASH", "Crash after durable response, before decision consumption")
+
+
+async def test_missing_parsed_decision_is_consumed_as_format_error(tenant, make_run, monkeypatch):
+    run_id = make_run()
+    monkeypatch.setattr(models, "parse_decision", lambda content: None)
+    await Worker().once(tenant)
+    with db.transaction(tenant) as s:
+        run = db.get(s, db.Run, tenant, run_id)
+        assert run.state["format_errors"] == 1
+        assert not db.rows(s, db.Action, tenant, run_id=run_id)
+        assert db.rows(s, db.ModelCall, tenant, run_id=run_id)[0].data["receipt_state"] == "applied"
 
 
 async def test_response_committed_before_crash_is_applied_without_new_model_request(tenant, make_run):

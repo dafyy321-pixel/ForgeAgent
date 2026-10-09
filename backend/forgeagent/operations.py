@@ -1,5 +1,7 @@
 """Bounded tenant diagnostics: aggregate counts and at most 100 IDs per check."""
 
+from typing import Any
+
 from sqlalchemy import func, select
 
 from . import db
@@ -25,7 +27,7 @@ def health(s, tenant):
          (db.PolicyVersion.data["kind"].as_string() == "maintenance_job") & (db.PolicyVersion.status == "dead_letter"),
          "Inspect the persisted error code, repair the dependency, and explicitly retry the maintenance job."),
     ]
-    checks = []
+    checks: list[dict[str, Any]] = []
     for name, cls, identifier, condition, runbook in rules:
         where = [cls.tenant_id == tenant, condition]
         count = s.scalar(select(func.count()).select_from(cls).where(*where))

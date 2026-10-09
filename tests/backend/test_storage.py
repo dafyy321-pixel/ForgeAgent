@@ -69,6 +69,18 @@ def test_stream_publication_is_bounded_and_verifies_digest(tmp_path, monkeypatch
     assert not list(tmp_path.rglob("*.tmp"))
 
 
+def test_republishing_an_open_object_preserves_it_and_detects_corruption(tmp_path):
+    target = store(tmp_path)
+    ref = target.put("tenant", "run", b"immutable")
+    with target.open("tenant", ref) as reader:
+        assert target.put("tenant", "run", b"immutable") == ref
+        assert reader.read() == b"immutable"
+    target.local_path(ref["key"]).write_bytes(b"corrupted")
+    with pytest.raises(Fault, match="checksum"):
+        target.put("tenant", "run", b"immutable")
+    assert not list(tmp_path.rglob("*.tmp"))
+
+
 def test_multipart_completes_and_failed_upload_aborts(tmp_path, monkeypatch):
     target = store(tmp_path)
     target.s3 = S3()

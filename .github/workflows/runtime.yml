@@ -32,7 +32,9 @@ jobs:
         run: psql -h 127.0.0.1 -p 55432 -U postgres -f infra/init.sql
       - run: uv run alembic upgrade head
       - run: uv run ruff check backend tests/backend migrations
-      - run: uv run ty check backend/forgeagent/sdk.py backend/forgeagent/contracts.py
+      - run: uv run ty check backend/forgeagent
+      - run: npm run lint
+      - run: npm run format:check
       - run: npm run types:check
       - run: uv build --out-dir .forge/dist
       - name: Verify isolated wheel imports and CLI entry point

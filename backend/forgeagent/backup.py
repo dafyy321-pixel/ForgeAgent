@@ -66,7 +66,10 @@ def pg_tool(name, url, arguments, executable=None):
     if connection.password:
         environment["PGPASSWORD"] = connection.password
     if "sslmode" in connection.query:
-        environment["PGSSLMODE"] = connection.query["sslmode"]
+        sslmode = connection.query["sslmode"]
+        if not isinstance(sslmode, str):
+            raise Fault("BACKUP_URL", "Specify exactly one PostgreSQL sslmode", 422)
+        environment["PGSSLMODE"] = sslmode
     result = subprocess.run([executable or name, *arguments], env=environment, capture_output=True,
                             timeout=3600, check=False)
     if result.returncode:

@@ -86,7 +86,7 @@ def snapshot(s, run, assumptions=None):
     return {"version": 1, "run_id": run.id, "assumptions_digest": digest(rates.model_dump(mode="json")),
         "components": components, "model_usage_settled": not unknown,
         "known_cost_usd": sum(value for value in components.values() if value is not None),
-        "total_cost_usd": None if missing else sum(components.values()), "complete": not missing,
+        "total_cost_usd": None if missing else sum(value for value in components.values() if value is not None), "complete": not missing,
         "missing": sorted(set(missing)), "model_calls": calls, "tool_calls": dict(tool_counts),
         "cpu_seconds_upper_bound": usage.get("cpu_seconds", 0), "stored_bytes_charged": usage.get("storage_bytes", 0),
         "wall_seconds": seconds, "failure_category": failure, "recovery_to_progress_seconds": recovery,

@@ -3,9 +3,11 @@ import asyncio
 import fnmatch
 import shlex
 import time
+from typing import Any
 
 from .domain import Fault, digest, now
 from .sandbox import sandbox
+from .state_types import ActionReceipt
 from .telemetry import observed
 from .workspace import body, text
 
@@ -27,7 +29,7 @@ async def verify(tenant, run_id, epoch, baseline, current, contract, allowed_pat
     started_at, started = now(), time.monotonic()
     build = build or {}
     executor = executor or sandbox.execute
-    checks = []
+    checks: list[dict[str, Any]] = []
     changed = [p for p in set(baseline) | set(current) if baseline.get(p) != current.get(p)]
     scope_ok = all(any(p == a or p.startswith(a.rstrip("/") + "/") for a in allowed_paths) for p in changed)
     checks.append(
@@ -48,7 +50,7 @@ async def verify(tenant, run_id, epoch, baseline, current, contract, allowed_pat
         }
     )
     before = digest(current)
-    result = None
+    result: ActionReceipt | None = None
     verdict = "INCONCLUSIVE"
     build_result = None
     if not scope_ok or not protected_ok:

@@ -34,9 +34,9 @@ class SafeTransport(httpx.AsyncBaseTransport):
         await self.transport.aclose()
 
 
-def safe_client(**kwargs):
+def safe_client(headers=None, timeout=httpx.Timeout(5.0), auth=None, **kwargs) -> httpx.AsyncClient:
     kwargs.pop("follow_redirects", None)
-    return httpx.AsyncClient(**kwargs, follow_redirects=False, trust_env=False, transport=SafeTransport())
+    return httpx.AsyncClient(headers=headers, timeout=timeout, auth=auth, **kwargs, follow_redirects=False, trust_env=False, transport=SafeTransport())
 
 
 async def rpc(connection, method, params, request_id=None):
@@ -111,6 +111,7 @@ async def discover(connection):
     if connection["kind"] == "mcp" and protocol == "2025-11-25":
         from mcp import ClientSession
         from mcp.client.streamable_http import streamablehttp_client
+        from mcp.types import PaginatedRequestParams
 
         async with streamablehttp_client(connection["url"], headers=headers(connection), timeout=30,
                                         httpx_client_factory=safe_client) as (read, write, _):
@@ -120,7 +121,7 @@ async def discover(connection):
                     raise Fault("PROTOCOL_MISMATCH", "Legacy MCP negotiated an unpinned version")
                 tools, cursor = [], None
                 for _ in range(10):
-                    page = await client.list_tools(cursor=cursor)
+                    page = await client.list_tools(params=PaginatedRequestParams(cursor=cursor))
                     tools += [t.model_dump(mode="json") for t in page.tools]
                     cursor = page.nextCursor
                     if not cursor:

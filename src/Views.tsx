@@ -1,30 +1,391 @@
-import {api} from './api';
-import {useCatalog} from './useCatalog';
+import { api } from './api';
+import { useCatalog } from './useCatalog';
 import { useEffect, useState } from 'react';
-import { Tools, Evaluations, Observability, Settings, JsonForm, SkillReleaseForm } from './BackendViews';
-import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, BookOpen, Check, CheckCheck, CheckCircle2, ChevronRight, Clock, Code2, Database, FileCode2, FileText, Filter, FlaskConical, GitBranch, Github, Info, Layers3, LoaderCircle, Network, Pause, Play, Plus, RotateCcw, Search, Shield, ShieldCheck, SlidersHorizontal, Sparkles, Terminal, Trash2, X, Zap } from './icons';
+import {
+  Tools,
+  Evaluations,
+  Observability,
+  Settings,
+  JsonForm,
+  SkillReleaseForm,
+} from './BackendViews';
+import {
+  Activity,
+  ArrowDownToLine,
+  ArrowRight,
+  ArrowUpRight,
+  BookOpen,
+  Check,
+  CheckCheck,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  Code2,
+  Database,
+  FileCode2,
+  FileText,
+  Filter,
+  FlaskConical,
+  GitBranch,
+  Github,
+  Info,
+  Layers3,
+  LoaderCircle,
+  Network,
+  Pause,
+  Play,
+  Plus,
+  RotateCcw,
+  Search,
+  Shield,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  Terminal,
+  Trash2,
+  X,
+  Zap,
+} from './icons';
 import type { AppController, Artifact, Approval, Page, Run, Skill, Memory } from './types';
 import { pageLabels } from './types';
-import { Button, Dialog, Empty, Heading, Metric, Panel, Progress, SparkChart, Status, Toggle } from './components';
+import {
+  Button,
+  Dialog,
+  Empty,
+  Heading,
+  Metric,
+  Panel,
+  Progress,
+  SparkChart,
+  Status,
+  Toggle,
+} from './components';
 
-export function WorkbenchView({app}:{app:AppController}){
- const views:Partial<Record<Page,React.ReactNode>>={skills:<Skills app={app}/>,memory:<Memories app={app}/>,tools:<Tools app={app}/>,evaluations:<Evaluations app={app}/>,observability:<Observability app={app}/>,settings:<Settings app={app}/>};
- return <div className="workbench">{views[app.page]}</div>
+export function WorkbenchView({ app }: { app: AppController }) {
+  const views: Partial<Record<Page, React.ReactNode>> = {
+    skills: <Skills app={app} />,
+    memory: <Memories app={app} />,
+    tools: <Tools app={app} />,
+    evaluations: <Evaluations app={app} />,
+    observability: <Observability app={app} />,
+    settings: <Settings app={app} />,
+  };
+  return <div className="workbench">{views[app.page]}</div>;
 }
-function Export({app,name,value}:{app:AppController;name:string;value:unknown}){return <Button onClick={()=>app.download(name,JSON.stringify(value,null,2))}><ArrowDownToLine size={14}/>导出</Button>}
-function Skills({app}:{app:AppController}){
- const catalog=useCatalog<Skill>('/catalog/skills?limit=50');app={...app,skills:catalog.items};
- const [release,setRelease]=useState<string|null>(null);
- app={...app,toggleSkill:(id:string)=>{if(app.skills.find(s=>s.id===id)?.enabled)void api('/skills/'+encodeURIComponent(id)+'/release','POST',{enabled:false,review:'用户停用技能版本'}).then(()=>catalog.reload()).catch(e=>app.notify(e.message));else setRelease(id)}};
- const [adding,setAdding]=useState(false);const [filter,setFilter]=useState('全部');const [detail,setDetail]=useState<string|null>(null);const s=app.skills.find(s=>s.id===detail);
- const [content,setContent]=useState('');useEffect(()=>{if(!detail)return;const controller=new AbortController();setContent('正在加载…');void api<{content:string}>(`/skills/${encodeURIComponent(detail)}/content`,'GET',undefined,undefined,{signal:controller.signal}).then(value=>setContent(value.content)).catch(error=>{if(!controller.signal.aborted)setContent(error.message)});return()=>controller.abort()},[detail]);
- if(release)return <SkillReleaseForm id={release} onDone={()=>{setRelease(null);location.reload()}}/>;
- return <><Heading eyebrow="KNOWLEDGE / SKILLS" title="技能库" description="按需读取审核过的方法与资源；收益需通过独立配对评测确认。"><Button onClick={()=>setAdding(true)}>登记技能版本</Button><span className="chip">{app.skills.filter(s=>s.enabled).length} 个已加载技能已启用</span></Heading><div className="tabs">{['全部','开发','质量','安全','知识'].map(f=><button className={`tab ${filter===f?'active':''}`} key={f} onClick={()=>setFilter(f)}>{f}</button>)}</div><div className="card-grid">{app.skills.filter(s=>filter==='全部'||s.category===filter).map(s=><article className="card" key={s.id}><div className="card-head"><span className="tile-icon"><Sparkles size={21}/></span><Toggle checked={s.enabled} onChange={()=>app.toggleSkill(s.id)} label={`${s.enabled?'停用':'启用'} ${s.name}`}/></div><h3>{s.name}</h3><p>{s.description}</p><div className="button-row"><span className="chip">{s.category}</span><span className="chip mono">v{s.version}</span></div><div className="card-foot"><span className="muted" style={{fontSize:11}}>{s.calls} 次成功读取 · 当前权限内记录</span><button className="link-button" onClick={()=>setDetail(s.id)}>技能详情<ArrowUpRight size={12}/></button></div></article>)}</div>{catalog.error&&<p role="alert">{catalog.error}</p>}{catalog.cursor&&<Button disabled={catalog.loading} onClick={()=>void catalog.more()}>加载更多技能</Button>}{adding&&<JsonForm title="登记候选技能" path="/skills" initial={{name:"python-debugging",description:"Python debugging workflow",version:"1.0.0",content:"# Python debugging\nRead evidence, make a scoped change, verify.",category:"开发",source:"用户维护",license:"MIT"}} onDone={()=>{setAdding(false);location.reload()}}/>}{s&&<Dialog title={s.name} subtitle={`SKILL PACKAGE · v${s.version}`} onClose={()=>setDetail(null)}><p className="muted">{s.description}</p><pre className="code-block">{content}</pre><div className="form-footer"><span className="muted" style={{fontSize:11}}>不会改变进行中任务的已固定技能版本</span><Button primary onClick={()=>{app.toggleSkill(s.id);setDetail(null)}}>{s.enabled?'停用技能':'启用技能'}</Button></div></Dialog>}</>
+function Export({ app, name, value }: { app: AppController; name: string; value: unknown }) {
+  return (
+    <Button onClick={() => app.download(name, JSON.stringify(value, null, 2))}>
+      <ArrowDownToLine size={14} />
+      导出
+    </Button>
+  );
 }
-function Memories({app}:{app:AppController}){
- const catalog=useCatalog<Memory>('/catalog/memories?status=active&limit=50'+(app.project==='所有项目'?'':'&project='+encodeURIComponent(app.project)));app={...app,memories:catalog.items};
- const [query,setQuery]=useState('');const [adding,setAdding]=useState(false);const [title,setTitle]=useState('');const [content,setContent]=useState('');const [kind,setKind]=useState('项目约定');const [deleting,setDeleting]=useState<string|null>(null);
- const list=app.memories.filter(m=>(m.title+m.content).includes(query));
- return <><Heading eyebrow="KNOWLEDGE / MEMORY" title="项目记忆" description="保存已确认的项目事实和约定。每条记忆都有来源，也可以被更新和移除。"><Button primary onClick={()=>setAdding(true)}><Plus size={14}/>添加记忆</Button></Heading><div className="toolbar"><label className="search-field"><Search size={15}/><input aria-label="搜索项目记忆" value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索记忆内容…"/></label><span className="filter-count">{list.length} 条已加载记忆</span></div><Panel>{list.map(m=><div className="list-row" key={m.id}><span className="tile-icon"><BookOpen size={18}/></span><div className="grow"><h4>{m.title} <span className="chip">{m.kind}</span></h4><p className="muted">{m.content}</p><span className="cell-sub">{m.source}</span></div><button className="icon-btn" aria-label={`删除记忆 ${m.title}`} onClick={()=>setDeleting(m.id)}><Trash2 size={14}/></button></div>)}{!list.length&&<Empty title="没有匹配的记忆" description="添加有价值的项目约定，或换个关键词搜索。"/>}</Panel>{catalog.error&&<p role="alert">{catalog.error}</p>}{catalog.cursor&&<Button disabled={catalog.loading} onClick={()=>void catalog.more()}>加载更多记忆</Button>}{adding&&<Dialog title="添加项目记忆" subtitle="只保存已确认、可复用的信息" onClose={()=>setAdding(false)}><form onSubmit={e=>{e.preventDefault();if(!title.trim()||!content.trim())return;void api('/memories','POST',{title:title.trim(),content:content.trim(),kind,source:'用户在控制台确认',project:app.project==='所有项目'?null:app.project}).then(()=>catalog.reload()).catch(e=>app.notify(e.message));setAdding(false);setTitle('');setContent('')}}><label className="field">标题<input required maxLength={80} value={title} onChange={e=>setTitle(e.target.value)} placeholder="例如：项目使用 uv 管理依赖"/></label><label className="field">记忆类型<select value={kind} onChange={e=>setKind(e.target.value)}>{['项目约定','已确认事实','操作经验'].map(x=><option key={x}>{x}</option>)}</select></label><label className="field">内容<textarea required maxLength={2000} value={content} onChange={e=>setContent(e.target.value)} placeholder="描述事实、适用范围与来源…"/></label><div className="form-footer"><Button onClick={()=>setAdding(false)}>取消</Button><Button primary type="submit">保存记忆</Button></div></form></Dialog>}{deleting&&<Dialog title="删除这条项目记忆？" onClose={()=>setDeleting(null)}><p className="muted">该记忆将从当前工作空间移除，之后的上下文不再引用它。</p><div className="form-footer"><Button onClick={()=>setDeleting(null)}>保留</Button><Button danger onClick={()=>{void api('/memories/'+encodeURIComponent(deleting),'DELETE').then(()=>catalog.reload()).catch(e=>app.notify(e.message));setDeleting(null)}}>确认删除</Button></div></Dialog>}</>
+function Skills({ app }: { app: AppController }) {
+  const catalog = useCatalog<Skill>('/catalog/skills?limit=50');
+  app = { ...app, skills: catalog.items };
+  const [release, setRelease] = useState<string | null>(null);
+  app = {
+    ...app,
+    toggleSkill: (id: string) => {
+      if (app.skills.find((s) => s.id === id)?.enabled)
+        void api('/skills/' + encodeURIComponent(id) + '/release', 'POST', {
+          enabled: false,
+          review: '用户停用技能版本',
+        })
+          .then(() => catalog.reload())
+          .catch((e) => app.notify(e.message));
+      else setRelease(id);
+    },
+  };
+  const [adding, setAdding] = useState(false);
+  const [filter, setFilter] = useState('全部');
+  const [detail, setDetail] = useState<string | null>(null);
+  const s = app.skills.find((s) => s.id === detail);
+  const [content, setContent] = useState('');
+  useEffect(() => {
+    if (!detail) return;
+    const controller = new AbortController();
+    setContent('正在加载…');
+    void api<{ content: string }>(
+      `/skills/${encodeURIComponent(detail)}/content`,
+      'GET',
+      undefined,
+      undefined,
+      { signal: controller.signal },
+    )
+      .then((value) => setContent(value.content))
+      .catch((error) => {
+        if (!controller.signal.aborted) setContent(error.message);
+      });
+    return () => controller.abort();
+  }, [detail]);
+  if (release)
+    return (
+      <SkillReleaseForm
+        id={release}
+        onDone={() => {
+          setRelease(null);
+          location.reload();
+        }}
+      />
+    );
+  return (
+    <>
+      <Heading
+        eyebrow="KNOWLEDGE / SKILLS"
+        title="技能库"
+        description="按需读取审核过的方法与资源；收益需通过独立配对评测确认。"
+      >
+        <Button onClick={() => setAdding(true)}>登记技能版本</Button>
+        <span className="chip">
+          {app.skills.filter((s) => s.enabled).length} 个已加载技能已启用
+        </span>
+      </Heading>
+      <div className="tabs">
+        {['全部', '开发', '质量', '安全', '知识'].map((f) => (
+          <button
+            className={`tab ${filter === f ? 'active' : ''}`}
+            key={f}
+            onClick={() => setFilter(f)}
+          >
+            {f}
+          </button>
+        ))}
+      </div>
+      <div className="card-grid">
+        {app.skills
+          .filter((s) => filter === '全部' || s.category === filter)
+          .map((s) => (
+            <article className="card" key={s.id}>
+              <div className="card-head">
+                <span className="tile-icon">
+                  <Sparkles size={21} />
+                </span>
+                <Toggle
+                  checked={s.enabled}
+                  onChange={() => app.toggleSkill(s.id)}
+                  label={`${s.enabled ? '停用' : '启用'} ${s.name}`}
+                />
+              </div>
+              <h3>{s.name}</h3>
+              <p>{s.description}</p>
+              <div className="button-row">
+                <span className="chip">{s.category}</span>
+                <span className="chip mono">v{s.version}</span>
+              </div>
+              <div className="card-foot">
+                <span className="muted" style={{ fontSize: 11 }}>
+                  {s.calls} 次成功读取 · 当前权限内记录
+                </span>
+                <button className="link-button" onClick={() => setDetail(s.id)}>
+                  技能详情
+                  <ArrowUpRight size={12} />
+                </button>
+              </div>
+            </article>
+          ))}
+      </div>
+      {catalog.error && <p role="alert">{catalog.error}</p>}
+      {catalog.cursor && (
+        <Button disabled={catalog.loading} onClick={() => void catalog.more()}>
+          加载更多技能
+        </Button>
+      )}
+      {adding && (
+        <JsonForm
+          title="登记候选技能"
+          path="/skills"
+          initial={{
+            name: 'python-debugging',
+            description: 'Python debugging workflow',
+            version: '1.0.0',
+            content: '# Python debugging\nRead evidence, make a scoped change, verify.',
+            category: '开发',
+            source: '用户维护',
+            license: 'MIT',
+          }}
+          onDone={() => {
+            setAdding(false);
+            location.reload();
+          }}
+        />
+      )}
+      {s && (
+        <Dialog
+          title={s.name}
+          subtitle={`SKILL PACKAGE · v${s.version}`}
+          onClose={() => setDetail(null)}
+        >
+          <p className="muted">{s.description}</p>
+          <pre className="code-block">{content}</pre>
+          <div className="form-footer">
+            <span className="muted" style={{ fontSize: 11 }}>
+              不会改变进行中任务的已固定技能版本
+            </span>
+            <Button
+              primary
+              onClick={() => {
+                app.toggleSkill(s.id);
+                setDetail(null);
+              }}
+            >
+              {s.enabled ? '停用技能' : '启用技能'}
+            </Button>
+          </div>
+        </Dialog>
+      )}
+    </>
+  );
 }
-
+function Memories({ app }: { app: AppController }) {
+  const catalog = useCatalog<Memory>(
+    '/catalog/memories?status=active&limit=50' +
+      (app.project === '所有项目' ? '' : '&project=' + encodeURIComponent(app.project)),
+  );
+  app = { ...app, memories: catalog.items };
+  const [query, setQuery] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const [kind, setKind] = useState('项目约定');
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const list = app.memories.filter((m) => (m.title + m.content).includes(query));
+  return (
+    <>
+      <Heading
+        eyebrow="KNOWLEDGE / MEMORY"
+        title="项目记忆"
+        description="保存已确认的项目事实和约定。每条记忆都有来源，也可以被更新和移除。"
+      >
+        <Button primary onClick={() => setAdding(true)}>
+          <Plus size={14} />
+          添加记忆
+        </Button>
+      </Heading>
+      <div className="toolbar">
+        <label className="search-field">
+          <Search size={15} />
+          <input
+            aria-label="搜索项目记忆"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索记忆内容…"
+          />
+        </label>
+        <span className="filter-count">{list.length} 条已加载记忆</span>
+      </div>
+      <Panel>
+        {list.map((m) => (
+          <div className="list-row" key={m.id}>
+            <span className="tile-icon">
+              <BookOpen size={18} />
+            </span>
+            <div className="grow">
+              <h4>
+                {m.title} <span className="chip">{m.kind}</span>
+              </h4>
+              <p className="muted">{m.content}</p>
+              <span className="cell-sub">{m.source}</span>
+            </div>
+            <button
+              className="icon-btn"
+              aria-label={`删除记忆 ${m.title}`}
+              onClick={() => setDeleting(m.id)}
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        ))}
+        {!list.length && (
+          <Empty title="没有匹配的记忆" description="添加有价值的项目约定，或换个关键词搜索。" />
+        )}
+      </Panel>
+      {catalog.error && <p role="alert">{catalog.error}</p>}
+      {catalog.cursor && (
+        <Button disabled={catalog.loading} onClick={() => void catalog.more()}>
+          加载更多记忆
+        </Button>
+      )}
+      {adding && (
+        <Dialog
+          title="添加项目记忆"
+          subtitle="只保存已确认、可复用的信息"
+          onClose={() => setAdding(false)}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!title.trim() || !content.trim()) return;
+              void api('/memories', 'POST', {
+                title: title.trim(),
+                content: content.trim(),
+                kind,
+                source: '用户在控制台确认',
+                project: app.project === '所有项目' ? null : app.project,
+              })
+                .then(() => catalog.reload())
+                .catch((e) => app.notify(e.message));
+              setAdding(false);
+              setTitle('');
+              setContent('');
+            }}
+          >
+            <label className="field">
+              标题
+              <input
+                required
+                maxLength={80}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="例如：项目使用 uv 管理依赖"
+              />
+            </label>
+            <label className="field">
+              记忆类型
+              <select value={kind} onChange={(e) => setKind(e.target.value)}>
+                {['项目约定', '已确认事实', '操作经验'].map((x) => (
+                  <option key={x}>{x}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              内容
+              <textarea
+                required
+                maxLength={2000}
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="描述事实、适用范围与来源…"
+              />
+            </label>
+            <div className="form-footer">
+              <Button onClick={() => setAdding(false)}>取消</Button>
+              <Button primary type="submit">
+                保存记忆
+              </Button>
+            </div>
+          </form>
+        </Dialog>
+      )}
+      {deleting && (
+        <Dialog title="删除这条项目记忆？" onClose={() => setDeleting(null)}>
+          <p className="muted">该记忆将从当前工作空间移除，之后的上下文不再引用它。</p>
+          <div className="form-footer">
+            <Button onClick={() => setDeleting(null)}>保留</Button>
+            <Button
+              danger
+              onClick={() => {
+                void api('/memories/' + encodeURIComponent(deleting), 'DELETE')
+                  .then(() => catalog.reload())
+                  .catch((e) => app.notify(e.message));
+                setDeleting(null);
+              }}
+            >
+              确认删除
+            </Button>
+          </div>
+        </Dialog>
+      )}
+    </>
+  );
+}

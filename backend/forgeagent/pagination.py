@@ -8,7 +8,7 @@ import secrets
 from datetime import datetime
 from functools import lru_cache
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, false, or_, select
 
 from . import db
 from .config import settings
@@ -63,7 +63,7 @@ def visible(s, actor, operation="read"):
         return db.Run.tenant_id == actor.tenant
     projects = [key for key, values in grants.items() if operation in values]
     return and_(db.Run.tenant_id == actor.tenant,
-                or_(db.Run.project_id.in_(projects), db.Run.actor == actor.actor if operation == "read" else False))
+                or_(db.Run.project_id.in_(projects), db.Run.actor == actor.actor if operation == "read" else false()))
 
 
 def attention():

@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -157,7 +158,7 @@ def register_project(id: str, directory: Path, acceptance: Path, commit: str = "
         bundle = base64.b64decode(repository.bundle_base64, validate=True)
         if len(bundle) > 16 * 1024 * 1024:
             raise Fault("REPOSITORY_LIMIT", "Git bundle exceeds 16 MiB; export a smaller reviewed repository history", 413)
-        payload = {"id": id, "name": id, "repository": {"commit": repository.commit,
+        payload: dict[str, Any] = {"id": id, "name": id, "repository": {"commit": repository.commit,
             "bundle_digest": digest(bundle), "bundle_bytes": len(bundle)},
             "acceptance_id": contract["id"], "verification_argv": contract["argv"], "acceptance": contract, "build": build}
         if len(canonical(payload)) > 2 * 1024 * 1024:

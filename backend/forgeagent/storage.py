@@ -75,7 +75,12 @@ class ObjectStore:
                         shutil.copyfileobj(spool, handle, 65536)
                         handle.flush()
                         os.fsync(handle.fileno())
-                    temporary.replace(path)
+                    # Content addresses are immutable. Replacing an existing object can
+                    # fail on Windows while another reader has it open.
+                    try:
+                        os.link(temporary, path)
+                    except FileExistsError:
+                        pass  # The winner is verified below, including concurrent writes.
                 finally:
                     temporary.unlink(missing_ok=True)
             # Stream verification avoids allocating a second full object during publication.
@@ -89,6 +94,7 @@ class ObjectStore:
         return path
 
     def upload(self, key, spool, size, checksum):
+        assert self.s3 is not None
         upload_id = None
         options = {"Bucket": settings.s3_bucket, "Key": key}
         try:

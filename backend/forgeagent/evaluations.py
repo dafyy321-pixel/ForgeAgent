@@ -5,7 +5,7 @@ import random
 from collections import defaultdict
 from decimal import Decimal
 from statistics import mean
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
@@ -164,7 +164,7 @@ def report(s, record, tenant):
         return {"id": record.id, "status": "erased", "limitations": "Knowledge-derived experiment evidence was erased."}
     if record.data.get("report"):
         return record.data["report"]
-    results = []
+    results: list[dict[str, Any]] = []
     for entry in record.data["entries"]:
         run = db.get(s, db.Run, tenant, entry["id"])
         ledger = db.get(s, db.BudgetAccount, tenant, run.root_id)
@@ -188,7 +188,8 @@ def report(s, record, tenant):
             }
         )
     finished = all(x["status"] in TERMINAL | {"PAUSED"} for x in results)
-    summaries, grouped = {}, defaultdict(list)
+    summaries: dict[str, dict[str, Any]] = {}
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in results:
         grouped[(row["config"], row["case_id"])].append(row)
     configs = [c["name"] for c in record.data["configurations"]]

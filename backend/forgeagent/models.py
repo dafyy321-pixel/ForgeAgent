@@ -1,3 +1,5 @@
+from typing import Any
+
 from . import billing
 from .config import settings
 from .domain import Decision, Fault
@@ -49,7 +51,7 @@ async def count_request(request):
 
 
 @observed("model.generate")
-async def generate(messages, model_id, request=None):
+async def generate(messages, model_id, request=None) -> tuple[str, dict[str, Any] | None, dict[str, Any], str | None]:
     if settings.model_provider == "unconfigured" or not settings.model_api_key or not model_id:
         raise Fault("MODEL_NOT_CONFIGURED", "Configure model provider, exact model ID and API key in .env", 503)
     if settings.input_price <= 0 or settings.output_price <= 0:

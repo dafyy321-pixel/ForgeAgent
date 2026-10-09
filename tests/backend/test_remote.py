@@ -11,6 +11,12 @@ from forgeagent.domain import Fault, canonical, digest, uid
 from forgeagent.worker import Worker
 
 
+async def test_sdk_client_factory_accepts_positional_protocol_arguments():
+    async with remote.safe_client({"X-Test": "factory"}, httpx.Timeout(7), None) as client:
+        assert client.headers["X-Test"] == "factory"
+        assert client.timeout.read == 7 and not client.follow_redirects
+
+
 def pending_remote(tenant, run_id, kind="mcp", protocol="2026-07-28"):
     with db.transaction(tenant) as s:
         run = db.get(s, db.Run, tenant, run_id)

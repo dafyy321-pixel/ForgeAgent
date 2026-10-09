@@ -156,6 +156,7 @@ def event_view(e):
 
 
 def workspace(s, tenant, actor=None, project=None, status=None, q="", cursor=None, limit=50, run_id=None):
+    assert actor is not None
     from .catalog import page as catalog_page
     from .pagination import runs as page_runs
 

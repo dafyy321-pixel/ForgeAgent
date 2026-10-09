@@ -1,0 +1,7 @@
+src/generated/
+src/icons.tsx
+dist/
+node_modules/
+.forge/
+playwright-report/
+test-results/

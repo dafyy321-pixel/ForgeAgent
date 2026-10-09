@@ -112,11 +112,15 @@ class PublicationRequirement(Strict):
     effect_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
 
 
+def default_deliverables() -> list[Literal["patch", "test_report", "summary"]]:
+    return ["patch", "test_report", "summary"]
+
+
 class Task(Strict):
     goal: str = Field(min_length=1, max_length=12000)
     allowed_paths: list[str] = Field(default_factory=lambda: ["src", "tests"], min_length=1, max_length=100)
     acceptance_profile: str = ""
-    deliverables: list[Literal["patch", "test_report", "summary"]] = Field(default_factory=lambda: ["patch", "test_report", "summary"], min_length=1)
+    deliverables: list[Literal["patch", "test_report", "summary"]] = Field(default_factory=default_deliverables, min_length=1)
     publication: list[PublicationRequirement] = Field(default_factory=list, max_length=20)
     criteria: list[str] = Field(default_factory=list, max_length=30)
     acceptance_conditions: list[AcceptanceCondition] = Field(default_factory=list, max_length=100)
@@ -146,11 +150,15 @@ class Harness(Strict):
     delegation: bool = True
 
 
+def default_child_deliverables() -> list[Literal["patch", "test_report", "summary"]]:
+    return ["summary"]
+
+
 class ChildContract(Strict):
     required: bool = True
     deadline_seconds: int | None = Field(None, ge=1, le=86400)
     join: Literal["report", "integrate"] = "report"
-    deliverables: list[Literal["patch", "test_report", "summary"]] = Field(default_factory=lambda: ["summary"])
+    deliverables: list[Literal["patch", "test_report", "summary"]] = Field(default_factory=default_child_deliverables)
 
 
 class CreateRun(Strict):

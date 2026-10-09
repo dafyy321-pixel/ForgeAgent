@@ -5,6 +5,7 @@ import shlex
 import signal
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from typing import cast
 
 from pydantic import ValidationError
 from sqlalchemy import and_, func, or_, select
@@ -15,6 +16,7 @@ from .config import settings
 from .context import compile_context
 from .domain import TERMINAL, Fault, canonical, digest, uid
 from .sandbox import files, sandbox
+from .state_types import ModelReceipt, RunState
 from .storage import objects
 from .telemetry import observed, tracer
 from .verification import verify
@@ -561,13 +563,17 @@ class Worker:
                     billing_error = None
                 except Fault as exc:
                     actual, billing_error = None, exc.code
+                protocol_receipt = raw.get("_forge")
+                if not isinstance(protocol_receipt, dict):
+                    protocol_receipt = {} if protocol_receipt is None else {"end_status": "invalid_response"}
                 call.status = "RECEIVED" if actual is not None else "UNKNOWN"
-                call.data = {**call.data, "response_ref": response_ref, "usage": usage,
+                receipt: ModelReceipt = {"response_ref": response_ref, "usage": usage,
                              "provider_request_id": provider_id, "receipt_state": "received",
                              "decision": decision.model_dump() if decision else None,
                              "validation_error": validation_error, "received_at": db.clock(s).isoformat(),
-                             "end_status": raw.get("_forge", {}).get("end_status", "completed"),
-                             "protocol_receipt": raw.get("_forge"), "billing_error": billing_error}
+                             "end_status": protocol_receipt.get("end_status", "completed"),
+                             "protocol_receipt": protocol_receipt, "billing_error": billing_error}
+                call.data = {**call.data, **receipt}
                 service.settle(s, r, call_id, actual, billing.tokens(usage) if usage and actual is not None else None)
                 if actual is None:
                     r.status = "CANCELLING" if r.cancel_requested else "PAUSED"
@@ -617,14 +623,17 @@ class Worker:
                 r.state = {**r.state, "reason": "MODEL_" + call.data["end_status"].upper() + ": no decision effects applied"}
                 db.emit(s, r, "MODEL_ENDED_WITHOUT_DECISION", r.state["reason"], call_id=call_id)
                 return
+            if not decision and not validation_error:
+                validation_error = "Persisted model response has no parsed decision"
             if validation_error:
-                count = r.state.get("format_errors", 0) + 1
+                count = cast(RunState, r.state).get("format_errors", 0) + 1
                 r.state = {**r.state, "format_errors": count, "input": "Invalid decision JSON. " + validation_error}
                 progress.failed(s, r, "MODEL_FORMAT_ERROR", "provider")
                 if count > 2:
                     r.status = "CANCELLING" if r.cancel_requested else "PAUSED"
                 db.emit(s, r, "MODEL_FORMAT_ERROR", "Model response did not satisfy decision schema")
                 return
+            assert decision is not None
             s.add(
                 db.Turn(
                     tenant_id=tenant,
@@ -650,7 +659,7 @@ class Worker:
                 fingerprint = digest(
                     {"calls": [{"tool": c.tool, "args": c.args} for c in decision.calls], "workspace": r.state["workspace_digest"]}
                 )
-                repeats = r.state.get("repeats", 0) + 1 if r.state.get("fingerprint") == fingerprint else 1
+                repeats = cast(RunState, r.state).get("repeats", 0) + 1 if r.state.get("fingerprint") == fingerprint else 1
                 r.state = {**r.state, "fingerprint": fingerprint, "repeats": repeats}
                 if repeats >= 3:
                     r.status = "PAUSED"
@@ -672,6 +681,7 @@ class Worker:
                 r.status, r.wait_reason = "PAUSED", None
                 r.state = {**r.state, "reason": decision.summary, "input_required": True}
             elif decision.kind == "delegate":
+                assert decision.child is not None
                 try:
                     with s.begin_nested():
                         child = service.create_run(
@@ -865,7 +875,7 @@ class Worker:
                     service.checkpoint(s, r)
                 if receipt.get("child_id") and action_status == "SUCCEEDED":
                     r.state = {**r.state, "integrated_children": sorted(set(
-                        r.state.get("integrated_children", []) + [receipt["child_id"]]
+                        cast(RunState, r.state).get("integrated_children", []) + [receipt["child_id"]]
                     ))}
                 progress.observed(s, r, tool, receipt, action_status)
                 db.emit(s, r, "ACTION_RESULT", f"{tool}: {action_status}", action_id=a.id, observation=a.receipt)
@@ -964,7 +974,7 @@ class Worker:
                 progress.record(s, r, "verification", verdict=report["verdict"], evidence_digest=report_ref["digest"])
                 if not passed:
                     progress.failed(s, r, "VERIFICATION_" + report["verdict"], report.get("failure_class") or "verification")
-                repair_count = r.state.get("repair_attempts", 0)
+                repair_count = cast(RunState, r.state).get("repair_attempts", 0)
                 can_repair = (report["verdict"] == "FAIL"
                               and report.get("failure_class") == "acceptance"
                               and repair_count < state["budget"].get("max_repair_attempts", 2)

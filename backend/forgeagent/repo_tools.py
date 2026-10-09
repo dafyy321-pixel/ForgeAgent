@@ -6,6 +6,7 @@ import fnmatch
 import re
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from .domain import Fault, digest
 from .sandbox import git, raw_attributes
@@ -76,6 +77,7 @@ def execute(root, tool, args, state):
         source = text(before, args["path"])
         if len(source.encode()) > 1024 * 1024:
             raise Fault("READ_LIMIT", "Symbol query exceeds bounded source size")
+        symbols: list[dict[str, Any]]
         if args["path"].endswith(".py"):
             try:
                 tree = ast.parse(source)

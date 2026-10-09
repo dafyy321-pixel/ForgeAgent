@@ -1,5 +1,7 @@
 """Paginated metadata catalog; content and privileged detail have dedicated endpoints."""
 
+from typing import Any
+
 from sqlalchemy import func, or_, select
 
 from . import db
@@ -14,7 +16,7 @@ COLLECTIONS = {"projects": db.Project, "connections": db.ToolVersion, "evaluatio
 
 
 def page(s, actor, collection, cursor=None, limit=50, status=None, run_id=None, project=None, verified=None):
-    cls = COLLECTIONS.get(collection)
+    cls: Any = COLLECTIONS.get(collection)
     if not cls:
         raise Fault("CATALOG_COLLECTION", "Unknown catalog collection", 404)
     if collection in {"connections", "evaluations", "maintenance-jobs", "datasets"}:

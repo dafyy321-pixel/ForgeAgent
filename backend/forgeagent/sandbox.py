@@ -215,9 +215,12 @@ class Sandbox:
         output = bytearray()
         truncated = False
 
+        assert proc.stdout is not None
+        stdout = proc.stdout
+
         async def collect():
             nonlocal truncated
-            while chunk := await proc.stdout.read(65536):
+            while chunk := await stdout.read(65536):
                 remaining = 1024 * 1024 - len(output)
                 output.extend(chunk[:remaining])
                 if len(chunk) > remaining:
