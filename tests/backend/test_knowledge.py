@@ -338,3 +338,28 @@ async def test_skill_resource_is_consumed_through_actual_worker_tool_path(client
         assert action.status == "SUCCEEDED"
         receipt = json.loads(objects.get(tenant, action.receipt["ref"]))
         assert receipt["content"] == "Pinned source rule" and receipt["_observation"]["tool"] == "skill.read"
+
+
+async def test_completed_run_with_real_actions_can_erase_its_lineage(client, tenant, make_run):
+    memory_id = memory(client)
+    run_id = make_run()
+    worker = Worker(target_run=run_id)
+    for _ in range(6):
+        await worker.once(tenant)
+    with db.transaction(tenant) as s:
+        run = db.get(s, db.Run, tenant, run_id)
+        assert run.status == "SUCCEEDED"
+        action = db.rows(s, db.Action, tenant, run_id=run_id)[0]
+        assert action.args and action.receipt
+        account = db.get(s, db.BudgetAccount, tenant, run_id)
+        spent = account.spent
+    response = client.post(f"/v1/memories/{memory_id}/purge", json={"erase_derived_runs": True})
+    assert response.status_code == 200, response.text
+    with db.transaction(tenant) as s:
+        run = db.get(s, db.Run, tenant, run_id)
+        assert run.status == "CANCELLED" and run.state["knowledge_erased"]
+        action = db.rows(s, db.Action, tenant, run_id=run_id)[0]
+        assert action.args == {} and action.receipt is None
+        assert not db.rows(s, db.Artifact, tenant, run_id=run_id)
+        assert db.get(s, db.BudgetAccount, tenant, run_id).spent == spent
+        assert service.replay(s, tenant, run_id)["projection"] == db.projection(run)
