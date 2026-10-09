@@ -185,6 +185,40 @@ def collect_objects(apply: bool = False, min_age_hours: int = 24):
     execute(lambda c: c.request("POST", "/operations/objects/gc", {"apply": apply, "min_age_hours": min_age_hours}))
 
 
+@admin.command("backup")
+def backup(destination: Path, pg_dump: str = "pg_dump"):
+    """Offline joint snapshot. Administrator URL is read only from FORGE_BACKUP_DATABASE_URL."""
+    from .backup import export
+
+    url = os.environ.get("FORGE_BACKUP_DATABASE_URL")
+    if not url:
+        raise typer.BadParameter("Configure FORGE_BACKUP_DATABASE_URL in private secret storage")
+    try:
+        typer.echo(json.dumps(export(url, destination, pg_dump)))
+    except Exception as exc:
+        from .domain import Fault
+
+        typer.echo(exc.message if isinstance(exc, Fault) else "Backup failed; inspect private operator logs", err=True)
+        raise typer.Exit(1) from None
+
+
+@admin.command("restore-drill")
+def restore_drill(source: Path, database: str, destination: Path, pg_restore: str = "pg_restore"):
+    """Verify backup by restoring into a new forge_restore_* database and new object directory."""
+    from .backup import restore
+
+    url = os.environ.get("FORGE_BACKUP_DATABASE_URL")
+    if not url:
+        raise typer.BadParameter("Configure FORGE_BACKUP_DATABASE_URL in private secret storage")
+    try:
+        typer.echo(json.dumps(restore(url, source, database, destination, pg_restore)))
+    except Exception as exc:
+        from .domain import Fault
+
+        typer.echo(exc.message if isinstance(exc, Fault) else "Restore drill failed; inspect private operator logs", err=True)
+        raise typer.Exit(1) from None
+
+
 @evaluation.command("dataset")
 def register_dataset(spec: Path):
     execute(lambda c: c.request("POST", "/evaluation-datasets", json.loads(spec.read_text(encoding="utf-8"))))

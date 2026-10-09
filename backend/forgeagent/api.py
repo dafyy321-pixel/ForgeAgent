@@ -35,6 +35,9 @@ from .workspace import FileEntry, validate_manifest
 
 @asynccontextmanager
 async def lifespan(app):
+    from .telemetry import configure
+
+    configure()
     if settings.auth_mode == "local":
         service.provision()
     yield
@@ -107,6 +110,8 @@ def live():
 def ready():
     with db.engine.connect() as c:
         c.execute(text("SELECT 1"))
+        if c.scalar(text("SELECT version_num FROM alembic_version")) != "0007":
+            raise Fault("SCHEMA_VERSION", "Database migration is not ready for this runtime", 503)
     return {"status": "ready", "database": "postgresql"}
 
 
@@ -1470,10 +1475,79 @@ def collect_objects(body: GarbageCollection, actor: Actor):
         return collect(s, actor.tenant, body.apply, body.min_age_hours)
 
 
+@app.get("/v1/operations/objects/references")
+def object_references(actor: Actor):
+    require_admin(actor)
+    from .maintenance import RETENTION, reference_graph
+
+    with db.transaction(actor.tenant) as s:
+        return {"policy": RETENTION, "references": reference_graph(s, actor.tenant)}
+
+
+@app.post("/v1/operations/workspaces/gc")
+def collect_workspaces(body: GarbageCollection, actor: Actor):
+    require_admin(actor)
+    from .maintenance import clean_workspaces
+
+    with db.transaction(actor.tenant) as s:
+        return clean_workspaces(s, actor.tenant, body.apply, body.min_age_hours)
+
+
+@app.post("/v1/operations/runs/{id}/purge")
+def purge_run(id: str, actor: Actor):
+    require_admin(actor)
+    from .knowledge_erasure import finish, prepare
+
+    with db.transaction(actor.tenant) as s:
+        ids, key = prepare(s, actor.tenant, None, actor.actor, run_id=id)
+    return finish(actor.tenant, ids, key)
+
+
+class MaintenanceRequest(GarbageCollection):
+    kind: Literal["objects", "workspaces", "containers"]
+    idempotency_key: str = Field(min_length=1, max_length=200)
+
+
+@app.post("/v1/operations/jobs")
+def create_maintenance(body: MaintenanceRequest, actor: Actor):
+    require_admin(actor)
+    from .maintenance_jobs import enqueue
+
+    payload = {"apply": body.apply}
+    if body.kind != "containers":
+        payload["min_age_hours"] = body.min_age_hours
+    with db.transaction(actor.tenant) as s:
+        job = enqueue(s, actor.tenant, body.kind, payload, body.idempotency_key)
+        return {"id": job.id, "status": job.status, "data": job.data}
+
+
+@app.get("/v1/operations/jobs")
+def maintenance_jobs(actor: Actor):
+    require_admin(actor)
+    with db.transaction(actor.tenant) as s:
+        return [{"id": job.id, "status": job.status, "data": job.data}
+                for job in db.rows(s, db.PolicyVersion, actor.tenant) if job.data.get("kind") == "maintenance_job"]
+
+
+@app.post("/v1/operations/jobs/{id}/retry")
+def retry_maintenance(id: str, actor: Actor):
+    require_admin(actor)
+    with db.transaction(actor.tenant) as s:
+        job = db.get(s, db.PolicyVersion, actor.tenant, id, True)
+        if job.data.get("kind") != "maintenance_job" or job.status != "dead_letter":
+            raise Fault("MAINTENANCE_RETRY", "Only dead-letter maintenance jobs can be retried")
+        job.status = "queued"
+        job.data = {**job.data, "attempts": 0, "available_at": db.clock(s).isoformat(),
+                    "history": [*job.data["history"], {"at": db.clock(s).isoformat(), "reviewer": actor.actor, "status": "retry"}]}
+        return {"id": job.id, "status": job.status}
+
+
 @app.get("/metrics")
 def prometheus(actor: Actor):
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
     values = metrics(actor)
     return Response(
-        "".join(f"# TYPE forge_{k} gauge\nforge_{k} {v}\n" for k, v in values.items()),
-        media_type="text/plain; version=0.0.4",
+        generate_latest() + "".join(f"# TYPE forge_{k} gauge\nforge_{k} {v}\n" for k, v in values.items()).encode(),
+        media_type=CONTENT_TYPE_LATEST,
     )

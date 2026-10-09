@@ -286,16 +286,23 @@ async def test_slow_object_store_does_not_expire_heartbeat(tenant, make_run, mon
     run_id = make_run()
     monkeypatch.setattr(settings, "lease_seconds", 3)
     original = objects.get
+    started, release = threading.Event(), threading.Event()
 
     def slow_get(*args):
-        time.sleep(1.2)
+        started.set()
+        assert release.wait(10), "test must release the blocked object read"
         return original(*args)
 
     monkeypatch.setattr(objects, "get", slow_get)
     worker = Worker(target_run=run_id)
     task = asyncio.create_task(worker.once(tenant))
-    await asyncio.sleep(3.4)
-    assert await asyncio.to_thread(Worker(target_run=run_id).claim, tenant) is None
+    try:
+        assert await asyncio.to_thread(started.wait, 5)
+        await asyncio.sleep(3.4)
+        assert not task.done()
+        assert await asyncio.to_thread(Worker(target_run=run_id).claim, tenant) is None
+    finally:
+        release.set()
     assert await task
     with db.transaction(tenant) as s:
         run = db.get(s, db.Run, tenant, run_id)

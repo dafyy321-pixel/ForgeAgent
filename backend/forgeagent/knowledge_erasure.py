@@ -8,16 +8,18 @@ from .domain import Fault, digest
 from .storage import objects
 
 
-def prepare(s, tenant, memory_id, actor):
+def prepare(s, tenant, memory_id, actor, run_id=None):
     from .knowledge import lock
 
     lock(s, tenant)
-    db.get(s, db.Memory, tenant, memory_id, True)
-    key = "memory-erasure-" + memory_id
+    if memory_id:
+        db.get(s, db.Memory, tenant, memory_id, True)
+    initial = db.get(s, db.Run, tenant, run_id, True) if run_id else None
+    key = "run-erasure-" + run_id if run_id else "memory-erasure-" + memory_id
     existing = s.get(db.PolicyVersion, (tenant, key))
     if existing:
         return existing.data["runs"], key
-    roots, memory_ids, derived_ids = set(), {memory_id}, set()
+    roots, memory_ids, derived_ids = ({initial.root_id} if initial else set()), ({memory_id} if memory_id else set()), set()
     all_runs, all_memories = db.rows(s, db.Run, tenant), db.rows(s, db.Memory, tenant)
     all_skills = db.rows(s, db.SkillVersion, tenant)
     skill_ids = set()
@@ -95,10 +97,29 @@ def prepare(s, tenant, memory_id, actor):
     for linked in db.rows(s, db.Memory, tenant):
         if linked.id in memory_ids:
             linked.status, linked.data = "erased", {"erased": True, "digest": digest(linked.data)}
+    from .maintenance_jobs import enqueue
+
+    enqueue(s, tenant, "erasure", {"runs": ids, "erasure_key": key}, key)
     return ids, key
 
 
 def finish(tenant, ids, key):
+    from .knowledge import lock
+
+    with db.transaction(tenant) as s:
+        lock(s, tenant)
+        job = db.get(s, db.PolicyVersion, tenant, key, True)
+        if job.status not in {"pending", "completed"} or job.data.get("runs") != ids:
+            raise Fault("ERASURE_SCOPE", "Physical erasure requires the exact registered task family", 403)
+        for run_id in ids:
+            if not db.get(s, db.Run, tenant, run_id).state.get("knowledge_erased"):
+                raise Fault("ERASURE_SCOPE", "Task has not committed its registered erasure", 403)
+        purge_family(tenant, ids)
+        job.status = "completed"
+    return {"status": "erased", "derived_runs": ids, "limitations": "Externally retained provider data and backups require their own retention/erasure process."}
+
+
+def purge_family(tenant, ids):
     from .sandbox import sandbox
 
     for run_id in ids:
@@ -111,7 +132,3 @@ def finish(tenant, ids, key):
                 raise Fault("ERASURE_SCOPE", "Deletion escaped derived data root")
             if path.exists():
                 shutil.rmtree(path)
-    with db.transaction(tenant) as s:
-        job = db.get(s, db.PolicyVersion, tenant, key, True)
-        job.status = "completed"
-    return {"status": "erased", "derived_runs": ids, "limitations": "Externally retained provider data and backups require their own retention/erasure process."}

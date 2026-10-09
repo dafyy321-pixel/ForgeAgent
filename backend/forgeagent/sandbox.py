@@ -133,6 +133,8 @@ class Sandbox:
             raise Fault("INVALID_COMMAND", "argv must be a nonempty string array", 422)
         started = time.monotonic()
         name = "forge-" + (operation or uid())
+        workspace_base = settings.data_dir.resolve() / "workspaces"
+        tenant_scope = root.resolve().relative_to(workspace_base).parts[0] if root.resolve().is_relative_to(workspace_base) else "unscoped"
         mount = f"type=bind,src={root.resolve()},dst=/workspace" + (",readonly" if readonly else "")
         cmd = [
             "docker",
@@ -141,6 +143,11 @@ class Sandbox:
             "--pull=never",
             "--name",
             name,
+            "--label=forge.managed=true",
+            "--label=forge.storage=" + digest(str(settings.data_dir.resolve())),
+            "--label=forge.workspace=" + digest(str(root.resolve())),
+            "--label=forge.tenant=" + tenant_scope,
+            "--label=forge.deadline=" + str(int(time.time()) + min(timeout, 300) + 30),
             "--network=none",
             "--read-only",
             "--cap-drop=ALL",
@@ -245,6 +252,39 @@ class Sandbox:
             "sandbox_profile": {"runtime": settings.sandbox_runtime, "network": "none", "readonly": readonly,
                                 "cpu_limit": 1, "memory_bytes": 536870912, "pids_limit": 128, "uid": 10001},
         }
+
+    async def reap(self, apply=False, scope=None):
+        """Only containers owned by this manager/storage root with an expired hard deadline."""
+        proc = await asyncio.create_subprocess_exec("docker", "ps", "-aq", "--filter=label=forge.managed=true",
+            "--filter=label=forge.storage=" + digest(str(settings.data_dir.resolve())),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        output, _ = await asyncio.wait_for(proc.communicate(), 20)
+        if proc.returncode:
+            raise Fault("SANDBOX_UNAVAILABLE", "Container inventory is unavailable", 503)
+        import re
+
+        candidates = []
+        for container in output.decode().split():
+            if not re.fullmatch(r"[a-f0-9]{12,64}", container):
+                raise Fault("SANDBOX_INVENTORY", "Invalid container inventory", 503)
+            inspect = await asyncio.create_subprocess_exec("docker", "inspect", container,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+            raw, _ = await asyncio.wait_for(inspect.communicate(), 20)
+            if inspect.returncode:
+                continue
+            entry = json.loads(raw)[0]
+            labels = entry.get("Config", {}).get("Labels", {}) or {}
+            if (labels.get("forge.managed") != "true" or labels.get("forge.storage") != digest(str(settings.data_dir.resolve()))
+                or (scope is not None and labels.get("forge.tenant") != scope)
+                or not labels.get("forge.deadline", "").isdigit() or int(labels["forge.deadline"]) > time.time()):
+                continue
+            candidates.append(container)
+            if apply:
+                cleanup = await asyncio.create_subprocess_exec("docker", "rm", "-f", container,
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+                if await cleanup.wait():
+                    raise Fault("SANDBOX_CLEANUP", "Container cleanup failed; retry the managed inventory", 503)
+        return {"dry_run": not apply, "containers": candidates}
 
     def patch(self, baseline, current, repository=None):
         with tempfile.TemporaryDirectory(prefix="forge-patch-") as directory:

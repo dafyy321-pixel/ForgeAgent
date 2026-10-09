@@ -30,6 +30,7 @@ dev = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "hypothesis>=6.127,<7", "ru
 [project.scripts]
 forge = "forgeagent.cli:app"
 forge-worker = "forgeagent.worker:main"
+forge-maintenance = "forgeagent.maintenance_jobs:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

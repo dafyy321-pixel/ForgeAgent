@@ -6,6 +6,7 @@ import time
 
 from .domain import Fault, digest, now
 from .sandbox import sandbox
+from .telemetry import observed
 from .workspace import body, text
 
 CONFIG_NAMES = {"pyproject.toml", "pytest.ini", "tox.ini", "setup.cfg", "conftest.py", "package.json",
@@ -20,6 +21,7 @@ def protected(path, contract, build):
             or any(fnmatch.fnmatchcase(path, pattern) for pattern in contract.get("protected_paths", [])))
 
 
+@observed("verification.execute")
 async def verify(tenant, run_id, epoch, baseline, current, contract, allowed_paths, image, repository=None,
                  build=None, executor=None, metadata=None):
     started_at, started = now(), time.monotonic()

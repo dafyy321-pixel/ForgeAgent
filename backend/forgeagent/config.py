@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     s3_bucket: str = "forgeagent"
     s3_access_key: str = ""
     s3_secret_key: str = ""
+    s3_session_token: str = ""
+    object_spool_bytes: int = Field(4 * 1024 * 1024, ge=65536, le=64 * 1024 * 1024)
+    s3_multipart_bytes: int = Field(8 * 1024 * 1024, ge=5 * 1024 * 1024, le=64 * 1024 * 1024)
     remote_hosts: str = ""
     callback_secret: str = ""
     remote_credentials: str = "{}"

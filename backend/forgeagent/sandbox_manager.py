@@ -118,6 +118,35 @@ async def cancel(operation: str, authorization: Annotated[str, Header()]):
     return {"cancelled": operation}
 
 
+class CleanupRequest(Strict):
+    apply: bool = False
+    scope: str = Field(pattern=r"^[a-f0-9]{16}$")
+
+
+@app.post("/maintenance/containers")
+async def containers(body: CleanupRequest, authorization: Annotated[str, Header()]):
+    authorize(authorization, "container_gc", body.model_dump())
+    return await sandbox.reap(body.apply, body.scope)
+
+
+async def clean_containers(tenant, apply=False):
+    scope = digest(tenant)[7:23]
+    if not settings.sandbox_manager_url:
+        if settings.auth_mode != "local":
+            raise Fault("SANDBOX_MANAGER_REQUIRED", "Shared cleanup requires the independent manager", 503)
+        return await sandbox.reap(apply, scope)
+    url = settings.sandbox_manager_url.rstrip("/")
+    if not url.startswith("https://") and not (settings.auth_mode == "local" and url.startswith("http://127.0.0.1:")):
+        raise Fault("MANAGER_TRANSPORT", "Shared manager transport requires HTTPS")
+    payload = {"apply": apply, "scope": scope}
+    async with httpx.AsyncClient(timeout=60, trust_env=False) as client:
+        response = await client.post(url + "/maintenance/containers", json=payload,
+            headers={"Authorization": "Bearer " + token("container_gc", payload)})
+        if response.is_error:
+            raise Fault("SANDBOX_CLEANUP", "Manager cleanup failed", 503)
+        return response.json()
+
+
 class CredentialRequest(Strict):
     route: str = Field(min_length=1, max_length=100)
 

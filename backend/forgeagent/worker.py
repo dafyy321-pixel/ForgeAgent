@@ -16,7 +16,7 @@ from .context import compile_context
 from .domain import TERMINAL, Fault, canonical, digest, uid
 from .sandbox import files, sandbox
 from .storage import objects
-from .telemetry import tracer
+from .telemetry import observed, tracer
 from .verification import verify
 from .workspace import clear_tree, write_tree
 
@@ -31,6 +31,7 @@ class Worker:
         self.target_run = target_run
         self.provider_slots = asyncio.Semaphore(settings.provider_concurrency)
 
+    @observed("runtime.claim_recover")
     def claim(self, tenant):
         with db.transaction(tenant) as s:
             time = db.clock(s)
@@ -144,7 +145,8 @@ class Worker:
 
         async def traced():
             with tracer.start_as_current_span(
-                "run.advance", attributes={"forge.run_id": id, "forge.lease_epoch": epoch}
+                "run.advance", attributes={"forge.run_id": id, "forge.lease_epoch": epoch},
+                record_exception=False, set_status_on_exception=False,
             ):
                 await self.advance(tenant, id, epoch)
 
@@ -674,6 +676,7 @@ class Worker:
                     "actions": native_actions if decision.kind == "tool_calls" else []}}
             db.emit(s, r, "DECISION_APPLIED", "Decision effects committed", decision_kind=decision.kind)
 
+    @observed("tool.dispatch")
     async def dispatch(self, tenant, id, epoch, action_id, root):
         def prepare_dispatch():
             with db.transaction(tenant) as s:
@@ -850,6 +853,7 @@ class Worker:
                 db.emit(s, r, "ACTION_RESULT", f"{tool}: {action_status}", action_id=a.id, observation=a.receipt)
         await asyncio.to_thread(commit_dispatch)
 
+    @observed("runtime.complete")
     async def complete(self, tenant, id, epoch):
         def prepare_verification():
             with db.transaction(tenant) as s:

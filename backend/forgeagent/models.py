@@ -2,6 +2,7 @@ from . import billing
 from .config import settings
 from .domain import Decision, Fault
 from .model_protocol import build_request, normalize_response
+from .telemetry import observed
 
 
 def estimate_cost(input_tokens, output_tokens):
@@ -47,6 +48,7 @@ async def count_request(request):
         raise Fault("TOKEN_COUNT_UNAVAILABLE", "Provider token count failed before billable dispatch", retryable=True) from exc
 
 
+@observed("model.generate")
 async def generate(messages, model_id, request=None):
     if settings.model_provider == "unconfigured" or not settings.model_api_key or not model_id:
         raise Fault("MODEL_NOT_CONFIGURED", "Configure model provider, exact model ID and API key in .env", 503)
@@ -84,6 +86,7 @@ def parse_decision(content):
     return Decision.model_validate_json(content)
 
 
+@observed("model.reconcile")
 async def query_billing(request, response_id):
     if request.get("provider") != "openai" or request.get("protocol") != "responses" or not response_id.startswith("resp_"):
         raise Fault("PROVIDER_QUERY_UNAVAILABLE", "This protocol has no queryable original response ID; review provider billing evidence")

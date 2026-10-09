@@ -50,11 +50,23 @@
 
 ## 第六部分：MCP/A2A 与外部效果
 
+本部分已提交并推送：`5acd8f32bf689cff05abcfec7b8a90d61a802def`。
+
 41–46 已实现代码与本地机制验证。全量后端 **238 passed、4 skipped、5 warnings，168.98 秒**；远程/Runtime 组合 **59 passed，92.06 秒**，增强本地 TLS 验证后协议专项 **16 passed，9.75 秒**。Edge 前端 **8 passed，42.5 秒**，包括真实 API/Worker 集成和远程目录/选择回归；Ruff、TypeScript、生产构建和 diff --check 通过。早期完整回归的旧测试依赖未审核连接、取消时退回 WAITING，已改为审核连接前置和保留 CANCELLING 的断言，最终完整回归通过。
 
 新增连接发现/认证/schema 绑定、原生工具目录和 Runtime 动作链路、效果分类/下游业务键/CAS/只读对账查询、持久取消 Outbox、reviewer/form schema/输入版本绑定、连接级全范围签名和 Inbox 消费、受限 Artifact 下载。四种协议均使用真实本地 TLS HTTP socket fixture；这不能视为外部服务互操作通过。旧 MCP/A2A SDK 的 3 条弃用 warning 与既有 2 条测试依赖 warning 保留。真实外部身份/协议环境仍待联调。操作与支持范围见 [远程协议](remote-protocols.md)。
 
 同时补正第 36 项实际工作区租户目录摘要不一致的问题，改用 Sandbox 路径生成函数，并限制删除后对象重新发布、使上传与删除互斥且不阻塞租约心跳。实际文件工作区已完成任务擦除及禁止迟到对象发布专项 **2 passed，4.05 秒**；这项路径修正发生在最后完整回归启动后，专项覆盖最终代码。
+
+## 第七部分：数据、运维与部署
+
+48–55 的代码和本地机制已实现。完整后端 **260 passed、5 skipped、5 warnings，154.20 秒**；最后增强财务关联、唯一索引和删除保护后，迁移/Runtime/知识/记录完整性 **63 passed，27.50 秒**；新增旧 epoch 与租户容器边界后运维/存储专项 **18 passed、1 skipped，4.74 秒**。Ruff、diff --check、TypeScript 与生产构建通过，部署/collector/workflow YAML 可解析。Edge 单 Worker 全组 **8 passed，47.2 秒**；双 Worker 首轮跨新浏览器页面加载 8 秒超时（7 通过、1 失败），任务本身已经成功，单 Worker 重跑全部通过。最后财务跨 root/控制重绑定专项 **6 passed，6.74 秒**，联合恢复按最终迁移重跑 **5 passed，8.60 秒**。
+
+真实本地 PostgreSQL 联合备份恢复演练 **5 passed，4.13 秒**：同一导出 snapshot、独立源库/目标库、对象逐字节校验、引用图/迁移号、原 owner/ACL/RLS、只新建不覆盖。测试数据库已精确清理，既有运行数据库未覆盖。客户端来自 PostgreSQL 官方分发，仅置于忽略的本地工具目录。
+
+实现 0007 记录/模型/控制/财务不可变规则、同租户 JSON 关联和唯一索引；有界 spool/分片 S3、稳定脱敏错误；分类引用图和历史版本 GC；管理员 root/派生血缘擦除；旧 epoch/verify/stage/backup 与标签/租户/截止时间绑定容器回收；持久维护 job/租约恢复/五次上限/死信/审核重试；完整 operation 遥测与 SLO/alert 事实；runtime/manager/web 镜像、完整部署组合、私有凭据/TLS/OIDC/可选 MinIO/collector、备份升级与回退手册。慢存储心跳回归改为显式阻塞读取，避免上传改用流式 verify 后任务提前结束导致测试时序误判。
+
+真实 S3、Linux Docker/gVisor、镜像构建发布与生产监控告警投递未验证。真实 S3 测试要求显式 FORGE_TEST_S3 与隔离 bucket 确认；备份演练默认 opt-in，已在本地单独启用通过。完整回归的跳过不计为真实环境通过。操作见 [数据与部署运维](operations-deployment.md)。
 
 ## 逐项状态
 
@@ -107,14 +119,14 @@
 | 45 | 回调签名、密钥作用域和 Inbox 消费 | 已本地验证 | tenant/connection/message/time/body 摘要全范围 HMAC、独立连接密钥、冲突去重和消费一次；仅唤醒查询、不得推进验收成功 |
 | 46 | 远端 Artifact 代理与必要的 A2A 服务端能力 | 已本地验证 | 已存响应索引、允许列表/固定 IP/无重定向、跨 origin 不带凭据、限流限大小/配额/摘要、未验证产物；当前出站产品未开放 A2A 创建服务 |
 | 47 | 冻结历史迁移定义 | 已验证修复 | 0001 固定 SQL、0003 显式 DDL；隔离 PostgreSQL schema 中依次迁移并对照当前列/类型/租户策略 |
-| 48 | 核心 JSON 记录补充数据库约束 | 待实现 | 按原审查清单的验收标准继续实现与验证 |
-| 49 | S3 真实联调、异常和大对象链路 | 待实现 | 按原审查清单的验收标准继续实现与验证 |
-| 50 | 保留策略、S3 GC 与完整删除 | 待实现 | 按原审查清单的验收标准继续实现与验证 |
-| 51 | 旧 epoch 工作目录和孤儿容器回收 | 待实现 | 按原审查清单的验收标准继续实现与验证 |
-| 52 | 数据库与对象联合灾备 | 待实现 | 按原审查清单的验收标准继续实现与验证 |
-| 53 | 覆盖完整链路的观测与脱敏 | 待实现 | 按原审查清单的验收标准继续实现与验证 |
-| 54 | 维护任务、死信与 SLO 告警 | 待实现 | 按原审查清单的验收标准继续实现与验证 |
-| 55 | 可复现完整部署与升级回退 | 待实现 | 按原审查清单的验收标准继续实现与验证 |
+| 48 | 核心 JSON 记录补充数据库约束 | 已本地验证 | 0007 同租户 JSON 关联、attempt/turn 唯一、不可变模型/证据/财务/控制身份、禁止账本删除；隔离迁移和真实 Worker 回归 |
+| 49 | S3 真实联调、异常和大对象链路 | 已实现，本地契约验证 | 64KiB 流、有限 spool、分片成功/abort、流式 SHA256、错误脱敏分类、短期 token；真实 S3 显式测试待环境 |
+| 50 | 保留策略、S3 GC 与完整删除 | 已本地验证 | recovery/deliverable/knowledge/audit 引用图、强引用保留、24h 孤儿策略、S3 所有版本/marker 分批 GC、root 血缘擦除与重试；真实 S3 待联调 |
+| 51 | 旧 epoch 工作目录和孤儿容器回收 | 已实现，本地机制验证 | 保留当前 epoch、回收旧 epoch/verify/stage/backup、Git remove；Docker owner/storage/tenant/deadline 标签和签名 manager 回收；真实容器待环境 |
+| 52 | 数据库与对象联合灾备 | 已本地真实演练 | PostgreSQL 导出 snapshot + 引用对象 + SHA256 manifest；新隔离库恢复、owner/ACL/RLS/引用/schema/对象校验；S3 备份待环境 |
+| 53 | 覆盖完整链路的观测与脱敏 | 已本地验证 | 模型/工具/验证/恢复/存储/备份 operation span、固定标签计数/耗时、禁异常正文与参数；生产 OTel 后端待部署 |
+| 54 | 维护任务、死信与 SLO 告警 | 已本地验证 | 持久 maintenance job、行锁领取/租约恢复、退避/五次上限/死信/审核重试、SLO 和机器可读 alert/runbook；告警后端待部署 |
+| 55 | 可复现完整部署与升级回退 | 已实现，配置本地验证 | 三个镜像 target、GHCR 摘要/SBOM/provenance、Postgres/API/Worker/manager/maintenance/TLS/OIDC/S3/OTel 组合与升级回退；实际构建发布待 Linux 环境 |
 | 56 | 替换全量 workspace 轮询与 N+1 | 待实现 | 按原审查清单的验收标准继续实现与验证 |
 | 57 | 列表分页、筛选和查询索引 | 待实现 | 按原审查清单的验收标准继续实现与验证 |
 | 58 | SSE 生命周期与客户端断线续传 | 待实现 | 按原审查清单的验收标准继续实现与验证 |
