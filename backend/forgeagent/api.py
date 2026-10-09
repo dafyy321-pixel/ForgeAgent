@@ -176,7 +176,12 @@ def migrate(id: str, body: Control, actor: Actor):
 @app.post("/v1/runs/{id}/fork", status_code=202)
 def fork(id: str, body: Control, actor: Actor, idempotency_key: Annotated[str, Header()]):
     with db.transaction(actor.tenant) as s:
+        from .knowledge import lock
+
+        lock(s, actor.tenant)
         old = db.get(s, db.Run, actor.tenant, id, True)
+        if old.state.get("knowledge_erased"):
+            raise Fault("KNOWLEDGE_ERASED", "Erased history cannot be forked")
         if old.version != body.expected_version:
             raise Fault("VERSION_CONFLICT", "Task changed")
         original = db.get(s, db.TaskSpec, actor.tenant, old.task_id)
@@ -724,18 +729,49 @@ class MemoryInput(Strict):
     source: str = Field(min_length=1, max_length=2000)
     project: str | None = None
     expires_at: AwareDatetime | None = None
+    valid_from: AwareDatetime | None = None
+    subject: str = Field("", max_length=200)
+    repository_revision: str | None = Field(None, max_length=100)
+    supersedes_id: str | None = None
+    source_refs: list[str] = Field(default_factory=list, max_length=20)
 
 
 @app.post("/v1/memories", status_code=201)
 def add_memory(body: MemoryInput, actor: Actor):
+    if body.valid_from and body.expires_at and body.valid_from >= body.expires_at:
+        raise Fault("MEMORY_VALIDITY", "Memory expiration must follow its valid-from instant", 422)
     with db.transaction(actor.tenant) as s:
+        from .knowledge import lock
+
+        lock(s, actor.tenant)
         if body.project:
             db.get(s, db.Project, actor.tenant, body.project)
             if not project_access(s, actor, body.project, "edit"):
                 raise Fault("FORBIDDEN", "Project edit permission is required", 403)
         else:
             require_admin(actor)
-        m = db.Memory(tenant_id=actor.tenant, data={**body.model_dump(mode="json"), "confirmed_by": actor.actor})
+        data = body.model_dump(mode="json")
+        for run_id in body.source_refs:
+            source_run = db.get(s, db.Run, actor.tenant, run_id, True)
+            require_run_access(s, actor, source_run)
+            if source_run.state.get("knowledge_erased"):
+                raise Fault("KNOWLEDGE_ERASED", "Erased traces cannot publish derived memory")
+            evaluation_id = source_run.state.get("evaluation_id")
+            evaluation = s.get(db.Evaluation, (actor.tenant, evaluation_id)) if evaluation_id else None
+            if evaluation and evaluation.data.get("split") == "held_out":
+                raise Fault("HOLDOUT_LEAKAGE", "Held-out traces cannot publish development memory", 403)
+        if body.supersedes_id:
+            previous = db.get(s, db.Memory, actor.tenant, body.supersedes_id, True)
+            if previous.status != "active":
+                raise Fault("MEMORY_CONFLICT", "Only an active memory version can be superseded", 409)
+            if previous.data.get("project") != body.project or previous.data.get("subject") != body.subject or not body.subject:
+                raise Fault("MEMORY_CONFLICT", "Supersession must bind the same project and explicit subject", 422)
+            from .knowledge import withdraw
+
+            withdraw(s, previous)
+            previous.status = "superseded"
+        version = previous.data.get("version", 1) + 1 if body.supersedes_id else 1
+        m = db.Memory(tenant_id=actor.tenant, data={**data, "confirmed_by": actor.actor, "version": version, "digest": digest(data)})
         s.add(m)
         s.flush()
         return {"id": m.id, **m.data}
@@ -744,12 +780,35 @@ def add_memory(body: MemoryInput, actor: Actor):
 @app.delete("/v1/memories/{id}")
 def delete_memory(id: str, actor: Actor):
     with db.transaction(actor.tenant) as s:
+        from .knowledge import lock
+
+        lock(s, actor.tenant)
         m = db.get(s, db.Memory, actor.tenant, id, True)
         if not actor.admin and not project_access(s, actor, m.data.get("project"), "edit"):
             raise Fault("FORBIDDEN", "Project edit permission is required", 403)
-        m.status = "deleted"
-        # Existing task snapshots remain immutable audit records; new retrieval excludes this memory.
-        return {"status": "deleted", "retained_in_historical_snapshots": True}
+        if m.status == "erased":
+            return {"status": "erased", "retained_in_historical_snapshots": False}
+        from .knowledge import withdraw
+
+        affected = withdraw(s, m)
+        return {"status": "withdrawn", "affected_runs": affected, "retained_in_historical_snapshots": True,
+                "purge_endpoint": f"/v1/memories/{id}/purge"}
+
+
+class MemoryPurge(Strict):
+    erase_derived_runs: Literal[True]
+
+
+@app.post("/v1/memories/{id}/purge")
+async def purge_memory(id: str, body: MemoryPurge, actor: Actor):
+    require_admin(actor)
+    from .knowledge_erasure import finish, prepare
+
+    def begin():
+        with db.transaction(actor.tenant) as s:
+            return prepare(s, actor.tenant, id, actor.actor)
+    ids, key = await asyncio.to_thread(begin)
+    return await asyncio.to_thread(finish, actor.tenant, ids, key)
 
 
 class SkillInput(Strict):
@@ -760,21 +819,43 @@ class SkillInput(Strict):
     category: str = "开发"
     source: str = Field(min_length=1)
     license: str = Field(min_length=1)
+    resources: dict[str, str | FileEntry] = Field(default_factory=dict)
+    source_runs: list[str] = Field(default_factory=list, max_length=100)
 
 
 @app.post("/v1/skills", status_code=201)
 def register_skill(body: SkillInput, actor: Actor):
     require_admin(actor)
     id = body.name + "@" + body.version
+    if len(canonical(body.model_dump())) > 1024 * 1024 or len(body.resources) > 100:
+        raise Fault("SKILL_LIMIT", "Skill package is limited to 1 MiB and 100 resources", 413)
+    for path in body.resources:
+        safe_path(settings.data_dir.resolve() / "skill-validation", path)
+        from pathlib import PurePosixPath
+
+        if str(PurePosixPath(path)) != path or "\\" in path or path.casefold() in {"skill.md", "forge-manifest.json"}:
+            raise Fault("SKILL_RESOURCE", "Use canonical resource paths; SKILL.md and FORGE-MANIFEST.json are reserved", 422)
+        if isinstance(body.resources[path], FileEntry) and body.resources[path].mode == "120000":
+            raise Fault("SKILL_RESOURCE", "Skill resources cannot be symbolic links", 422)
+    if len({path.casefold() for path in body.resources}) != len(body.resources):
+        raise Fault("SKILL_RESOURCE", "Resource paths cannot collide on a case-insensitive filesystem", 422)
     with db.transaction(actor.tenant) as s:
+        from .knowledge import lock
+
+        lock(s, actor.tenant)
         if s.get(db.SkillVersion, (actor.tenant, id)):
             raise Fault("IMMUTABLE_VERSION", "Skill version already exists")
+        for run_id in body.source_runs:
+            run = db.get(s, db.Run, actor.tenant, run_id)
+            evaluation = s.get(db.Evaluation, (actor.tenant, run.state.get("evaluation_id"))) if run.state.get("evaluation_id") else None
+            if evaluation and evaluation.data.get("split") == "held_out":
+                raise Fault("HOLDOUT_LEAKAGE", "Candidate packages cannot derive from held-out trajectories", 403)
         s.add(
             db.SkillVersion(
                 tenant_id=actor.tenant,
                 id=id,
                 status="candidate",
-                data={**body.model_dump(), "digest": digest(body.content)},
+                data={**body.model_dump(), "digest": digest({"content": body.content, "resources": body.model_dump()["resources"]})},
             )
         )
     return {"id": id, "status": "candidate"}
@@ -785,6 +866,7 @@ class SkillRelease(Strict):
     review: str = Field(min_length=5, max_length=2000)
     evaluation_id: str | None = None
     configuration: str | None = None
+    rollout_percent: int = Field(100, ge=0, le=100)
 
 
 @app.get("/v1/skills/{id}/release-options")
@@ -818,7 +900,12 @@ def skill_release_options(id: str, actor: Actor):
 def release_skill(id: str, body: SkillRelease, actor: Actor):
     require_admin(actor)
     with db.transaction(actor.tenant) as s:
+        from .knowledge import lock
+
+        lock(s, actor.tenant)
         skill = db.get(s, db.SkillVersion, actor.tenant, id, True)
+        if skill.status == "erased":
+            raise Fault("KNOWLEDGE_ERASED", "An erased skill cannot be released")
         evidence = None
         if body.enabled:
             if not body.evaluation_id or not body.configuration:
@@ -831,8 +918,54 @@ def release_skill(id: str, body: SkillRelease, actor: Actor):
             "reviewer": actor.actor,
             "evaluation_id": body.evaluation_id,
             "evaluation_digest": evidence,
+            "rollout_percent": body.rollout_percent,
+            "release_history": [*skill.data.get("release_history", []), {"at": db.clock(s).isoformat(),
+                "enabled": body.enabled, "reviewer": actor.actor, "review": body.review,
+                "rollout_percent": body.rollout_percent, "evaluation_digest": evidence}],
         }
         return {"id": id, "status": skill.status}
+
+
+@app.get("/v1/skills/{id}/package")
+def skill_package(id: str, actor: Actor):
+    require_admin(actor)
+    from .knowledge import export_package
+
+    with db.transaction(actor.tenant) as s:
+        skill = db.get(s, db.SkillVersion, actor.tenant, id)
+        if skill.status == "erased":
+            raise Fault("KNOWLEDGE_ERASED", "An erased package cannot be exported")
+        data = export_package({"id": skill.id, **skill.data})
+    return Response(data, media_type="application/zip", headers={"Content-Disposition": 'attachment; filename="skill.zip"'})
+
+
+class SkillProposal(Strict):
+    run_ids: list[str] = Field(min_length=1, max_length=100)
+    name: str = Field(pattern=r"^[a-z][a-z0-9-]{1,63}$")
+    version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
+
+
+@app.post("/v1/skills/proposals", status_code=201)
+def propose_skill(body: SkillProposal, actor: Actor):
+    require_admin(actor)
+    from .skill_evolution import propose
+
+    with db.transaction(actor.tenant) as s:
+        return propose(s, actor.tenant, body.run_ids, body.name, body.version)
+
+
+class SkillRollback(Strict):
+    target_id: str
+    review: str = Field(min_length=5, max_length=2000)
+
+
+@app.post("/v1/skills/{id}/rollback")
+def rollback_skill(id: str, body: SkillRollback, actor: Actor):
+    require_admin(actor)
+    from .skill_evolution import rollback
+
+    with db.transaction(actor.tenant) as s:
+        return rollback(s, actor.tenant, id, body.target_id, actor.actor, body.review)
 
 
 class WorkspaceSettings(Strict):
@@ -978,7 +1111,9 @@ def register_dataset(body: experiments.DatasetInput, actor: Actor):
 def datasets(actor: Actor):
     require_admin(actor)
     with db.transaction(actor.tenant) as s:
-        return [{"id": e.id, **e.data} for e in db.rows(s, db.EvaluationDataset, actor.tenant)]
+        return [{"id": e.id, **({"split": "held_out", "digest": e.data["digest"], "status": e.status,
+                                "case_count": len(e.data["cases"])} if e.data.get("split") == "held_out" else e.data)}
+                for e in db.rows(s, db.EvaluationDataset, actor.tenant)]
 
 
 @app.post("/v1/experiments", status_code=202)
@@ -1021,6 +1156,8 @@ def evaluate(body: EvaluationInput, actor: Actor):
 
 
 def evaluation_view(s, e, tenant):
+    if e.status == "erased":
+        return {"id": e.id, "status": "erased", "limitations": "Derived evidence was erased."}
     if e.data.get("kind") == "paired":
         e = db.get(s, db.Evaluation, tenant, e.id, True)
         return experiments.report(s, e, tenant)

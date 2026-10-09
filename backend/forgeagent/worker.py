@@ -205,6 +205,9 @@ class Worker:
         def prepare_advance():
             with db.transaction(tenant) as s:
                 r = db.fence(s, tenant, id, self.owner, epoch)
+                from .knowledge import refresh
+
+                refresh(s, r)
                 state = r.state
                 if r.status == "PAUSED":
                     return
@@ -336,10 +339,14 @@ class Worker:
         def prepare_request():
             with db.transaction(tenant) as s:
                 r = db.fence(s, tenant, id, self.owner, epoch)
+                from .knowledge import refresh
+
+                refresh(s, r)
                 state = r.state
                 actions = db.rows(s, db.Action, tenant, run_id=id)
                 observations = [
-                    observation.project(a) for a in actions if a.receipt
+                    observation.project(a) for a in actions if a.receipt and (
+                        not state.get("knowledge_barrier") or a.receipt.get("observation", {}).get("input_revision", -1) >= state["knowledge_barrier"])
                 ]
                 observations += [
                     {
@@ -557,6 +564,9 @@ class Worker:
 
     def consume_response_sync(self, tenant, id, epoch, call_id):
         with db.transaction(tenant) as s:
+            from .knowledge import lock
+
+            lock(s, tenant)
             r = db.fence(s, tenant, id, self.owner, epoch)
             call = db.get(s, db.ModelCall, tenant, call_id, True)
             if call.data.get("receipt_state") != "received" or call.status == "UNKNOWN":
@@ -715,6 +725,10 @@ class Worker:
                         from .repo_tools import execute
 
                         return execute(root, tool, args, state)
+                    elif tool == "skill.read":
+                        from .knowledge import read_skill
+
+                        receipt = read_skill(state, args["skill_id"], args.get("path", "SKILL.md"))
                     elif tool == "observation.read":
                         if not state["semantic"].get("harness", {}).get("observation_recall", True):
                             raise Fault("HARNESS_RECALL_DISABLED", "Observation recall is disabled in this task contract")
@@ -722,6 +736,8 @@ class Worker:
                             source = db.get(s, db.Action, tenant, args["action_id"])
                             if source.run_id != id or not source.receipt or not source.receipt.get("ref"):
                                 raise Fault("OBSERVATION_SCOPE", "Observation is not available in this task", 404)
+                            if state.get("knowledge_barrier") and source.receipt.get("observation", {}).get("input_revision", -1) < state["knowledge_barrier"]:
+                                raise Fault("OBSERVATION_RETRACTED", "This historical observation precedes a knowledge withdrawal")
                             ref = source.receipt["ref"]
                         raw = json.loads(objects.get(tenant, ref))
                         start, count = args.get("line_start", 0), args.get("max_lines", 100)

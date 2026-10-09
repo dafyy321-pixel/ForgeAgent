@@ -239,7 +239,13 @@ class IntegrateArgs(Strict):
     child_id: str
 
 
+class SkillReadArgs(Strict):
+    skill_id: str = Field(max_length=200)
+    path: str = Field("SKILL.md", max_length=500)
+
+
 TOOL_INPUTS = {
+    "skill.read": SkillReadArgs,
     "repo.list": Strict,
     "repo.read": ReadArgs,
     "repo.write": WriteArgs,

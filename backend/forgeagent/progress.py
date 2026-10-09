@@ -51,7 +51,7 @@ def observed(s, run, tool, receipt, status):
     if paths:
         run.state = {**run.state, "relevant_paths": list(dict.fromkeys(paths + run.state.get("relevant_paths", [])))[:100]}
     evidence = None
-    if tool in {"repo.read", "repo.search", "repo.symbols", "observation.read"}:
+    if tool in {"repo.read", "repo.search", "repo.symbols", "observation.read", "skill.read"}:
         evidence = digest([tool, receipt.get("source_digest") or receipt.get("digest")])
     elif tool == "tests.run":
         evidence = digest([tool, run.state["workspace_digest"], receipt.get("exit_code")])

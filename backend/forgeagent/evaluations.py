@@ -66,6 +66,11 @@ def register(s, tenant, body):
         project = db.get(s, db.Project, tenant, case.project_id)
         bindings[case.project_id] = digest(project.data)
     data = {**body.model_dump(mode="json"), "project_bindings": bindings}
+    fingerprints = [digest({"project": bindings[c.project_id], "task": c.task.model_dump()}) for c in body.cases]
+    for existing in db.rows(s, db.EvaluationDataset, tenant):
+        if (body.split == "held_out" or existing.data.get("split") == "held_out") and set(existing.data.get("case_fingerprints", [])) & set(fingerprints):
+            raise Fault("HOLDOUT_OVERLAP", "Development and held-out task fingerprints must be disjoint", 422)
+    data["case_fingerprints"] = fingerprints
     data["digest"] = digest(data)
     record = db.EvaluationDataset(tenant_id=tenant, id=body.id, data=data)
     s.add(record)
@@ -73,7 +78,9 @@ def register(s, tenant, body):
 
 
 def start(s, tenant, actor, body):
-    dataset = db.get(s, db.EvaluationDataset, tenant, body.dataset_id)
+    dataset = db.get(s, db.EvaluationDataset, tenant, body.dataset_id, True)
+    if dataset.data["split"] == "held_out" and dataset.status != "active":
+        raise Fault("HOLDOUT_CONSUMED", "A held-out dataset is single-use; register a fresh disjoint holdout")
     cases = [Case.model_validate(c) for c in dataset.data["cases"]]
     if len({c.name for c in body.configurations}) != len(body.configurations):
         raise Fault("DUPLICATE_CONFIG", "Configuration names must be unique", 422)
@@ -86,6 +93,8 @@ def start(s, tenant, actor, body):
     for id, expected in dataset.data["project_bindings"].items():
         if digest(db.get(s, db.Project, tenant, id).data) != expected:
             raise Fault("DATASET_DRIFT", "A registered project binding changed")
+    if dataset.data["split"] == "held_out":
+        dataset.status = "sealed"
     record = db.Evaluation(tenant_id=tenant, status="running", data={})
     s.add(record)
     s.flush()
@@ -148,6 +157,8 @@ def cluster_interval(values, seed):
 
 
 def report(s, record, tenant):
+    if record.status == "erased":
+        return {"id": record.id, "status": "erased", "limitations": "Knowledge-derived experiment evidence was erased."}
     if record.data.get("report"):
         return record.data["report"]
     results = []
@@ -255,6 +266,9 @@ def release_gate(s, tenant, skill_id, evaluation_id, configuration):
         config
         and skill_id in config["skills"]
         and skill_id not in baseline["skills"]
+        and set(config["skills"]) == set(baseline["skills"]) | {skill_id}
+        and config["harness"] == baseline["harness"]
+        and not baseline["harness"]["memory"]
         and comparison
         and result["split"] == "held_out"
         and result["model"] not in {"", "fixture@1"}
@@ -270,6 +284,6 @@ def release_gate(s, tenant, skill_id, evaluation_id, configuration):
     if not valid:
         raise Fault(
             "SKILL_GATE",
-            "Release needs settled held-out evidence: 20 cases, two projects, three repetitions, noninferiority and cost gates",
+            "Release needs a single-skill comparison with identical harness and memory disabled, settled held-out evidence: 20 cases, two projects, three repetitions, noninferiority and cost gates",
         )
     return digest(result)

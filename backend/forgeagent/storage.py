@@ -62,5 +62,30 @@ class ObjectStore:
             raise Fault("OBJECT_CORRUPT", "Object length or checksum mismatch")
         return body
 
+    def purge_scope(self, tenant, run_id):
+        if not re.fullmatch(r"[a-zA-Z0-9_-]+", run_id):
+            raise Fault("OBJECT_SCOPE", "Invalid deletion scope", 422)
+        scope = hashlib.sha256(tenant.encode()).hexdigest()
+        prefix = f"{scope}/{run_id}/"
+        if self.s3:
+            # Delete historical versions and delete markers too; deleting only the
+            # latest object leaves recoverable sensitive data in versioned buckets.
+            for page in self.s3.get_paginator("list_object_versions").paginate(Bucket=settings.s3_bucket, Prefix=prefix):
+                entries = [{"Key": v["Key"], "VersionId": v["VersionId"]}
+                           for v in page.get("Versions", []) + page.get("DeleteMarkers", [])]
+                if entries:
+                    result = self.s3.delete_objects(Bucket=settings.s3_bucket, Delete={"Objects": entries})
+                    if result.get("Errors"):
+                        raise Fault("OBJECT_DELETE_FAILED", "S3 rejected some version deletions")
+        else:
+            import shutil
+
+            requested = self.root / scope / run_id
+            path = requested.resolve()
+            if path != requested.absolute() or not path.is_relative_to(self.root.resolve()) or path == self.root.resolve():
+                raise Fault("OBJECT_SCOPE", "Deletion escaped the object root")
+            if path.exists():
+                shutil.rmtree(path)
+
 
 objects = ObjectStore()

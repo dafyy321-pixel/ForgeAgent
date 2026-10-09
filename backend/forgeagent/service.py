@@ -22,6 +22,7 @@ TOOLS = {
     "repo.move": {"effect": "workspace_write", "capability": "workspace.write"},
     "tests.run": {"effect": "read", "capability": "tests.run"},
     "observation.read": {"effect": "read", "capability": "repo.read"},
+    "skill.read": {"effect": "read", "capability": "repo.read"},
     "child.integrate": {"effect": "workspace_write", "capability": "workspace.write"},
 }
 VERIFIER = "forge-verifier@1"
@@ -115,6 +116,9 @@ def authorization(s, run, capability=None):
 
 
 def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_id=None, admin=False):
+    from . import knowledge
+
+    knowledge.lock(s, tenant)
     if not key or len(key) > 200:
         raise Fault("IDEMPOTENCY_REQUIRED", "A bounded Idempotency-Key is required", 422)
     if not parent and not evaluation_id and not project_access(s, Identity(tenant, actor, admin), spec.project_id, "create"):
@@ -163,16 +167,17 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
         raise Fault("ROOT_STORAGE_LIMIT", "Baseline exceeds the root storage quota", 422)
     baseline_ref = parent.state["workspace_ref"] if parent else objects.put(tenant, run_id, baseline_bytes)
     skill_data = []
+    skill_assignments = []
     for skill_id in spec.skills:
         skill = db.get(s, db.SkillVersion, tenant, skill_id)
         if skill.status != "active" and not (evaluation_id and skill.status == "candidate"):
             raise Fault("SKILL_NOT_ACTIVE", "Only released skills may be selected")
-        skill_data.append({"id": skill.id, **skill.data})
-    memories = [
-        {"id": m.id, **m.data}
-        for m in db.rows(s, db.Memory, tenant)
-        if m.status == "active" and m.data.get("project") in (None, spec.project_id) and memory_valid(m, db.clock(s))
-    ]
+        assigned = knowledge.admitted(skill, tenant, run_id, evaluation_id)
+        skill_assignments.append({"id": skill.id, "selected": assigned, "rollout_percent": skill.data.get("rollout_percent", 100)})
+        if assigned:
+            skill_data.append({"id": skill.id, **skill.data})
+    memories = knowledge.retrieve(s, tenant, spec.project_id, spec.task.model_dump(),
+                                  (project.data.get("repository") or {}).get("commit")) if spec.harness.memory else []
     model = "fixture@1" if spec.model == "fixture" else settings.model_id
     acceptance = parent.state["acceptance"] if parent else seal_acceptance(tenant, run_id, project.data.get("acceptance", {}))
     if spec.task.acceptance_profile and spec.task.acceptance_profile != acceptance.get("id"):
@@ -224,7 +229,9 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
             "executor_ref": executor_ref,
             "executor_digest": digest(semantic["implementation"]),
             "skills": skill_data,
+            "skill_assignments": skill_assignments,
             "memories": memories,
+            "memory_lineage": [m["id"] for m in memories],
             "turn": 0,
             "tokens": 0,
             "artifact_version": 1,
@@ -450,6 +457,8 @@ def consume_tool_slot(s, run):
 
 def control(s, tenant, id, command, expected_version, reason, executor="current"):
     r = db.get(s, db.Run, tenant, id, True)
+    if r.state.get("knowledge_erased"):
+        raise Fault("KNOWLEDGE_ERASED", "Derived history was erased; create a new task")
     if command == "cancel" and r.cancel_requested:
         if r.status not in TERMINAL:
             if r.status != "CANCELLING":
@@ -697,6 +706,8 @@ def require_settled_usage(s, run):
 
 
 def require_finalizable(s, run):
+    if run.state.get("knowledge_erased"):
+        raise Fault("KNOWLEDGE_ERASED", "Erased history cannot be verified or restored")
     require_settled_usage(s, run)
     if any(c.data.get("receipt_state") == "received" for c in db.rows(s, db.ModelCall, run.tenant_id, run_id=run.id)):
         raise Fault("UNCONSUMED_RESPONSE", "Consume or supersede persisted model decisions before verification")

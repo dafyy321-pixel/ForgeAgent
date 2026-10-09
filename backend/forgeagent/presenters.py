@@ -190,6 +190,7 @@ def workspace(s, tenant, actor=None):
         "skills": [
             {"id": x.id, "enabled": x.status == "active", "calls": 0, **x.data}
             for x in db.rows(s, db.SkillVersion, tenant)
+            if x.status != "erased"
         ],
         "memories": [{"id": m.id, **m.data} for m in db.rows(s, db.Memory, tenant)
                      if m.status == "active" and (actor is None or actor.admin

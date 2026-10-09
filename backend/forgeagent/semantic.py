@@ -15,7 +15,7 @@ from .storage import objects
 STAGES = {
     "state": ["domain.py", "db.py", "reducer.py", "auth.py"],
     "runtime": ["service.py", "worker.py", "progress.py", "concurrency.py", "semantic.py"],
-    "decision": ["models.py", "model_protocol.py", "model_retry.py", "context.py", "context_summary.py", "context_cost.py", "billing.py", "tokenization.py"],
+    "decision": ["models.py", "model_protocol.py", "model_retry.py", "context.py", "context_summary.py", "context_cost.py", "billing.py", "tokenization.py", "knowledge.py", "knowledge_erasure.py", "skill_evolution.py"],
     "effects": ["sandbox.py", "sandbox_manager.py", "resources.py", "observation.py", "workspace.py", "repository.py", "repo_tools.py", "remote.py", "storage.py"],
     "verification": ["verification.py"],
 }
