@@ -4,6 +4,7 @@ import { stamp, type WorkspaceState, type RunEvent } from './runtime';
 import { api } from './api';
 import type {components} from './generated/api-schema';
 import {followEvents} from './events';
+import {useRemote} from './BackendViews';
 
 type Route={page:Page;id:string;tab:string;project:string;q:string;filter:string};
 export type TaskDraft={title:string;description:string;criteria:string;scope:string;project:string;model:string;budget:number;skills:string[];allowedPaths?:string;allowExternal?:boolean;allowExternalRead?:boolean;connections?:string[];allowDelegation?:boolean};
@@ -18,18 +19,19 @@ function readRoute():Route {
 function url(r:Route){const q=new URLSearchParams();if(r.project!=='所有项目')q.set('project',r.project);if(r.q)q.set('q',r.q);if(r.filter!=='all')q.set('status',r.filter);if(r.tab!=='timeline')q.set('view',r.tab);return `${r.page==='task'?`/tasks/${encodeURIComponent(r.id)}`:r.page==='overview'?'/':`/${r.page}`}${q.size?'?'+q:''}`}
 export function useRuntime(){
  const [state,setState]=useState<WorkspaceState>(empty);const [route,setRoute]=useState(readRoute);
+ const {data:summary}=useRemote('/workspace/summary'+(route.project==='所有项目'?'':'?project='+encodeURIComponent(route.project)),5000);
  const [overlay,setOverlay]=useState<'create'|'command'|'notifications'|null>(null);
  const [toast,setToast]=useState('');const [now,setNow]=useState(stamp);const [evalRunning,setEvalRunning]=useState(false);
  const [storageError,setStorageError]=useState('');const [loading,setLoading]=useState(true);
  const restore=useRef<number|null>(null);const stateRef=useRef(state);stateRef.current=state;
  const pending=useRef(new Set<string>());const requestSequence=useRef(0);const routeRef=useRef(route);routeRef.current=route;
  const revision=useRef('');const refreshAbort=useRef<AbortController|null>(null);
- function workspacePath(cursor?:string){const current=routeRef.current;const query=new URLSearchParams();if(current.project!=='所有项目')query.set('project',current.project);if(current.q)query.set('q',current.q);if(current.id)query.set('run_id',current.id);if(['QUEUED','ACTIVE','WAITING','PAUSED','CANCELLING','SUCCEEDED','FAILED','CANCELLED','active','attention','done'].includes(current.filter))query.set('status',current.filter);if(cursor)query.set('cursor',cursor);return '/workspace'+(query.size?'?'+query:'')}
+ function workspacePath(cursor?:string){const current=routeRef.current;const query=new URLSearchParams();if(current.project!=='所有项目')query.set('project',current.project);if(current.q)query.set('q',current.q);if(current.id)query.set('run_id',current.id);if(['inbox','recovery'].includes(current.page))query.set('status',current.page==='recovery'?'recovery':'attention');if(['QUEUED','ACTIVE','WAITING','PAUSED','CANCELLING','SUCCEEDED','FAILED','CANCELLED','active','attention','done'].includes(current.filter))query.set('status',current.filter);if(cursor)query.set('cursor',cursor);return '/workspace'+(query.size?'?'+query:'')}
 
  async function refresh(){const seq=++requestSequence.current;refreshAbort.current?.abort();const controller=new AbortController();refreshAbort.current=controller;try{const next=await api<WorkspaceState>(workspacePath(), 'GET',undefined,undefined,{signal:controller.signal});if(seq===requestSequence.current){setState(next);setStorageError('');setLoading(false)}}catch(e){if(seq===requestSequence.current&&!controller.signal.aborted){setStorageError(`后端连接失败：${(e as Error).message}`);setLoading(false)}}}
  async function loadMore(){const cursor=stateRef.current.next_cursor;if(!cursor||pending.current.has('page'))return;pending.current.add('page');const sequence=requestSequence.current;try{const next=await api<WorkspaceState>(workspacePath(cursor));if(sequence!==requestSequence.current)return;setState(previous=>({...next,runs:[...previous.runs,...next.runs.filter(run=>!previous.runs.some(old=>old.id===run.id))],artifacts:[...previous.artifacts,...next.artifacts.filter(item=>!previous.artifacts.some(old=>old.id===item.id))]}))}catch(e){setToast((e as Error).message)}finally{pending.current.delete('page')}}
  async function loadOlderEvents(){const current=stateRef.current;const id=routeRef.current.id;const cursor=current.event_next_cursor;if(!id||!cursor)return;const sequence=requestSequence.current;try{const page=await api<{items:RunEvent[];next_cursor:string|null}>(`/catalog/events?run_id=${encodeURIComponent(id)}&cursor=${encodeURIComponent(cursor)}&limit=100`);if(sequence!==requestSequence.current||id!==routeRef.current.id)return;setState(previous=>({...previous,event_next_cursor:page.next_cursor,events:[...previous.events,...page.items.filter(item=>!previous.events.some(old=>old.id===item.id))]}))}catch(error){setToast((error as Error).message)}}
- useEffect(()=>{revision.current='';void refresh()},[route.project,route.q,route.filter,route.id]);
+ useEffect(()=>{revision.current='';void refresh()},[route.project,route.q,route.filter,route.id,route.page]);
  useEffect(()=>{if(!route.id)return;const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
   void followEvents(route.id,controller.signal,()=>{if(timer)clearTimeout(timer);timer=setTimeout(()=>void refresh(),200)}).catch(error=>{if(!controller.signal.aborted)setStorageError(error.message)});
   return()=>{controller.abort();if(timer)clearTimeout(timer)};
@@ -82,7 +84,7 @@ export function useRuntime(){
   saveSettings:async(settings,revision)=>{try{await api('/settings','PUT',{...settings,expected_revision:revision});await refresh();setToast('设置已保存');return true}catch(e){setToast((e as Error).message);return false}},
   reset:()=>setToast('真实执行记录保留审计，不提供演示重置。'),evalCompleted:state.evalCompleted,evalRunning,
   runEval:()=>{setEvalRunning(true);void mutate('/evaluations','POST',{repetitions:3,seed:42}).finally(()=>setEvalRunning(false))}};
- return {app,state,route,overlay,setOverlay,toast,now,storageError,loading,back,create,scenario,verify,decide,repair,reconcile,revise:(_id:string)=>unavailable(),requestApproval,receive:(_id:string)=>unavailable(),emitUpdate:(_id:string)=>refresh(),assignResource:(_id:string)=>refresh(),refresh,fork,loadMore,loadOlderEvents,artifactText,downloadArtifact,
+ return {app,state,route,summary,overlay,setOverlay,toast,now,storageError,loading,back,create,scenario,verify,decide,repair,reconcile,revise:(_id:string)=>unavailable(),requestApproval,receive:(_id:string)=>unavailable(),emitUpdate:(_id:string)=>refresh(),assignResource:(_id:string)=>refresh(),refresh,fork,loadMore,loadOlderEvents,artifactText,downloadArtifact,
   clearFilters:()=>changeRoute({...route,q:'',filter:'all'},true),openTask:(id:string,tab='timeline')=>changeRoute({...route,page:'task',id,tab}),setFilter:(filter:string)=>changeRoute({...route,filter},true),setTab:(tab:string)=>changeRoute({...route,tab},true)};
 }
 export type Runtime=ReturnType<typeof useRuntime>;

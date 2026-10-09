@@ -66,10 +66,15 @@ def visible(s, actor, operation="read"):
                 or_(db.Run.project_id.in_(projects), db.Run.actor == actor.actor if operation == "read" else False))
 
 
+def attention():
+    return or_(db.Run.status.in_(["PAUSED", "FAILED"]),
+               and_(db.Run.status == "WAITING", db.Run.wait_reason.in_(["APPROVAL", "RECONCILIATION"])))
+
+
 def runs(s, actor, project=None, status=None, q="", cursor=None, limit=50):
     from .domain import TERMINAL
 
-    if not 1 <= limit <= 100 or len(q) > 500 or (status and status not in TERMINAL | {"QUEUED", "ACTIVE", "WAITING", "PAUSED", "CANCELLING", "active", "attention", "done"}):
+    if not 1 <= limit <= 100 or len(q) > 500 or (status and status not in TERMINAL | {"QUEUED", "ACTIVE", "WAITING", "PAUSED", "CANCELLING", "active", "attention", "approval", "recovery", "done"}):
         raise Fault("INVALID_PAGE", "Invalid page size or run status", 422)
     scope = [actor.tenant, actor.actor, actor.admin, "runs", project, status, q]
     query = select(db.Run).where(visible(s, actor))
@@ -78,9 +83,11 @@ def runs(s, actor, project=None, status=None, q="", cursor=None, limit=50):
     if status:
         if status == "active":
             query = query.where(db.Run.status.in_(["QUEUED", "ACTIVE", "WAITING", "CANCELLING"]))
-        elif status == "attention":
-            query = query.where(or_(db.Run.status.in_(["PAUSED", "FAILED"]),
-                                    and_(db.Run.status == "WAITING", db.Run.wait_reason.in_(["APPROVAL", "RECONCILIATION"]))))
+        elif status in {"attention", "approval", "recovery"}:
+            query = query.where(attention())
+            if status != "attention":
+                query = query.where(db.Run.wait_reason == "APPROVAL" if status == "approval"
+                                    else or_(db.Run.wait_reason.is_(None), db.Run.wait_reason != "APPROVAL"))
         else:
             query = query.where(db.Run.status == ("SUCCEEDED" if status == "done" else status))
     if q:

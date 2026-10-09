@@ -89,6 +89,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/workspace/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Workspace Summary */
+        get: operations["workspace_summary_v1_workspace_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/catalog/{collection}": {
         parameters: {
             query?: never;
@@ -2529,6 +2546,82 @@ export interface operations {
             };
         };
     };
+    workspace_summary_v1_workspace_summary_get: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Structured API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+        };
+    };
     catalog_v1_catalog__collection__get: {
         parameters: {
             query?: {
@@ -2536,6 +2629,8 @@ export interface operations {
                 limit?: number;
                 status?: string | null;
                 run_id?: string | null;
+                project?: string | null;
+                verified?: boolean | null;
             };
             header?: never;
             path: {

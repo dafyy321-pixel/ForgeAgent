@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Activity, ArrowUpRight, Bell, BookOpen, ChevronDown, Command, FolderGit2, ForgeMark, Project, Home, Inbox, LayoutList, Menu, PanelRightClose, PanelRightOpen, Plus, Search, Settings, ShieldCheck, Workflow, X } from '../../icons';
 import type { Page } from '../../types';
 import type { Runtime } from '../../useRuntime';
-import { needsAttention } from '../../runtime';
+import {useCatalog} from '../../useCatalog';
 import { Button, Dialog } from '../../components';
 import { ConsoleContent, Inspector } from '../../TaskViews';
 import { ActionOverlays } from '../../Actions';
@@ -11,9 +11,9 @@ import './style.css';
 const nav=[{page:'overview',label:'工作台',icon:Home},{page:'runs',label:'任务',icon:LayoutList},{page:'inbox',label:'待我处理',icon:Inbox},{page:'artifacts',label:'交付物',icon:FolderGit2},{page:'skills',label:'知识与能力',icon:BookOpen},{page:'observability',label:'运行分析',icon:Activity}] as const;
 export default function Twitter({runtime:rt}:{runtime:Runtime}){
  const {app,state,route}=rt;const [menu,setMenu]=useState(false);const [info,setInfo]=useState(false);const [right,setRight]=useState(true);
- const allProjects=Array.from(new Set([...(state.projects||[]).map(p=>p.id),...state.runs.map(r=>r.project)]));
- const scoped=state.runs.filter(r=>route.project==='所有项目'||r.project===route.project);
- const attention=scoped.filter(needsAttention).length;
+ const projects=useCatalog<{id:string}>('/catalog/projects?limit=100');
+ const allProjects=Array.from(new Set([route.project,...projects.items.map(p=>p.id),...state.runs.map(r=>r.project)])).filter(p=>p!=='所有项目');
+ const attention=rt.summary?.attention||0;
  const activePage=route.page==='task'?'runs':['approvals','recovery'].includes(route.page)?'inbox':['skills','memory','tools','context'].includes(route.page)?'skills':['evaluations','observability'].includes(route.page)?'observability':route.page;
  const go=(page:Page)=>{app.navigate(page);setMenu(false)};
  const navigation=<nav aria-label="主导航">{nav.map(({page,label,icon:Icon})=><button key={page} className={`nav-link ${activePage===page?'active':''}`} aria-current={activePage===page?'page':undefined} onClick={()=>go(page)}><Icon size={20}/><span>{label}</span>{page==='inbox'&&attention>0&&<b>{attention}</b>}</button>)}</nav>;
@@ -24,7 +24,7 @@ export default function Twitter({runtime:rt}:{runtime:Runtime}){
    <aside className="console-sidebar">
     <a className="brand" href="/" onClick={e=>{e.preventDefault();go('overview')}}><span><ForgeMark size={24}/></span>ForgeAgent<span className="brand-dot"/></a>
     <div className="workspace-picker"><div className="workspace-mark">F</div><div><strong>Forge Workspace</strong><small>个人工作空间</small></div></div>
-    <label className="project-picker"><Project size={16}/><select aria-label="当前项目" value={route.project} onChange={e=>app.setProject(e.target.value)}><option>所有项目</option>{allProjects.map(p=><option key={p}>{p}</option>)}</select></label>
+    <label className="project-picker"><Project size={16}/><select aria-label="当前项目" value={route.project} onChange={e=>app.setProject(e.target.value)}><option>所有项目</option>{allProjects.map(p=><option key={p}>{p}</option>)}</select></label>{projects.cursor&&<Button onClick={()=>void projects.more()}>加载更多项目</Button>}
     <button className="new-task" onClick={app.newRun}><Plus size={18}/>创建任务<kbd>Alt N</kbd></button>
     {navigation}
     <div className="sidebar-bottom"><button className={`nav-link ${route.page==='settings'?'active':''}`} onClick={()=>go('settings')}><Settings size={20}/><span>工作空间设置</span></button><div className="demo-mode"><span/>持久运行时<small>PostgreSQL · 服务端保存</small></div></div>

@@ -227,11 +227,7 @@ def workspace(s, tenant, actor=None, project=None, status=None, q="", cursor=Non
         "window": {"limit": limit, "events": 200, "artifacts": 200, "approvals": 200},
         "approvals": approvals,
         "artifacts": artifacts,
-        "skills": [
-            {"id": x.id, "enabled": x.status == "active", "calls": 0,
-             **{key: value for key, value in x.data.items() if key in {"name", "version", "description", "category", "digest"}}}
-            for x in s.scalars(select(db.SkillVersion).where(db.SkillVersion.tenant_id == tenant, db.SkillVersion.status != "erased").order_by(db.SkillVersion.created_at.desc(), db.SkillVersion.id.desc()).limit(100))
-        ],
+        "skills": catalog_page(s, actor, "skills", limit=100)["items"],
         "memories": [{"id": m.id, **m.data} for m in s.scalars(memory_query.order_by(db.Memory.created_at.desc(), db.Memory.id.desc()).limit(100))],
         "events": sorted(events, key=lambda e: e["time"], reverse=True),
         "settings": {k: v for k, v in config.data.items() if k != "_revision"},

@@ -16,7 +16,7 @@ test('settings wait for async data, preserve dirty drafts and reject stale saves
    const {expected_revision,...settings}=lastBody;current={...current,settings,settings_revision:expected_revision+1};
    await route.fulfill({json:settings});return;
   }
-  await route.fulfill({json:[]});
+  await route.fulfill({json:path.startsWith('/v1/catalog/')?{items:[],next_cursor:null}:[]});
  });
  await page.goto('/settings');
  const budget=page.getByLabel('默认任务预算（USD）');
@@ -48,12 +48,13 @@ test('skill release selects eligible evidence and submits the reviewed configura
   if(path==='/v1/auth/config'){await route.fulfill({json:{mode:'local'}});return}
   if(path==='/v1/workspace/revision'){await route.fulfill({json:{revision:String(Date.now())}});return}
   if(path==='/v1/workspace'){await route.fulfill({json:{...workspace,skills:[skill]}});return}
+  if(path==='/v1/catalog/skills'){await route.fulfill({json:{items:[skill],next_cursor:null}});return}
   if(path.endsWith('/release-options')){await route.fulfill({json:[
    {evaluation_id:'invalid-experiment',configuration:'candidate',eligible:false,reason:'Cost gate failed'},
    {evaluation_id:'held-out-experiment',configuration:'skill-only',eligible:true,independent_cases:20,repetitions:3,comparison:{cost_ratio:0.8}}
   ]});return}
   if(path.endsWith('/release')){releaseBody=route.request().postDataJSON();skill.enabled=true;await route.fulfill({json:{status:'active'}});return}
-  await route.fulfill({json:[]});
+  await route.fulfill({json:path.startsWith('/v1/catalog/')?{items:[],next_cursor:null}:[]});
  });
  await page.goto('/skills');
  await page.getByRole('switch',{name:'启用 debugging'}).click();

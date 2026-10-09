@@ -153,13 +153,21 @@ def workspace_revision(actor: Actor):
         return {"revision": digest([list(run_revision), metadata, config.data if config else {}, authorization.data if authorization else {}])}
 
 
+@app.get("/v1/workspace/summary")
+def workspace_summary(actor: Actor, project: str | None = None):
+    from .dashboard import summary
+
+    with db.transaction(actor.tenant) as s:
+        return summary(s, actor, project)
+
+
 @app.get("/v1/catalog/{collection}", response_model=CatalogPage)
 def catalog(collection: str, actor: Actor, cursor: str | None = None, limit: int = 50,
-            status: str | None = None, run_id: str | None = None):
+            status: str | None = None, run_id: str | None = None, project: str | None = None, verified: bool | None = None):
     from .catalog import page
 
     with db.transaction(actor.tenant) as s:
-        return page(s, actor, collection, cursor, limit, status, run_id)
+        return page(s, actor, collection, cursor, limit, status, run_id, project, verified)
 
 
 @app.post("/v1/runs", status_code=202, response_model=RunView)
