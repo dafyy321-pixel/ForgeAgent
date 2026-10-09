@@ -73,6 +73,13 @@ def compile_context(task, state, observations, skills, memories, window, output)
     mandatory.append({"type": "facts", "trust": "runtime", "content": {k: state.get(k) for k in (
         "workspace_digest", "artifact_version", "last_failure", "child_results", "reason"
     )}})
+    if state.get("remote_connections"):
+        from .remote_contracts import catalog
+
+        mandatory.append({"type": "remote_tool_catalog", "trust": "untrusted_remote_metadata", "content": {
+            name: descriptor for name, descriptor in catalog(state).items()
+            if descriptor.get("connection_id") and descriptor["capability"] in state.get("capabilities", [])
+        }})
     failed = [o for o in observations if o.get("status") in {"FAILED", "UNKNOWN"}]
     if failed:
         mandatory.append({"type": "error_references", "trust": "runtime", "content": [

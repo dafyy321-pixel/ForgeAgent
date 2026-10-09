@@ -341,6 +341,8 @@ async def test_skill_resource_is_consumed_through_actual_worker_tool_path(client
 
 
 async def test_completed_run_with_real_actions_can_erase_its_lineage(client, tenant, make_run):
+    from forgeagent.sandbox import sandbox
+
     memory_id = memory(client)
     run_id = make_run()
     worker = Worker(target_run=run_id)
@@ -353,8 +355,11 @@ async def test_completed_run_with_real_actions_can_erase_its_lineage(client, ten
         assert action.args and action.receipt
         account = db.get(s, db.BudgetAccount, tenant, run_id)
         spent = account.spent
+    workspace = sandbox.root(tenant, run_id, 0).parent
+    assert workspace.exists() and any(workspace.rglob("calculator.py"))
     response = client.post(f"/v1/memories/{memory_id}/purge", json={"erase_derived_runs": True})
     assert response.status_code == 200, response.text
+    assert not workspace.exists()
     with db.transaction(tenant) as s:
         run = db.get(s, db.Run, tenant, run_id)
         assert run.status == "CANCELLED" and run.state["knowledge_erased"]

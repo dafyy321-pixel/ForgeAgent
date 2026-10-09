@@ -142,7 +142,7 @@ async def test_cancel_unknown_never_clean_terminal(tenant, make_run):
     await Worker().once(tenant)
     with db.transaction(tenant) as s:
         r = db.get(s, db.Run, tenant, id)
-        assert r.status == "WAITING" and r.cancel_requested and r.wait_reason == "RECONCILIATION"
+        assert r.status == "CANCELLING" and r.cancel_requested and r.wait_reason == "RECONCILIATION"
 
 
 async def test_cancellation_settles_without_actions(tenant, make_run):
@@ -213,14 +213,14 @@ def test_external_dispatch_recovery_becomes_unknown(tenant, make_run):
 
 def test_revocation_invalidates_approved_effect(tenant, make_run):
     from forgeagent.remote import authorize_remote, prepare_remote
+    from test_remote_contracts import registered
 
-    id = make_run(capabilities=["repo.read", "external.write"])
+    connection_id = registered(tenant, "external_write", "send", {"type": "object", "properties": {"body": {"type": "string"}},
+                                                                 "required": ["body"], "additionalProperties": False})
+    id = make_run(connections=[connection_id], capabilities=["repo.read", "external.write"])
     with db.transaction(tenant) as s:
         r = db.get(s, db.Run, tenant, id)
-        conn = db.ToolVersion(tenant_id=tenant, id=uid(), data={"kind": "mcp", "url": "https://example.com"})
-        s.add(conn)
-        s.flush()
-        a = prepare_remote(s, r, conn.id, "send", {"body": "test"})
+        a = prepare_remote(s, r, connection_id, "send", {"body": "test"})
         s.flush()
         p = db.rows(s, db.Approval, tenant, action_id=a.id)[0]
         service.approve(

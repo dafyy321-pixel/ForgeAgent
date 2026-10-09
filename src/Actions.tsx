@@ -4,6 +4,7 @@ import { Button, Dialog, Empty } from './components';
 import { pageLabels, type Page } from './types';
 import { needsAttention, projects } from './runtime';
 import type { Runtime, TaskDraft } from './useRuntime';
+import { useRemote } from './BackendViews';
 
 export function ActionOverlays({runtime:rt}:{runtime:Runtime}){
  const close=()=>rt.setOverlay(null);
@@ -13,6 +14,7 @@ export function ActionOverlays({runtime:rt}:{runtime:Runtime}){
  return null;
 }
 function CreateTask({runtime:rt,close}:{runtime:Runtime;close:()=>void}){
+ const connections=useRemote('/connections');
  const key='forge-task-draft-v2';const [draft,setDraft]=useState<TaskDraft>(()=>{try{const saved=JSON.parse(localStorage.getItem(key)||'null');if(saved)return saved}catch{}return{title:'',description:'',criteria:'回归测试通过\n产物与验证凭证版本一致',scope:'仅修改 src 和 tests；禁止访问生产环境',project:rt.route.project==='所有项目'?(rt.state.projects?.[0]?.id||'runtime-lab'):rt.route.project,model:'configured',allowedPaths:'src,tests',budget:rt.app.settings.budget,skills:rt.state.skills.filter(s=>s.enabled).map(s=>s.id)}});
  const [errors,setErrors]=useState<Record<string,string>>({});const [advanced,setAdvanced]=useState(false);const [busy,setBusy]=useState(false);const submitted=useRef(false);
  useEffect(()=>{if(!submitted.current)try{localStorage.setItem(key,JSON.stringify(draft))}catch{}},[draft]);
@@ -26,6 +28,7 @@ function CreateTask({runtime:rt,close}:{runtime:Runtime;close:()=>void}){
   <label className="field">允许写入的路径（逗号分隔）<input aria-label="允许写入的路径" value={draft.allowedPaths||'src,tests'} onChange={e=>field('allowedPaths',e.target.value)}/><small>按路径执行权限检查；任务描述不会扩大此范围。</small></label><button className="advanced-toggle" type="button" aria-expanded={advanced} onClick={()=>setAdvanced(!advanced)}><SlidersHorizontal size={16}/>运行配置<span>{draft.model} · ${draft.budget.toFixed(2)} 上限</span></button>
   {advanced&&<div className="advanced-fields"><div className="field-row"><label className="field">模型<select aria-label="模型" value={draft.model} onChange={e=>field('model',e.target.value)}><option value="configured">已配置的服务端模型</option><option value="fixture">确定性测试模型（仅 Runtime Lab）</option></select></label><label className="field">预算上限（USD）<input aria-label="预算上限（USD）" type="number" min=".1" max="100" step=".1" value={draft.budget} onChange={e=>field('budget',Number(e.target.value))}/>{errors.budget&&<span className="field-error">{errors.budget}</span>}</label></div><div className="field">任务技能快照<div className="selection-list">{rt.state.skills.filter(s=>s.enabled).map(s=><label className="selection-item" key={s.id}><input type="checkbox" checked={draft.skills.includes(s.id)} onChange={()=>field('skills',draft.skills.includes(s.id)?draft.skills.filter(x=>x!==s.id):[...draft.skills,s.id])}/>{s.name} <small>v{s.version}</small></label>)}</div><small>创建时锁定技能与记忆；以后修改全局配置不改变此任务。</small></div></div>}
   {advanced&&<div className="selection-list"><label className="selection-item"><input type="checkbox" checked={!!draft.allowExternal} onChange={e=>field('allowExternal',e.target.checked)}/>允许申请外部写入（每个操作另行审批）</label><label className="selection-item"><input type="checkbox" checked={!!draft.allowDelegation} onChange={e=>field('allowDelegation',e.target.checked)}/>允许委派受限子任务</label></div>}
+  {advanced&&<div className="field">远程工具快照<label className="selection-item"><input type="checkbox" checked={!!draft.allowExternalRead} onChange={e=>field('allowExternalRead',e.target.checked)}/>允许审核过的远程只读工具及产物下载</label>{connections.error&&<p role="alert">{connections.error}</p>}<div className="selection-list">{(connections.data||[]).filter((c:any)=>c.status==='active'&&c.negotiated&&c.tools.length).map((c:any)=><label className="selection-item" key={c.id}><input type="checkbox" checked={(draft.connections||[]).includes(c.id)} onChange={()=>field('connections',(draft.connections||[]).includes(c.id)?(draft.connections||[]).filter(id=>id!==c.id):[...(draft.connections||[]),c.id])}/>{c.name} · {c.protocol}</label>)}</div><small>仅选中的连接进入本任务；远程写入仍需逐项审批。</small></div>}
   {errors.submit&&<div className="notice warning" role="alert">{errors.submit}</div>}
   <div className="form-footer"><span className="muted">任务保存到服务端 · 草稿保存在浏览器</span><div className="button-row"><Button onClick={close} disabled={busy}>保存草稿并关闭</Button><Button primary type="submit" disabled={busy}><Plus size={16}/>{busy?'正在创建…':'创建任务'}</Button></div></div>
  </form></Dialog>

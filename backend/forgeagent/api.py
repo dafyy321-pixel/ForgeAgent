@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from fastapi import Depends, FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from pydantic import AwareDatetime, Field
+from pydantic import AwareDatetime, Field, model_validator
 from sqlalchemy import select, text
 
 from . import db, domain, presenters, service
@@ -314,13 +314,19 @@ def reconcile_outbox(id: str, body: Reconcile, actor: Actor):
         action = db.get(s, db.Action, actor.tenant, job.data["action_id"])
         run = db.get(s, db.Run, actor.tenant, action.run_id, True)
         job = db.get(s, db.Outbox, actor.tenant, id, True)
-        if run.version != body.expected_version or job.status != "unknown" or action.status != "UNKNOWN":
+        cancel = job.data.get("kind") == "cancel"
+        if run.version != body.expected_version or job.status != "unknown" or action.status not in ({"RUNNING"} if cancel else {"UNKNOWN"}):
             raise Fault("RECONCILE_CONFLICT", "Input delivery no longer awaits reconciliation")
         job.status = "sent" if body.outcome == "occurred" else "absent"
         job.data = {**job.data, "evidence": body.evidence, "reviewer": actor.actor}
+        if cancel:
+            action.receipt = {**action.receipt, "cancel_sent": body.outcome == "occurred"}
+            # A proven absent cancellation can be retried explicitly with a new control ordinal.
+            if body.outcome == "absent":
+                job.status = "pending"
         action.status = "RUNNING"
-        run.status, run.wait_reason = "WAITING", "TOOL"
-        db.emit(s, run, "REMOTE_INPUT_RECONCILED", body.reason, outbox_id=id, outcome=body.outcome)
+        run.status, run.wait_reason = "CANCELLING" if run.cancel_requested else "WAITING", "TOOL"
+        db.emit(s, run, "REMOTE_CONTROL_RECONCILED" if cancel else "REMOTE_INPUT_RECONCILED", body.reason, outbox_id=id, outcome=body.outcome)
         db.schedule(s, run)
         return {"id": id, "status": job.status}
 
@@ -334,6 +340,7 @@ def remote_input(action_id: str, body: RemoteTaskInput, actor: Actor):
     with db.transaction(actor.tenant) as s:
         a = db.get(s, db.Action, actor.tenant, action_id)
         r = db.get(s, db.Run, actor.tenant, a.run_id, True)
+        require_run_access(s, actor, r, "approve")
         if r.version != body.expected_version or r.cancel_requested or a.status != "RUNNING" or not a.receipt:
             raise Fault("REMOTE_INPUT_CONFLICT", "Remote task must be awaiting current reviewed input")
         connection = a.args.get("connection", {})
@@ -348,8 +355,26 @@ def remote_input(action_id: str, body: RemoteTaskInput, actor: Actor):
                 "Remote sampling or tool execution requests require a separate scoped action",
                 403,
             )
+        from .remote_contracts import validate_arguments, validate_schema
+
+        if len(canonical(body.responses)) > 65536:
+            raise Fault("REMOTE_INPUT_LIMIT", "Reviewed input exceeds 64 KiB", 413)
+        for key, response in body.responses.items():
+            result = response.get("result", {}) if isinstance(response, dict) else {}
+            if result.get("action") not in {"accept", "decline", "cancel"}:
+                raise Fault("REMOTE_INPUT_RESULT", "Elicitation response requires a supported action", 422)
+            if result["action"] == "accept":
+                schema = requests[key].get("params", {}).get("requestedSchema")
+                if not schema:
+                    raise Fault("REMOTE_INPUT_SCHEMA", "Provider did not supply a reviewable form schema", 422)
+                try:
+                    validate_schema(schema)
+                except ValueError:
+                    raise Fault("REMOTE_INPUT_SCHEMA", "Provider form schema is unsupported", 422) from None
+                validate_arguments(schema, result.get("content", {}))
         auth = service.authorization(s, r, "external.write")
-        key = digest({"action_id": a.id, "responses": body.responses})[7:]
+        input_digest = digest(requests)
+        key = digest({"action_id": a.id, "input_digest": input_digest, "responses": body.responses})[7:]
         existing = s.get(db.Outbox, (actor.tenant, key))
         if existing and existing.status == "absent":
             existing.status = "pending"
@@ -366,11 +391,12 @@ def remote_input(action_id: str, body: RemoteTaskInput, actor: Actor):
                         "action_id": a.id,
                         "policy_epoch": auth.data["epoch"],
                         "reviewer": actor.actor,
+                        "input_digest": input_digest,
                         "params": {"taskId": a.receipt["remote_task_id"], "inputResponses": body.responses},
                     },
                 )
             )
-        r.status, r.wait_reason = "WAITING", "TOOL"
+        r.status, r.wait_reason = ("PAUSED", None) if r.pause_requested else ("WAITING", "TOOL")
         r.state = {**r.state, "input_required": False}
         db.emit(s, r, "REMOTE_INPUT_QUEUED", body.reason, outbox_id=key)
         db.schedule(s, r)
@@ -619,7 +645,9 @@ def reapprove(id: str, body: Control, actor: Actor):
         old = next((a for a in reversed(actions) if a.tool == "remote.call" and a.status == "FAILED"), None)
         if not old:
             raise Fault("NO_REVIEWABLE_ACTION", "No denied or failed remote action available", 404)
-        a = prepare_remote(s, r, old.args["connection_id"], old.args["operation"], old.args["arguments"])
+        arguments = {**old.args["arguments"]}
+        arguments.pop(old.args.get("contract", {}).get("idempotency_field"), None)
+        a = prepare_remote(s, r, old.args["connection_id"], old.args["operation"], arguments)
         r.pause_requested = False
         db.emit(s, r, "NEW_REVIEW_REQUESTED", body.reason, prior_action=old.id, action_id=a.id)
         return presenters.run_view(s, r)
@@ -1020,6 +1048,24 @@ class ConnectionInput(Strict):
     protocol: Literal["2025-11-25", "2026-07-28", "0.3.0", "1.0"]
     url: str
     tasks_extension: bool = False
+    credential_ref: str | None = Field(None, max_length=200)
+    callback_key_ref: str | None = Field(None, max_length=200)
+    discovery_url: str | None = None
+    tools: list[dict] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def contracts(self):
+        from .remote_contracts import RemoteTool
+
+        self.tools = [RemoteTool.model_validate(t).model_dump() for t in self.tools]
+        if self.tasks_extension and (self.kind != "mcp" or self.protocol != "2026-07-28"):
+            raise ValueError("Pinned Tasks extension is supported only by the stateless MCP adapter")
+        operations = [t["operation"] for t in self.tools]
+        if len(set(operations)) != len(operations):
+            raise ValueError("Remote operations must be unique")
+        if self.kind == "a2a" and any(t["operation"] != "SendMessage" or t["effect"] == "read" for t in self.tools):
+            raise ValueError("A2A SendMessage is an external effect; other operations are control/query adapters")
+        return self
 
 
 @app.get("/v1/connections")
@@ -1040,26 +1086,161 @@ async def connect(body: ConnectionInput, actor: Actor):
     await validate_url(body.url)
     def register_connection():
         with db.transaction(actor.tenant) as s:
-            c = db.ToolVersion(tenant_id=actor.tenant, data=body.model_dump())
+            c = db.ToolVersion(tenant_id=actor.tenant, status="pending",
+                               data={**body.model_dump(), "tenant_id": actor.tenant})
             s.add(c)
             s.flush()
             return {"id": c.id, "status": c.status, **c.data}
     return await asyncio.to_thread(register_connection)
 
 
+@app.post("/v1/connections/{id}/discover")
+async def discover_connection(id: str, actor: Actor):
+    from .remote import discover
+
+    require_admin(actor)
+    def load():
+        with db.transaction(actor.tenant) as s:
+            value = db.get(s, db.ToolVersion, actor.tenant, id)
+            return value.data, digest(value.data)
+    data, before = await asyncio.to_thread(load)
+    result = await discover(data)
+    if len(canonical(result)) > 1024 * 1024:
+        raise Fault("REMOTE_LIMIT", "Discovery evidence exceeds 1 MiB")
+    if data["kind"] == "mcp":
+        advertised = {t["name"]: t for t in result["tools"]}
+        for tool in data["tools"]:
+            found = advertised.get(tool["operation"])
+            if not found or digest(found["inputSchema"]) != digest(tool["input_schema"]):
+                raise Fault("REMOTE_SCHEMA_DRIFT", "Advertised tool/schema differs from the administrator-reviewed contract")
+        reviewed = {t["operation"]: t for t in data["tools"]}
+        for tool in data["tools"]:
+            if tool.get("reconcile_operation"):
+                query = reviewed.get(tool["reconcile_operation"])
+                if not query or query["effect"] != "read" or tool["reconcile_key_field"] not in query["input_schema"].get("properties", {}):
+                    raise Fault("REMOTE_RECONCILER", "Reconciler must be a reviewed, discovered read tool with a lookup key")
+    def commit():
+        with db.transaction(actor.tenant) as s:
+            value = db.get(s, db.ToolVersion, actor.tenant, id, True)
+            if digest(value.data) != before:
+                raise Fault("CONNECTION_CHANGED", "Connection changed during discovery")
+            value.data = {**data, "negotiated": {"digest": digest(result), "evidence": result,
+                                                "time": db.clock(s).isoformat(), "reviewer": actor.actor}}
+            value.status = "active"
+            return {"id": id, "status": value.status, **value.data}
+    return await asyncio.to_thread(commit)
+
+
+@app.post("/v1/connections/{id}/disable")
+def disable_connection(id: str, actor: Actor):
+    require_admin(actor)
+    with db.transaction(actor.tenant) as s:
+        value = db.get(s, db.ToolVersion, actor.tenant, id, True)
+        value.status = "disabled"
+        return {"id": id, "status": value.status}
+
+
+@app.post("/v1/actions/{action_id}/reconcile-query")
+async def reconcile_query(action_id: str, body: Control, actor: Actor):
+    from . import remote, remote_contracts, resources
+
+    require_admin(actor)
+    def prepare_query():
+        with db.transaction(actor.tenant) as s:
+            action = db.get(s, db.Action, actor.tenant, action_id)
+            run = db.get(s, db.Run, actor.tenant, action.run_id)
+            if run.version != body.expected_version or action.status != "UNKNOWN":
+                raise Fault("RECONCILE_CONFLICT", "Unknown action and current version required")
+            contract = action.args.get("contract", {})
+            if not contract.get("reconcile_operation"):
+                raise Fault("REMOTE_RECONCILER", "This tool has no reviewed reconciliation query")
+            connection = remote_contracts.current(s, run, action.args["connection_id"])
+            service.authorization(s, run, "external.write")
+            query = next(t for t in connection["tools"] if t["operation"] == contract["reconcile_operation"])
+            arguments = {contract["reconcile_key_field"]: action.args["business_key"]}
+            remote_contracts.validate_arguments(query["input_schema"], arguments)
+            return run.id, connection, query, arguments
+    run_id, connection, query, arguments = await asyncio.to_thread(prepare_query)
+    operation = query["operation"]
+    value = await remote.dispatch_remote(actor.tenant, run_id, uid(), {"connection": connection, "operation": operation,
+                                                                     "arguments": arguments, "contract": query})
+    def record_query():
+        with db.transaction(actor.tenant) as s:
+            run = db.get(s, db.Run, actor.tenant, run_id, True)
+            action = db.get(s, db.Action, actor.tenant, action_id, True)
+            if run.version != body.expected_version or action.status != "UNKNOWN":
+                raise Fault("RECONCILE_CONFLICT", "Action changed while the evidence query was running")
+            ref = resources.put_reviewed(s, run, value)
+            action.receipt = {**(action.receipt or {}), "reconciliation_query": {"ref": ref, "operation": operation,
+                                                                                 "trust": "untrusted_remote_output"}}
+            db.emit(s, run, "REMOTE_RECONCILIATION_QUERIED", body.reason, action_id=action_id, evidence_ref=ref)
+            return {"ref": ref, "result": value, "requires_review": True, "state_version": run.version}
+    return await asyncio.to_thread(record_query)
+
+
+class RemoteArtifactInput(Control):
+    index: int = Field(ge=0, le=100)
+    expected_digest: str | None = Field(None, pattern=r"^sha256:[a-f0-9]{64}$")
+
+
+@app.post("/v1/actions/{action_id}/artifacts", status_code=201)
+async def download_remote_artifact(action_id: str, body: RemoteArtifactInput, actor: Actor):
+    from . import remote, resources
+
+    def prepare_download():
+        with db.transaction(actor.tenant) as s:
+            action = db.get(s, db.Action, actor.tenant, action_id)
+            run = db.get(s, db.Run, actor.tenant, action.run_id)
+            service.authorization(s, run, "external.read")
+            links = remote.artifact_links(action.receipt or {})
+            if run.version != body.expected_version or run.state.get("knowledge_erased") or run.lease_owner:
+                raise Fault("VERSION_CONFLICT", "Task changed before artifact capture")
+            if body.index >= len(links):
+                raise Fault("REMOTE_ARTIFACT", "Artifact index is not present in the stored response", 422)
+            return run.id, action.args["connection"], links[body.index]
+    run_id, connection, url = await asyncio.to_thread(prepare_download)
+    data = await remote.get_document(connection, url)
+    if body.expected_digest and digest(data) != body.expected_digest:
+        raise Fault("REMOTE_ARTIFACT_DIGEST", "Downloaded artifact differs from the reviewed checksum")
+    def record_download():
+        with db.transaction(actor.tenant) as s:
+            run = db.get(s, db.Run, actor.tenant, run_id, True)
+            if run.version != body.expected_version or run.state.get("knowledge_erased") or run.lease_owner:
+                raise Fault("VERSION_CONFLICT", "Task changed during artifact capture")
+            ref = resources.put_reviewed(s, run, data)
+            artifact = db.Artifact(tenant_id=actor.tenant, run_id=run_id, kind="remote", ref=ref,
+                                   name="remote-" + ref["digest"][7:23], verified=False,
+                                   version=run.state["artifact_version"])
+            s.add(artifact)
+            s.flush()
+            db.emit(s, run, "REMOTE_ARTIFACT_CAPTURED", body.reason, artifact_id=artifact.id, digest=ref["digest"],
+                    source_url=url, action_id=action_id, trust="untrusted_remote_output")
+            return {"id": artifact.id, "verified": False, "ref": ref, "trust": "untrusted_remote_output"}
+    return await asyncio.to_thread(record_download)
+
+
 class RemoteInput(Control):
     connection_id: str
     operation: str
     arguments: dict
+    idempotency_key: str = Field(min_length=1, max_length=200)
 
 
 @app.post("/v1/runs/{id}/remote-actions", status_code=202)
 def remote_action(id: str, body: RemoteInput, actor: Actor):
     with db.transaction(actor.tenant) as s:
         r = db.get(s, db.Run, actor.tenant, id, True)
+        logical_key = "remote-api:" + digest(body.idempotency_key)[7:]
+        prior = next((a for a in db.rows(s, db.Action, actor.tenant, run_id=id) if a.logical_key == logical_key), None)
+        if prior:
+            args = {**prior.args["arguments"]}
+            args.pop(prior.args.get("contract", {}).get("idempotency_field"), None)
+            if (prior.args["connection_id"] != body.connection_id or prior.args["operation"] != body.operation or digest(args) != digest(body.arguments)):
+                raise Fault("IDEMPOTENCY_CONFLICT", "Remote key was used with a different effect")
+            return presenters.action_view(s, prior)
         if r.version != body.expected_version or r.status in TERMINAL or r.cancel_requested or r.lease_owner:
             raise Fault("VERSION_CONFLICT", "Task must be idle at the reviewed version")
-        a = prepare_remote(s, r, body.connection_id, body.operation, body.arguments)
+        a = prepare_remote(s, r, body.connection_id, body.operation, body.arguments, logical_key)
         return presenters.action_view(s, a)
 
 
@@ -1067,15 +1248,20 @@ def remote_action(id: str, body: RemoteInput, actor: Actor):
 async def callback(
     provider: str,
     request: Request,
-    actor: Actor,
+    x_tenant_id: Annotated[str, Header()],
     x_message_id: Annotated[str, Header()],
     x_timestamp: Annotated[int, Header()],
     x_signature: Annotated[str, Header()],
 ):
-    body = await request.body()
+    chunks = bytearray()
+    async for chunk in request.stream():
+        chunks.extend(chunk)
+        if len(chunks) > 65536:
+            raise Fault("CALLBACK_LIMIT", "Callback payload exceeds 64 KiB", 413)
+    body = bytes(chunks)
     def receive_callback():
-        with db.transaction(actor.tenant) as s:
-            return accept_callback(s, actor.tenant, provider, x_message_id, x_timestamp, body, x_signature)
+        with db.transaction(x_tenant_id) as s:
+            return accept_callback(s, x_tenant_id, provider, x_message_id, x_timestamp, body, x_signature)
     return await asyncio.to_thread(receive_callback)
 
 

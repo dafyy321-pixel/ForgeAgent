@@ -188,7 +188,10 @@ class Worker:
     async def advance(self, tenant, id, epoch):
         def pending_remote():
             with db.transaction(tenant) as s:
-                db.fence(s, tenant, id, self.owner, epoch)
+                run = db.fence(s, tenant, id, self.owner, epoch)
+                from .remote import consume_inbox
+
+                consume_inbox(s, run)
                 remote_pending = [
                     a.id
                     for a in db.rows(s, db.Action, tenant, run_id=id)
@@ -218,7 +221,7 @@ class Worker:
                 unknown = [a for a in actions if a.status == "UNKNOWN"]
                 children = db.rows(s, db.Run, tenant, parent_id=id)
                 if unknown:
-                    r.status, r.wait_reason = "WAITING", "RECONCILIATION"
+                    r.status, r.wait_reason = "CANCELLING" if r.cancel_requested else "WAITING", "RECONCILIATION"
                     r.state = {**state, "reason": "External effect requires reconciliation"}
                     db.emit(s, r, "RECONCILIATION_REQUIRED", "Unknown effects block further execution")
                     db.schedule(s, r, 30)
@@ -388,8 +391,9 @@ class Worker:
         input_bound = len(canonical(messages)) + 2048
         if not state["fixture"] and self.model == models.generate:
             from .model_protocol import build_request
+            from .remote_contracts import catalog
 
-            request = await asyncio.to_thread(build_request, messages, state, service.TOOLS)
+            request = await asyncio.to_thread(build_request, messages, state, catalog(state))
             request["client_request_id"] = call_id
             if request["provider"] == "openai":
                 request["payload"]["prompt_cache_key"] = digest({"tenant": tenant, "run": id,
@@ -818,10 +822,13 @@ class Worker:
                     **({"digest": receipt["digest"]} if "digest" in receipt else {}),
                     "observation": receipt["_observation"],
                 }
-                if receipt.get("remote_task_id"):
+                if remote:
                     a.receipt = {**a.receipt, **receipt}
-                    r.status, r.wait_reason = "WAITING", "TOOL"
-                    db.schedule(s, r, receipt.get("poll_seconds", 5))
+                if receipt.get("remote_task_id") and receipt.get("pending"):
+                    r.status, r.wait_reason = (("CANCELLING", "TOOL") if r.cancel_requested else
+                                               ("PAUSED", None) if r.pause_requested else ("WAITING", "TOOL"))
+                    if r.status != "PAUSED":
+                        db.schedule(s, r, receipt.get("poll_seconds", 5))
                 attempt = db.get(s, db.Attempt, tenant, attempt_id)
                 attempt.status, attempt.data = action_status, {**attempt.data, "result_ref": receipt_ref}
                 if workspace_ref:

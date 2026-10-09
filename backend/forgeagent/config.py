@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     s3_secret_key: str = ""
     remote_hosts: str = ""
     callback_secret: str = ""
+    remote_credentials: str = "{}"
     max_object_bytes: int = 16 * 1024 * 1024
 
 

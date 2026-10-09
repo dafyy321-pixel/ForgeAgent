@@ -1,6 +1,5 @@
 """Durable erasure of memory-derived run families. Financial audit retains only non-text facts."""
 
-import hashlib
 import shutil
 
 from . import db, service
@@ -100,11 +99,13 @@ def prepare(s, tenant, memory_id, actor):
 
 
 def finish(tenant, ids, key):
+    from .sandbox import sandbox
+
     for run_id in ids:
         objects.purge_scope(tenant, run_id)
-        scope = hashlib.sha256(tenant.encode()).hexdigest()
-        for base in [settings.data_dir.resolve() / "workspaces", settings.data_dir.resolve() / "verification"]:
-            requested = base / scope / run_id
+        scope = digest(tenant)[7:23]
+        for base, requested in [(settings.data_dir.resolve() / "workspaces", sandbox.root(tenant, run_id, 0).parent),
+                                (settings.data_dir.resolve() / "verification", settings.data_dir.resolve() / "verification" / scope / run_id)]:
             path = requested.resolve()
             if path != requested.absolute() or not path.is_relative_to(base) or path == base:
                 raise Fault("ERASURE_SCOPE", "Deletion escaped derived data root")

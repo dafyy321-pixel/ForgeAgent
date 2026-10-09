@@ -17,7 +17,7 @@ export function ActionLedger({runtime:rt,run:r}:{runtime:Runtime;run:Execution})
   <h2>动作账本</h2><p className="muted">每个逻辑动作具有稳定身份；重试、原始结果与对账记录单独保留。</p>
   {error&&<p className="notice warning" role="alert">{error}</p>}
   {r.status==='PAUSED'&&<div className="button-row">
-   <Button onClick={()=>setForm({title:'准备外部操作',path:`/runs/${r.id}/remote-actions`,initial:{expected_version:r.stateVersion,reason:'请求审批外部操作',connection_id:'填写已登记连接 ID',operation:'tools-name',arguments:{}}})}>准备外部操作</Button>
+   <Button onClick={()=>setForm({title:'准备外部操作',path:`/runs/${r.id}/remote-actions`,initial:{expected_version:r.stateVersion,reason:'请求审批外部操作',connection_id:'填写任务已选连接 ID',operation:'tools-name',arguments:{},idempotency_key:crypto.randomUUID()}})}>准备外部操作</Button>
    <Button onClick={()=>setForm({title:'确认新模型配置',path:`/runs/${r.id}/bind-model`,initial:{expected_version:r.stateVersion,reason:'确认使用当前服务端已配置模型'}})}>绑定已配置模型</Button>
   </div>}
   {actions.map(a=><Panel key={a.id} title={`${a.tool} · ${a.status}`}><div className="panel-pad">

@@ -112,19 +112,14 @@ async def test_fixture_does_not_accept_additional_executable_code(tenant):
 
 def test_denied_remote_action_requires_fresh_approval(client, tenant, make_run):
     from forgeagent.remote import prepare_remote
+    from test_remote_contracts import registered
 
-    id = make_run(capabilities=["repo.read", "external.write"])
+    connection_id = registered(tenant, "external_write", "example", {"type": "object", "properties": {"value": {"type": "integer"}},
+                                                                    "required": ["value"], "additionalProperties": False})
+    id = make_run(connections=[connection_id], capabilities=["repo.read", "external.write"])
     with db.transaction(tenant) as s:
-        s.add(
-            db.ToolVersion(
-                tenant_id=tenant,
-                id="remote",
-                data={"kind": "mcp", "protocol": "2026-07-28", "url": "https://example.com/mcp"},
-            )
-        )
-        s.flush()
         run = db.get(s, db.Run, tenant, id)
-        old = prepare_remote(s, run, "remote", "example", {"value": 1})
+        old = prepare_remote(s, run, connection_id, "example", {"value": 1})
         approval = db.rows(s, db.Approval, tenant, action_id=old.id)[0]
         old_id, approval_id, version, effect = old.id, approval.id, run.version, old.effect_digest
     response = client.post(

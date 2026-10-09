@@ -23,6 +23,7 @@ dependencies = [
   "mcp>=1.9,<2",
   "a2a-sdk>=0.3,<1",
   "tiktoken>=0.9,<1",
+  "jsonschema>=4.23,<5",
 ]
 [dependency-groups]
 dev = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "hypothesis>=6.127,<7", "ruff>=0.11,<1"]

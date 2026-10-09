@@ -31,7 +31,7 @@ class Fault(Exception):
 
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED"}
 UNSETTLED = {"DISPATCHED", "RUNNING", "UNKNOWN", "CANCEL_REQUESTED"}
-CAPABILITIES = {"repo.read", "workspace.write", "tests.run", "delegate", "external.write"}
+CAPABILITIES = {"repo.read", "workspace.write", "tests.run", "delegate", "external.read", "external.write"}
 
 
 class Strict(BaseModel):
@@ -156,6 +156,7 @@ class CreateRun(Strict):
     capabilities: list[str] = Field(default_factory=lambda: ["repo.read", "workspace.write", "tests.run"])
     model: str = "configured"
     skills: list[str] = Field(default_factory=list)
+    connections: list[str] = Field(default_factory=list, max_length=20)
     harness: Harness = Field(default_factory=Harness)
     child_contract: ChildContract = Field(default_factory=ChildContract)
 

@@ -35,12 +35,12 @@ def strict_schema(value):
 def native_tools(catalog, capabilities):
     tools, names = [], {}
     for name, descriptor in sorted(catalog.items()):
-        if descriptor["capability"] not in capabilities or name not in TOOL_INPUTS:
+        if descriptor["capability"] not in capabilities or (name not in TOOL_INPUTS and "input_schema" not in descriptor):
             continue
         wire_name = "forge_" + digest(name)[7:31]
         names[wire_name] = name
-        tools.append({"type": "function", "name": wire_name, "description": name,
-                      "parameters": strict_schema(TOOL_INPUTS[name].model_json_schema()), "strict": True})
+        tools.append({"type": "function", "name": wire_name, "description": descriptor.get("description", name),
+                      "parameters": strict_schema(input_schema(name, descriptor)), "strict": True})
     for kind in ["request_input", "propose_completion", *(["delegate"] if "delegate" in capabilities else [])]:
         wire_name = "forge_" + kind
         names[wire_name] = kind
@@ -59,10 +59,10 @@ def structured_schema(state, catalog):
     schema.get("$defs", {}).pop("ToolCall", None)
     variants = []
     for name, descriptor in sorted(catalog.items()):
-        if descriptor["capability"] not in state.get("capabilities", []) or name not in TOOL_INPUTS:
+        if descriptor["capability"] not in state.get("capabilities", []) or (name not in TOOL_INPUTS and "input_schema" not in descriptor):
             continue
         variants.append({"type": "object", "properties": {"tool": {"type": "string", "const": name},
-                          "args": TOOL_INPUTS[name].model_json_schema()}})
+                          "args": input_schema(name, descriptor)}})
     if not variants:
         variants = [{"type": "object", "properties": {}}]
         schema["properties"]["calls"]["maxItems"] = 0
@@ -70,7 +70,30 @@ def structured_schema(state, catalog):
     return strict_schema(schema)
 
 
-def decode_calls(calls, names):
+def input_schema(name, descriptor):
+    if name in TOOL_INPUTS:
+        return TOOL_INPUTS[name].model_json_schema()
+    schema = descriptor["input_schema"]
+    def resolve(value, seen=()):
+        if isinstance(value, dict):
+            value = copy.deepcopy(value)
+            ref = value.pop("$ref", None)
+            if ref:
+                if ref in seen:
+                    raise Fault("MODEL_SCHEMA_UNSUPPORTED", "Recursive remote schemas need a compatible model profile")
+                target = schema
+                try:
+                    for key in ref[2:].split("/"):
+                        target = target[key.replace("~1", "/").replace("~0", "~")]
+                except KeyError:
+                    raise Fault("MODEL_SCHEMA_UNSUPPORTED", "Remote schema reference does not resolve") from None
+                value = {**resolve(target, (*seen, ref)), **value}
+            return {k: resolve(v, seen) for k, v in value.items() if k != "$defs"}
+        return [resolve(v, seen) for v in value] if isinstance(value, list) else value
+    return resolve(schema)
+
+
+def decode_calls(calls, names, schemas=None):
     if not calls or len(calls) > 8 or len({call["call_id"] for call in calls}) != len(calls):
         raise ValueError("Native tool batch is empty, too large, or repeats call IDs")
     local, controls = [], []
@@ -82,7 +105,12 @@ def decode_calls(calls, names):
         if name in {"request_input", "propose_completion", "delegate"}:
             controls.append({**args, "kind": name})
         else:
-            args = TOOL_INPUTS[name].model_validate(args).model_dump(exclude_none=True)
+            if name in TOOL_INPUTS:
+                args = TOOL_INPUTS[name].model_validate(args).model_dump(exclude_none=True)
+            else:
+                from .remote_contracts import validate_arguments
+
+                validate_arguments((schemas or {})[name], args)
             local.append({"tool": name, "args": args, "provider_call_id": call["call_id"]})
     if controls:
         if local or len(controls) != 1:
@@ -133,6 +161,7 @@ def build_request(messages, state, catalog):
         else:
             payload["response_format"] = {"type": "json_object"}
     return {"provider": provider, "protocol": protocol, "mode": mode, "names": names, "payload": payload,
+            "schemas": {name: d["input_schema"] for name, d in catalog.items() if "input_schema" in d},
             "rate_card": state.get("semantic", {}).get("model_profile")}
 
 
@@ -163,8 +192,8 @@ def normalize_response(raw, request):
         status = "refused"
     if status == "completed" and calls:
         try:
-            content = decode_calls(calls, request["names"])
-        except (ValueError, TypeError, KeyError) as exc:
+            content = decode_calls(calls, request["names"], request.get("schemas"))
+        except (ValueError, TypeError, KeyError, Fault) as exc:
             status, content = "invalid_tool_call", json.dumps({"error": str(exc)[:800]})
     elif status == "completed" and request["mode"] == "native":
         content = json.dumps({"kind": "propose_completion", "summary": content[:5000]}) if content else ""

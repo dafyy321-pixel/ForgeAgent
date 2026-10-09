@@ -180,6 +180,9 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
                                   (project.data.get("repository") or {}).get("commit")) if spec.harness.memory else []
     model = "fixture@1" if spec.model == "fixture" else settings.model_id
     acceptance = parent.state["acceptance"] if parent else seal_acceptance(tenant, run_id, project.data.get("acceptance", {}))
+    from .remote_contracts import pin
+
+    remote_connections = pin(s, tenant, spec.connections, parent)
     if spec.task.acceptance_profile and spec.task.acceptance_profile != acceptance.get("id"):
         raise Fault("ACCEPTANCE_PROFILE", "Acceptance profile does not match the registered project", 422)
     semantic = {
@@ -190,6 +193,7 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
         "implementation": implementation_bindings(),
         "tools_digest": digest(TOOLS),
         "skills_digest": digest(skill_data),
+        "remote_digest": digest(remote_connections),
         "verifier": VERIFIER,
         "baseline_digest": baseline_ref["digest"],
         "acceptance_digest": digest(acceptance),
@@ -229,6 +233,7 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
             "executor_ref": executor_ref,
             "executor_digest": digest(semantic["implementation"]),
             "skills": skill_data,
+            "remote_connections": remote_connections,
             "skill_assignments": skill_assignments,
             "memories": memories,
             "memory_lineage": [m["id"] for m in memories],
@@ -486,7 +491,8 @@ def control(s, tenant, id, command, expected_version, reason, executor="current"
     elif command == "resume":
         if r.status != "PAUSED" or r.cancel_requested:
             raise Fault("INVALID_STATE", "Only paused tasks can resume")
-        if any(a.status in UNSETTLED for a in db.rows(s, db.Action, tenant, run_id=id)):
+        if any(a.status in UNSETTLED and not (a.status == "RUNNING" and a.receipt and a.receipt.get("remote_task_id"))
+               for a in db.rows(s, db.Action, tenant, run_id=id)):
             raise Fault("UNRESOLVED_EFFECT", "Reconcile pending effects first")
         require_settled_usage(s, r)
         authorization(s, r)
@@ -572,6 +578,13 @@ def checkpoint_manifest(tenant, checkpoint):
 
 
 def prepare_action(s, run, call, logical_key):
+    from .remote_contracts import catalog
+
+    descriptor = catalog(run.state).get(call.tool, {})
+    if descriptor.get("connection_id"):
+        from .remote import prepare_remote
+
+        return prepare_remote(s, run, descriptor["connection_id"], descriptor["operation"], call.args, logical_key)
     consume_tool_slot(s, run)
     error = None
     tool = TOOLS.get(call.tool, {"effect": "read", "capability": "repo.read"})

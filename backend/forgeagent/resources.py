@@ -58,21 +58,41 @@ async def execute(tenant, run_id, operation, root, argv, image, timeout=120, rea
 
 
 def put(tenant, run_id, value):
-    data = value if isinstance(value, bytes) else canonical(value)
-    checksum = digest(data)
     with db.transaction(tenant) as s:
         run = db.get(s, db.Run, tenant, run_id, True)
-        root = db.get(s, db.Run, tenant, run.root_id)
-        account = db.get(s, db.BudgetAccount, tenant, run.root_id, True)
-        usage = account.resources or {}
-        charges = usage.get("storage_charges", {})
-        key = run_id + ":" + checksum
-        if key not in charges:
-            spent = usage.get("storage_bytes", 0)
-            if spent + len(data) > root.state["budget"].get("max_storage_bytes", 134217728):
-                raise Fault("ROOT_STORAGE_LIMIT", "Root stored snapshot/evidence quota exhausted")
-            account.resources = {**usage, "storage_bytes": spent + len(data),
-                                 "storage_charges": {**charges, key: len(data)}}
-            db.emit(s, run, "STORAGE_ADMITTED", "Object bytes charged before publication", digest=checksum, bytes=len(data))
-    # Failed uploads retain the charge; a retry of the same bytes is not charged twice.
-    return objects.put(tenant, run_id, value)
+        charge_storage(s, run, value)
+    with db.transaction(tenant) as s:
+        from .knowledge import lock
+
+        lock(s, tenant)
+        run = db.get(s, db.Run, tenant, run_id)
+        if run.state.get("knowledge_erased"):
+            raise Fault("KNOWLEDGE_ERASED", "Erased task data cannot be republished")
+        # Hold only the erasure lock during upload. Lease heartbeats can still
+        # update the run, and a failed upload retains its already committed charge.
+        return objects.put(tenant, run_id, value)
+
+
+def put_reviewed(s, run, value):
+    """Caller owns the run lock and version check; evidence and its row commit together."""
+    charge_storage(s, run, value)
+    return objects.put(run.tenant_id, run.id, value)
+
+
+def charge_storage(s, run, value):
+    data = value if isinstance(value, bytes) else canonical(value)
+    checksum = digest(data)
+    if run.state.get("knowledge_erased"):
+        raise Fault("KNOWLEDGE_ERASED", "Erased task data cannot be republished")
+    root = db.get(s, db.Run, run.tenant_id, run.root_id)
+    account = db.get(s, db.BudgetAccount, run.tenant_id, run.root_id, True)
+    usage = account.resources or {}
+    charges = usage.get("storage_charges", {})
+    key = run.id + ":" + checksum
+    if key not in charges:
+        spent = usage.get("storage_bytes", 0)
+        if spent + len(data) > root.state["budget"].get("max_storage_bytes", 134217728):
+            raise Fault("ROOT_STORAGE_LIMIT", "Root stored snapshot/evidence quota exhausted")
+        account.resources = {**usage, "storage_bytes": spent + len(data),
+                             "storage_charges": {**charges, key: len(data)}}
+        db.emit(s, run, "STORAGE_ADMITTED", "Object bytes charged before publication", digest=checksum, bytes=len(data))

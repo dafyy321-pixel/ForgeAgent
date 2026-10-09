@@ -1,6 +1,4 @@
 import asyncio
-import hashlib
-import hmac
 import json
 from datetime import timedelta
 from unittest.mock import AsyncMock
@@ -84,7 +82,9 @@ async def test_remote_input_creates_durable_outbox(client, tenant, make_run, mon
         a.receipt = {
             **a.receipt,
             "remote_status": "input_required",
-            "response": {"inputRequests": {"answer": {"method": "elicitation/create"}}},
+            "response": {"inputRequests": {"answer": {"method": "elicitation/create", "params": {
+                "requestedSchema": {"type": "object", "properties": {"name": {"type": "string"}},
+                                    "required": ["name"], "additionalProperties": False}}}}},
         }
         r = db.get(s, db.Run, tenant, id)
         r.status = "PAUSED"
@@ -213,13 +213,17 @@ async def test_transport_pins_validated_address(monkeypatch):
 
 
 def test_callback_signature_and_deduplication(tenant, make_run, monkeypatch):
-    monkeypatch.setattr(settings, "callback_secret", "test-secret")
+    monkeypatch.setattr(settings, "remote_credentials", json.dumps({"test-callback": {
+        "tenant_id": tenant, "origin": "https://example.com", "callback_secret": "test-secret"}}))
     id = make_run()
     action_id = pending_remote(tenant, id)
     body = canonical({"action_id": action_id, "state": "completed"})
     with db.transaction(tenant) as s:
+        s.add(db.ToolVersion(tenant_id=tenant, id="test-provider", data={
+            "tenant_id": tenant, "url": "https://example.com/mcp", "callback_key_ref": "test-callback"}))
+        s.flush()
         timestamp = int(db.clock(s).timestamp())
-        signature = hmac.new(b"test-secret", str(timestamp).encode() + b"." + body, hashlib.sha256).hexdigest()
+        signature = remote.callback_signature("test-secret", tenant, "test-provider", "message-1", timestamp, body)
         assert not remote.accept_callback(s, tenant, "test-provider", "message-1", timestamp, body, signature)[
             "duplicate"
         ]

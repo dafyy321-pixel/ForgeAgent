@@ -4,7 +4,7 @@ import { stamp, type WorkspaceState } from './runtime';
 import { api } from './api';
 
 type Route={page:Page;id:string;tab:string;project:string;q:string;filter:string};
-export type TaskDraft={title:string;description:string;criteria:string;scope:string;project:string;model:string;budget:number;skills:string[];allowedPaths?:string;allowExternal?:boolean;allowDelegation?:boolean};
+export type TaskDraft={title:string;description:string;criteria:string;scope:string;project:string;model:string;budget:number;skills:string[];allowedPaths?:string;allowExternal?:boolean;allowExternalRead?:boolean;connections?:string[];allowDelegation?:boolean};
 export type Scenario='active'|'approval'|'recovery'|'unknown'|'tool'|'child'|'retry'|'queued'|'failure';
 const empty:WorkspaceState={schema:2,runs:[],approvals:[],artifacts:[],skills:[],memories:[],events:[],settings:{budget:5,concurrency:2,notifications:true,redact:true},settings_revision:1,evalCompleted:false,projects:[]};
 function readRoute():Route {
@@ -47,7 +47,7 @@ export function useRuntime(){
   try{await api(`/approvals/${id}/decision`,'POST',{expected_version:version(a.runId),decision:decision==='approved'?'approve':'deny',effect_digest:a.digest,reason:reason||'用户批准当前明确操作'});await refresh();return null}catch(e){return (e as Error).message}finally{pending.current.delete(id)}
  }
  async function create(d:TaskDraft){
-  const r=await api('/runs','POST',{project_id:d.project,title:d.title,task:{goal:d.description,criteria:d.criteria.split('\n').filter(Boolean),scope:d.scope,allowed_paths:(d.allowedPaths||'src,tests').split(',').map(s=>s.trim()).filter(Boolean)},budget:{max_cost_usd:String(d.budget)},model:d.model==='fixture'?'fixture':'configured',skills:d.skills,capabilities:['repo.read','workspace.write','tests.run',...(d.allowExternal?['external.write']:[]),...(d.allowDelegation?['delegate']:[])]},crypto.randomUUID());
+  const r=await api('/runs','POST',{project_id:d.project,title:d.title,task:{goal:d.description,criteria:d.criteria.split('\n').filter(Boolean),scope:d.scope,allowed_paths:(d.allowedPaths||'src,tests').split(',').map(s=>s.trim()).filter(Boolean)},budget:{max_cost_usd:String(d.budget)},model:d.model==='fixture'?'fixture':'configured',skills:d.skills,connections:d.connections||[],capabilities:['repo.read','workspace.write','tests.run',...(d.allowExternalRead?['external.read']:[]),...(d.allowExternal?['external.write']:[]),...(d.allowDelegation?['delegate']:[])]},crypto.randomUUID());
   await refresh();changeRoute({...route,page:'task',id:r.id,project:d.project,tab:'timeline'});return r.id;
  }
  async function scenario(_kind:Scenario='active'){try{const r=await api('/examples/smoke','POST',undefined,crypto.randomUUID());await refresh();openRun(r.id)}catch(e){setToast((e as Error).message)}}
