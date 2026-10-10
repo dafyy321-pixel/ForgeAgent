@@ -1051,10 +1051,14 @@ def release_skill(id: str, body: SkillRelease, actor: Actor):
         if skill.status == "erased":
             raise Fault("KNOWLEDGE_ERASED", "An erased skill cannot be released")
         evidence = None
+        applicability = skill.data.get("applicability")
         if body.enabled:
             if not body.evaluation_id or not body.configuration:
                 raise Fault("SKILL_GATE", "Provide a paired evaluation and candidate configuration before release")
             evidence = experiments.release_gate(s, actor.tenant, id, body.evaluation_id, body.configuration)
+            from .skill_evolution import reviewed_scope
+
+            applicability = reviewed_scope(s, actor.tenant, skill, body.evaluation_id, body.configuration)
         skill.status = "active" if body.enabled else "retired"
         skill.data = {
             **skill.data,
@@ -1062,10 +1066,11 @@ def release_skill(id: str, body: SkillRelease, actor: Actor):
             "reviewer": actor.actor,
             "evaluation_id": body.evaluation_id,
             "evaluation_digest": evidence,
+            **({"applicability": applicability} if applicability is not None else {}),
             "rollout_percent": body.rollout_percent,
             "release_history": [*skill.data.get("release_history", []), {"at": db.clock(s).isoformat(),
                 "enabled": body.enabled, "reviewer": actor.actor, "review": body.review,
-                "rollout_percent": body.rollout_percent, "evaluation_digest": evidence}],
+                "rollout_percent": body.rollout_percent, "evaluation_digest": evidence, "applicability": applicability}],
         }
         return {"id": id, "status": skill.status}
 

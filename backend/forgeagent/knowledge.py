@@ -133,6 +133,14 @@ def admitted(skill, tenant, run_id, evaluation):
     return int(digest([tenant, run_id, skill.id])[7:23], 16) % 100 < percent
 
 
+def applies(skill, project_id, repository_commit, evaluation):
+    scope = skill.data.get("applicability")
+    if scope is None or evaluation:
+        return True
+    return any(binding == {"project_id": project_id, "repository_commit": repository_commit}
+               for binding in scope.get("bindings", []))
+
+
 def export_package(skill):
     import io
     import json

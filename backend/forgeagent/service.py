@@ -181,6 +181,9 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
         skill = db.get(s, db.SkillVersion, tenant, skill_id)
         if skill.status != "active" and not (evaluation_id and skill.status == "candidate"):
             raise Fault("SKILL_NOT_ACTIVE", "Only released skills may be selected")
+        revision = ((parent.state.get("repository") if parent else project.data.get("repository")) or {}).get("commit")
+        if not knowledge.applies(skill, spec.project_id, revision, evaluation_id):
+            raise Fault("SKILL_APPLICABILITY", "Skill is outside its reviewed project/commit scope; evaluate transfer explicitly", 422)
         assigned = knowledge.admitted(skill, tenant, run_id, evaluation_id)
         skill_assignments.append({"id": skill.id, "selected": assigned, "rollout_percent": skill.data.get("rollout_percent", 100)})
         if assigned:

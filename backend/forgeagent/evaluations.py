@@ -310,6 +310,12 @@ def release_gate(s, tenant, skill_id, evaluation_id, configuration):
     comparison = result["comparisons"].get(configuration)
     baseline = result["configurations"][0]
     projects = {r["project_id"] for r in result["results"]}
+    skill = s.get(db.SkillVersion, (tenant, skill_id))
+    scoped = bool(skill and skill.data.get("applicability"))
+    if scoped and comparison:
+        deltas = comparison.get("per_project_repair_difference", {})
+        if set(deltas) != projects or any(delta < -result["noninferiority_margin"] for delta in deltas.values()):
+            raise Fault("SKILL_NEGATIVE_TRANSFER", "Scoped release needs per-project repair results within the declared margin", 422)
     valid = (
         config
         and skill_id in config["skills"]
