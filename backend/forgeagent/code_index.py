@@ -63,6 +63,10 @@ class SyntaxCache:
     def clear(self, scope):
         self.prune(scope, set())
 
+    def scopes(self):
+        with self.lock:
+            return {key[0] for key in self.entries}
+
 
 def analyze(path: str, source: str) -> dict[str, Any]:
     raw = source.encode("utf-8")

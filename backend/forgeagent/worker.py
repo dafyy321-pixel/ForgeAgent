@@ -49,6 +49,19 @@ class Worker:
     @observed("runtime.claim_recover")
     def claim(self, tenant):
         with db.transaction(tenant) as s:
+            scopes = {scope for scope in self.code_index_cache.scopes() if len(scope) == 2 and scope[0] == tenant}
+            if scopes:
+                # Control/erasure may pause an unleased task, so it never reaches
+                # release again. Reap such metadata even when no task is claimable.
+                live = set(s.scalars(select(db.Run.id).where(
+                    db.Run.tenant_id == tenant, db.Run.id.in_([scope[1] for scope in scopes]),
+                    db.Run.status.in_(["ACTIVE", "QUEUED"]),
+                    or_(db.Run.state["knowledge_erased"].as_boolean().is_(None),
+                        db.Run.state["knowledge_erased"].as_boolean().is_(False)),
+                )))
+                for scope in scopes:
+                    if scope[1] not in live:
+                        self.code_index_cache.clear(scope)
             time = db.clock(s)
             # Per-tenant scheduling quota is serialized. No network call is inside this transaction.
             s.execute(db.text("SELECT pg_advisory_xact_lock(hashtextextended(:key,0))"), {"key": "claim:" + tenant})
