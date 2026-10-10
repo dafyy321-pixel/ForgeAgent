@@ -2,7 +2,7 @@
 
 基于 PostgreSQL 的持久 Agent Runtime，配套 React 任务控制台。任务、审批、动作、预算、检查点和验收证据保存于服务端；浏览器仅保存草稿、收藏和可选登录会话。
 
-当前实现与证据边界见 [当前能力矩阵](docs/capabilities.md)，本轮修改见 [实施记录](docs/ForgeAgent-面试建议实施记录.md)。这是一套可运行的开发实现，尚未通过完整方案要求的生产、恶意多租户与外部 benchmark 验收。
+当前实现与证据边界见 [当前能力矩阵](docs/capabilities.md)，最新修改与验证见 [二轮实施记录](docs/ForgeAgent-二轮优化实施记录-2026-10-10.md)，此前结果见 [上一轮记录](docs/ForgeAgent-面试建议实施记录.md)。这是一套可运行的开发实现，尚未通过完整方案要求的生产、恶意多租户与外部 benchmark 验收。
 
 ## 导航
 

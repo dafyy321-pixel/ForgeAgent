@@ -14,7 +14,7 @@ import pytest
 from forgeagent import db, service, worker
 from forgeagent.domain import digest
 from forgeagent.sandbox import sandbox
-from forgeagent.telemetry import observed
+from forgeagent.telemetry import FIELDS, observed
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, SpanExportResult
@@ -31,10 +31,21 @@ def summary(values):
 class Samples(SpanExporter):
     def __init__(self):
         self.values = defaultdict(list)
+        self.spans = []
+        self.dropped = 0
 
     def export(self, spans):
         for span in spans:
             self.values[span.name].append((span.end_time - span.start_time) / 1e9)
+            if len(self.spans) < 10000:
+                self.spans.append({"name": span.name, "trace_id": f"{span.context.trace_id:032x}",
+                    "span_id": f"{span.context.span_id:016x}",
+                    "parent_span_id": f"{span.parent.span_id:016x}" if span.parent else None,
+                    "start_ns": span.start_time, "duration_seconds": (span.end_time - span.start_time) / 1e9,
+                    "attributes": {key: value for key, value in span.attributes.items()
+                                   if key in FIELDS | {"forge.outcome", "forge.failure_type"}}})
+            else:
+                self.dropped += 1
         return SpanExportResult.SUCCESS
 
 
@@ -107,6 +118,7 @@ def main():
               "contract": {"tasks": 20, "tenants": 2, "slots": 4, "tenant_limit": 2, "timeout_seconds": 45},
               "latencies": {name: summary(values) for name, values in samples.values.items()},
               "operation_samples_seconds": {name: values for name, values in samples.values.items() if not name.startswith("sql.")},
+              "span_samples": samples.spans, "dropped_span_samples": samples.dropped,
               "task_elapsed_including_setup": summary(completed), "timelines": timelines,
               "limitations": ["Call duration includes task creation; the 45s assertion covers scheduling only.",
                               "SQL durations include server execution/waits, not separately identified lock wait.",
