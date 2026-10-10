@@ -6,6 +6,7 @@ from forgeagent.domain import Budget, digest, uid
 from forgeagent.sandbox import sandbox
 from forgeagent.storage import objects
 from forgeagent.worker import Worker
+from forgeagent.workspace import entry
 
 
 @pytest.mark.parametrize("baseline,current", [
@@ -14,10 +15,15 @@ from forgeagent.worker import Worker
     ({"空 格.txt": "line\r\n"}, {"空 格.txt": "line\nnext"}),
     ({"path": "old"}, {"path/file": "new"}),
     ({"a.txt": "same"}, {"a.txt": "same"}),
+    ({"文件[1].bin": entry(b"\xffOLD")}, {"文件[1].bin": entry(b"\x00NEW")}),
+    ({"run.sh": entry(b"exit 0\n", "100755")}, {"run.sh": "exit 0\n"}),
+    ({".gitattributes": "* text\n", "x": "a\r\n"}, {".gitattributes": "* text\n", "x": "b\r\n"}),
 ])
 def test_deliverable_git_patch_roundtrip(baseline, current):
     patch = sandbox.patch(baseline, current)
     assert sandbox.check_patch(baseline, current, patch)["status"] == "passed"
+    combined, check = sandbox.delivery(baseline, current)
+    assert combined == patch and check["status"] == "passed"
 
 
 def test_delivery_rejects_patch_that_does_not_reproduce_tree():

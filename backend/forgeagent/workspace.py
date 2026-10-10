@@ -188,25 +188,33 @@ def write_tree(root, content):
     if (root / ".git").exists():
         from .sandbox import git
 
-        stream = bytearray()
+        git(root, "read-tree", import_commits(root, [content])[0])
+
+
+def import_commits(root, contents):
+    """Import complete exact-byte manifests in one Git process, without checkout filters."""
+    from .sandbox import git
+
+    stream, commit_marks, ordinal = bytearray(), [], 0
+    ref = "refs/forge-import/" + uid()
+    for content in contents:
+        validate_manifest(content)
         entries = []
-        for ordinal, (name, value) in enumerate(content.items(), 1):
+        for name, value in content.items():
+            ordinal += 1
             data = body(value)
             stream.extend(f"blob\nmark :{ordinal}\ndata {len(data)}\n".encode() + data + b"\n")
             entries.append(f"M {mode(value)} :{ordinal} {json.dumps(name, ensure_ascii=False)}\n".encode())
-        # Import exact blob bytes without repository/global filters or per-file subprocesses.
-        # File attributes remain part of the source tree; they cannot rewrite our snapshot.
-        # A temporary commit mark gives its object ID for either SHA-1 or SHA-256,
-        # without a format query, separate index clearing, or shared mutable refs.
-        ref = "refs/forge-import/" + uid()
-        commit_mark = len(content) + 1
-        stream.extend(f"commit {ref}\nmark :{commit_mark}\ncommitter Forge <snapshot@example.invalid> 1 +0000\ndata 0\n\ndeleteall\n".encode())
-        stream.extend(b"".join(entries) + f"\nreset {ref}\n\ndone\n".encode())
-        with tempfile.TemporaryDirectory(prefix="forge-marks-") as temporary:
-            marks = Path(temporary) / "marks"
-            git(root, "fast-import", "--quiet", "--done", "--export-marks=" + str(marks), input=bytes(stream))
-            commit_id = next(line.split(" ", 1)[1] for line in marks.read_text().splitlines() if line.startswith(f":{commit_mark} "))
-            git(root, "read-tree", commit_id)
+        ordinal += 1
+        commit_marks.append(ordinal)
+        stream.extend(f"commit {ref}\nmark :{ordinal}\ncommitter Forge <snapshot@example.invalid> 1 +0000\ndata 0\n\ndeleteall\n".encode())
+        stream.extend(b"".join(entries) + b"\n")
+    stream.extend(f"reset {ref}\n\ndone\n".encode())
+    with tempfile.TemporaryDirectory(prefix="forge-marks-") as temporary:
+        marks = Path(temporary) / "marks"
+        git(root, "fast-import", "--quiet", "--done", "--export-marks=" + str(marks), input=bytes(stream))
+        values = dict(line.split(" ", 1) for line in marks.read_text().splitlines())
+        return [values[f":{mark}"] for mark in commit_marks]
 
 
 def clear_tree(root):

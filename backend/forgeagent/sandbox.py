@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .config import settings
 from .domain import Fault, digest, uid
-from .workspace import body, clear_tree, files, write_tree
+from .workspace import body, clear_tree, files, import_commits, write_tree
 from .workspace import safe_path as safe_path
 
 
@@ -292,13 +292,18 @@ class Sandbox:
     def patch(self, baseline, current, repository=None):
         with tempfile.TemporaryDirectory(prefix="forge-patch-") as directory:
             root = Path(directory)
-            git(root, "init", "--quiet", "--object-format=" + ("sha256" if repository and len(repository["commit"]) == 64 else "sha1"))
-            write_tree(root, baseline)
-            baseline_tree = git(root, "write-tree").decode().strip()
-            clear_tree(root)
-            write_tree(root, current)
-            raw_attributes(root, baseline, current)
-            return git(root, "diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv", baseline_tree).decode()
+            patch, _ = patch_tree(root, baseline, current, repository)
+            return patch
+
+    def delivery(self, baseline, current, repository=None):
+        """Generate and independently apply the delivered bytes in one disposable Git repository."""
+        with tempfile.TemporaryDirectory(prefix="forge-delivery-") as directory:
+            root = Path(directory)
+            patch, baseline_tree = patch_tree(root, baseline, current, repository)
+            # Reset both index and worktree to the original blobs before testing the
+            # actual patch. Exact-byte attributes disable filters during checkout.
+            git(root, "read-tree", "--reset", "-u", baseline_tree)
+            return patch, check_patch_tree(root, current, patch)
 
     def check_patch(self, baseline, current, patch, repository=None):
         """Check and apply the actual deliverable, then compare its complete tree with the verified tree."""
@@ -307,13 +312,25 @@ class Sandbox:
             git(root, "init", "--quiet", "--object-format=" + ("sha256" if repository and len(repository["commit"]) == 64 else "sha1"))
             write_tree(root, baseline)
             raw_attributes(root, baseline, current)
-            if patch:
-                git(root, "apply", "--check", "--whitespace=nowarn", "-", input=patch.encode())
-                git(root, "apply", "--whitespace=nowarn", "-", input=patch.encode())
-                git(root, "apply", "--cached", "--whitespace=nowarn", "-", input=patch.encode())
-            if files(root) != current:
-                raise Fault("PATCH_TREE_MISMATCH", "Delivered patch does not reproduce the verified workspace")
-        return {"name": "交付补丁可应用", "status": "passed", "evidence": "git apply --check; applied tree digest matches"}
+            return check_patch_tree(root, current, patch)
+
+
+def patch_tree(root, baseline, current, repository):
+    git(root, "init", "--quiet", "--object-format=" + ("sha256" if repository and len(repository["commit"]) == 64 else "sha1"))
+    baseline_tree, current_tree = import_commits(root, [baseline, current])
+    raw_attributes(root, baseline, current)
+    patch = git(root, "diff", "--binary", "--no-ext-diff", "--no-textconv", baseline_tree, current_tree).decode()
+    return patch, baseline_tree
+
+
+def check_patch_tree(root, current, patch):
+    if patch:
+        git(root, "apply", "--check", "--whitespace=nowarn", "-", input=patch.encode())
+        git(root, "apply", "--whitespace=nowarn", "-", input=patch.encode())
+        git(root, "apply", "--cached", "--whitespace=nowarn", "-", input=patch.encode())
+    if files(root) != current:
+        raise Fault("PATCH_TREE_MISMATCH", "Delivered patch does not reproduce the verified workspace")
+    return {"name": "交付补丁可应用", "status": "passed", "evidence": "git apply --check; applied tree digest matches"}
 def raw_attributes(root, *contents):
     """Temporary patch trees operate on exact Git blob bytes, without checkout filters."""
     attributes = root / ".git" / "info" / "attributes"

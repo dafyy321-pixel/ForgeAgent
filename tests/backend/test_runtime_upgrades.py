@@ -111,6 +111,45 @@ async def test_twenty_active_runs_finish_under_bounded_fair_scheduler(tenant, mo
     assert sum(counts.values()) == 20
 
 
+async def test_decisions_and_fixture_acceptance_do_not_restore_tool_workspace(tenant, make_run, monkeypatch):
+    run_id = make_run()
+    original, epochs = sandbox.restore, []
+
+    def restore(scope, id, epoch, *args):
+        epochs.append(epoch)
+        return original(scope, id, epoch, *args)
+
+    monkeypatch.setattr(sandbox, "restore", restore)
+    worker = Worker(target_run=run_id)
+    for _ in range(4):
+        await worker.once(tenant)
+    assert epochs and set(epochs) == {2}  # Only repo.write needs a tool workspace (including its rollback snapshot).
+    with db.transaction(tenant) as s:
+        run = db.get(s, db.Run, tenant, run_id)
+        assert run.status == "SUCCEEDED"
+        assert rebuild(s, tenant, run_id) == db.projection(run)
+
+
+def test_claim_reuses_only_its_verified_projection(tenant, make_run, monkeypatch):
+    from forgeagent import reducer
+
+    run_id = make_run()
+    worker = Worker(target_run=run_id)
+    _, epoch = worker.claim(tenant)
+    worker.release(tenant, run_id, epoch)
+    original, calls = reducer.rebuild, []
+
+    def counted(*args, **kwargs):
+        calls.append(True)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(reducer, "rebuild", counted)
+    assert worker.claim(tenant)[1] == 2
+    assert len(calls) == 1
+    with db.transaction(tenant) as s:
+        assert original(s, tenant, run_id) == db.projection(db.get(s, db.Run, tenant, run_id))
+
+
 async def test_cancelled_admission_releases_shared_slot():
     async with concurrency.admission("cancellation-test", 1) as admitted:
         assert admitted

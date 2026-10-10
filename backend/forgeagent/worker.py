@@ -3,7 +3,9 @@ import json
 import logging
 import shlex
 import signal
+import time
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import cast
 
@@ -90,6 +92,9 @@ class Worker:
                     db.emit(s, r, "REPLAY_DIVERGENCE", r.state["reason"])
                     db.get(s, db.Job, tenant, r.id).status = "DONE"
                     return None
+                # The validated committed projection is also the predecessor for the
+                # lease event. Rebuilding it again in emit repeats the same SQL/reduction.
+                s.info.setdefault("event_projections", {})[(tenant, r.id)] = (r.seq, deepcopy(recovered))
                 r.state = recovered["state"]
             expired_at = r.lease_until.isoformat() if r.lease_owner and r.lease_until else None
             interrupted = False
@@ -325,9 +330,9 @@ class Worker:
         if received:
             await self.consume_response(tenant, id, epoch, received)
             return
-        content = json.loads(await asyncio.to_thread(objects.get, tenant, state["workspace_ref"]))
-        root = await asyncio.to_thread(sandbox.restore, tenant, id, epoch, content, state.get("repository"))
         if ready:
+            content = json.loads(await asyncio.to_thread(objects.get, tenant, state["workspace_ref"]))
+            root = await asyncio.to_thread(sandbox.restore, tenant, id, epoch, content, state.get("repository"))
             for action_id in ready:
                 await self.dispatch(tenant, id, epoch, action_id, root)
             return
@@ -950,8 +955,8 @@ class Worker:
             tenant, id, epoch, baseline, current, acceptance,
             state["task"]["allowed_paths"], image, state.get("repository"), build, execute_verification, evidence_metadata
         )
-        patch = await asyncio.to_thread(sandbox.patch, baseline, current, state.get("repository"))
-        report["checks"].append(await asyncio.to_thread(sandbox.check_patch, baseline, current, patch, state.get("repository")))
+        patch, patch_check = await asyncio.to_thread(sandbox.delivery, baseline, current, state.get("repository"))
+        report["checks"].append(patch_check)
         patch_ref = await asyncio.to_thread(resources.put, tenant, id, patch.encode())
         report["artifact_digest"] = patch_ref["digest"]
         logs = {"acceptance": report.get("result"), "build": report.get("build_result")}
@@ -1034,7 +1039,7 @@ class Worker:
         asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(
             max_workers=settings.worker_slots * 3 + 8, thread_name_prefix="forge-io",
         ))
-        active, cursor = {}, 0
+        active, cursor, idle_until = {}, 0, {}
         try:
             while not self.stopping:
                 tenants = await asyncio.to_thread(self.tenants)
@@ -1042,7 +1047,9 @@ class Worker:
                 worked = False
                 for task in completed:
                     try:
-                        worked = task.result() or worked
+                        result = task.result()
+                        worked = result or worked
+                        idle_until[active[task]] = 0 if result else time.monotonic() + 0.1
                     except Exception as exc:
                         log.error("Worker quantum failed: %s", type(exc).__name__)
                 for task in completed:
@@ -1057,11 +1064,12 @@ class Worker:
                         break
                     tenant = tenants[cursor % len(tenants)]
                     cursor += 1
-                    if sum(t == tenant for t in active.values()) < share:
+                    if (idle_until.get(tenant, 0) <= time.monotonic()
+                        and sum(t == tenant for t in active.values()) < share):
                         active[asyncio.create_task(self.once(tenant))] = tenant
                 if active:
                     await asyncio.wait(active, timeout=1 if worked else 0.1, return_when=asyncio.FIRST_COMPLETED)
-                if not worked:
+                if not worked and not any(not task.done() for task in active):
                     await asyncio.sleep(0.1)
         finally:
             # Stop admitting new work and let existing quanta reach their durable boundary.

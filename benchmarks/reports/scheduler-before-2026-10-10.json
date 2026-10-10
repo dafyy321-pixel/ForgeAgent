@@ -1,0 +1,4145 @@
+{
+  "commit": "0a3aa1d0ffff5081f4800d322148c7642da78324",
+  "platform": "Windows-10-10.0.19045-SP0",
+  "python": "3.12.14",
+  "pytest_exit_code": 0,
+  "call_seconds": 28.875,
+  "contract": {
+    "tasks": 20,
+    "tenants": 2,
+    "slots": 4,
+    "tenant_limit": 2,
+    "timeout_seconds": 45
+  },
+  "latencies": {
+    "sql.select": {
+      "count": 10706,
+      "total_seconds": 17.731999999727122,
+      "p50_seconds": 0.0,
+      "p95_seconds": 0.015999999945051968
+    },
+    "sql.insert": {
+      "count": 1214,
+      "total_seconds": 1.9880000001285225,
+      "p50_seconds": 0.0,
+      "p95_seconds": 0.015999999945051968
+    },
+    "sql.lock": {
+      "count": 380,
+      "total_seconds": 0.5799999999580905,
+      "p50_seconds": 0.0,
+      "p95_seconds": 0.015999999945051968
+    },
+    "object.verify": {
+      "count": 240,
+      "total_seconds": 3.3014346,
+      "p50_seconds": 0.0112929,
+      "p95_seconds": 0.0302863
+    },
+    "object.publish": {
+      "count": 240,
+      "total_seconds": 6.5817639,
+      "p50_seconds": 0.0240157,
+      "p95_seconds": 0.0513034
+    },
+    "sql.update": {
+      "count": 1860,
+      "total_seconds": 2.5679999991552904,
+      "p50_seconds": 0.0,
+      "p95_seconds": 0.015000000013969839
+    },
+    "state.checkpoint": {
+      "count": 60,
+      "total_seconds": 1.4903764,
+      "p50_seconds": 0.0228026,
+      "p95_seconds": 0.0475953
+    },
+    "runtime.claim_recover": {
+      "count": 100,
+      "total_seconds": 7.344233,
+      "p50_seconds": 0.0589971,
+      "p95_seconds": 0.1522274
+    },
+    "object.read": {
+      "count": 160,
+      "total_seconds": 1.5459914,
+      "p50_seconds": 0.0089996,
+      "p95_seconds": 0.0200015
+    },
+    "context.compile": {
+      "count": 40,
+      "total_seconds": 1.0334427,
+      "p50_seconds": 0.0140002,
+      "p95_seconds": 0.0321123
+    },
+    "sql.savepoint": {
+      "count": 20,
+      "total_seconds": 0.03100000007543713,
+      "p50_seconds": 0.0,
+      "p95_seconds": 0.015000000013969839
+    },
+    "sql.release": {
+      "count": 20,
+      "total_seconds": 0.0,
+      "p50_seconds": 0.0,
+      "p95_seconds": 0.0
+    },
+    "run.advance": {
+      "count": 80,
+      "total_seconds": 96.7811175,
+      "p50_seconds": 0.7204123,
+      "p95_seconds": 2.7331287
+    },
+    "tool.dispatch": {
+      "count": 20,
+      "total_seconds": 11.1963215,
+      "p50_seconds": 0.5248461,
+      "p95_seconds": 0.7581791
+    },
+    "verification.execute": {
+      "count": 20,
+      "total_seconds": 0.012468700000000001,
+      "p50_seconds": 0.0008979,
+      "p95_seconds": 0.0010323
+    },
+    "runtime.complete": {
+      "count": 20,
+      "total_seconds": 52.3878997,
+      "p50_seconds": 2.5025758,
+      "p95_seconds": 3.4360334
+    }
+  },
+  "task_elapsed_including_setup": {
+    "count": 20,
+    "total_seconds": 437.473572,
+    "p50_seconds": 22.086692,
+    "p95_seconds": 27.133777
+  },
+  "timelines": [
+    {
+      "run_id": "0720f940-6924-4d9c-b0ad-3921f5ba405c",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.011963
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.016961
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.022995
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 0.726815
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 1.33323
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 1.421444
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 1.455104
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 1.520784
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 1.569333
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 1.573872
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 1.591557
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 1.597557
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 4.518871
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 4.625641
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 5.034274
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 5.182914
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 5.345638
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 5.364792
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 5.371635
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 5.380637
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 8.285291
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 8.347293
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 8.571963
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 8.688018
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 8.750187
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 8.872276
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 8.925752
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 8.931749
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 8.936749
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 12.291774
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 12.492896
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 14.888881
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 14.996002
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 15.115031
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 15.220172
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 15.506965
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 15.514981
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 15.522964
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 15.538146
+        }
+      ]
+    },
+    {
+      "run_id": "c066e113-d945-429b-b72e-10a3c187371d",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.007613
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.010623
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.015623
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 1.280458
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 1.658782
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 1.760819
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 1.78582
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 1.840924
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 1.868317
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 1.872136
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 1.884103
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 1.893102
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 5.283868
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 5.448009
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 5.710501
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 5.788638
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 5.873778
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 5.887678
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 5.902798
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 5.909729
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 8.885839
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 8.95392
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 9.116214
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 9.174353
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 9.200851
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 9.264834
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 9.304573
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 9.309571
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 9.317537
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 13.201175
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 13.331924
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 16.304362
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 16.402106
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 16.529365
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 16.68026
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 16.808939
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 16.823937
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 16.829938
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 16.840979
+        }
+      ]
+    },
+    {
+      "run_id": "4dd01cc3-4d19-4bb9-829b-9668f6376ca6",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.005585
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.009353
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.016387
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 1.612161
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 2.069439
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 2.123442
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 2.147442
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 2.193891
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 2.223661
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 2.228713
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 2.243661
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 2.25066
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 5.36104
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 5.515379
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 5.766027
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 5.851055
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 5.931501
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 5.9405
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 5.949498
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 5.9575
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 8.914214
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 8.960218
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 9.330913
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 9.412539
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 9.440573
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 9.489234
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 9.525889
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 9.53289
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 9.538892
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 15.821349
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 16.092739
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 17.934407
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 18.002568
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 18.082521
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 18.175601
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 18.293569
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 18.301572
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 18.307605
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 18.319573
+        }
+      ]
+    },
+    {
+      "run_id": "5210378b-f900-4d55-83fa-c3a74d022f77",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.060109
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.065113
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.073109
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 1.862714
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 2.477588
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 2.523196
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 2.573325
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 2.624325
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 2.660325
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 2.664289
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 2.679286
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 2.685457
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 5.879136
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 6.036551
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 6.335836
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 6.490964
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 6.567493
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 6.580494
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 6.590462
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 6.601529
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 9.308327
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 9.345174
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 9.766044
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 9.827522
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 9.85958
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 9.917588
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 9.96658
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 9.972607
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 9.981581
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 16.846009
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 16.960343
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 18.942792
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 19.065979
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 19.188889
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 19.32789
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 19.450048
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 19.459066
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 19.470045
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 19.484047
+        }
+      ]
+    },
+    {
+      "run_id": "5ffacbab-fed4-48b6-a9da-80475bbf0699",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.006944
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.008981
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.01398
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 2.147295
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 2.470286
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 2.531282
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 2.571453
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 2.622368
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 2.655595
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 2.659368
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 2.669368
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 2.672368
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 5.886879
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 6.062833
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 6.422489
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 6.502596
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 6.582771
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 6.59477
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 6.600776
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 6.605772
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 9.439987
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 9.506435
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 9.869618
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 9.948079
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 9.979411
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 10.013409
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 10.040404
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 10.050976
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 10.054441
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 18.340936
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 18.520188
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 20.433926
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 20.519557
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 20.594993
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 20.699658
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 20.805658
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 20.81562
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 20.822434
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 20.833866
+        }
+      ]
+    },
+    {
+      "run_id": "95585f0f-87e1-4d68-986d-72e49dd19944",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.006964
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.010963
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.017965
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 2.586717
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 3.087931
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 3.121965
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 3.145493
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 3.193651
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 3.223417
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 3.227554
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 3.239414
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 3.244416
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 6.538788
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 6.67272
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 6.910354
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 6.999495
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 7.062354
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 7.073356
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 7.081467
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 7.090688
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 9.885096
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 9.930425
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 10.319795
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 10.397171
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 10.436249
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 10.504832
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 10.564832
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 10.578882
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 10.584844
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 19.437474
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 19.540685
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 21.514121
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 21.648413
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 21.783933
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 21.936971
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 22.066228
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 22.070653
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 22.075682
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 22.086692
+        }
+      ]
+    },
+    {
+      "run_id": "d1028f06-a885-40e5-9354-7b3c94993cdb",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.006999
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.010034
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.015002
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 2.619236
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 3.105521
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 3.171889
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 3.205384
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 3.267378
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 3.303395
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 3.306396
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 3.317121
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 3.322647
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 6.58159
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 6.714591
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 6.955226
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 7.050224
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 7.142613
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 7.150612
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 7.156611
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 7.162614
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 10.009296
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 10.049492
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 10.5177
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 10.652129
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 10.695328
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 10.759089
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 10.814085
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 10.81958
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 10.824665
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 20.984114
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 21.149161
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 23.022274
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 23.095242
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 23.170331
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 23.26011
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 23.368014
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 23.376271
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 23.386854
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 23.396266
+        }
+      ]
+    },
+    {
+      "run_id": "23be8c69-95f2-4990-9052-755baf2333e7",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.006
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.009563
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.015562
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 3.187723
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 3.616429
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 3.671115
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 3.700114
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 3.768065
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 3.803998
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 3.809069
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 3.827501
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 3.833746
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 7.074956
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 7.21505
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 7.461786
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 7.538205
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 7.615204
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 7.624206
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 7.635204
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 7.645206
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 10.567613
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 10.651706
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 11.117647
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 11.221483
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 11.263483
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 11.367903
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 11.421936
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 11.433929
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 11.443906
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 22.105298
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 22.235891
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 24.185669
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 24.316272
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 24.424782
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 24.552781
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 24.691851
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 24.700852
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 24.708852
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 24.719849
+        }
+      ]
+    },
+    {
+      "run_id": "fe806045-8642-494d-b00a-e6fa20bd96d4",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.006407
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.009127
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.017163
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 3.279745
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 3.690636
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 3.764612
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 3.798016
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 3.878602
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 3.916752
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 3.920198
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 3.932719
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 3.936719
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 7.148221
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 7.294054
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 7.520381
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 7.60038
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 7.694854
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 7.709855
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 7.721095
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 7.730097
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 10.809278
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 10.901209
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 11.395079
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 11.50743
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 11.545075
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 11.632383
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 11.669431
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 11.67403
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 11.678066
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 23.419789
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 23.583032
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 25.508625
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 25.586061
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 25.659059
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 25.749616
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 25.848565
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 25.854562
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 25.867564
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 25.878718
+        }
+      ]
+    },
+    {
+      "run_id": "44feed4c-ac25-4584-b038-82533df8190d",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.008817
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.011499
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.0166
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 3.793608
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 4.24425
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 4.318251
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 4.386526
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 4.516921
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 4.651564
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 4.658566
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 4.672567
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 4.679567
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 7.632862
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 7.786047
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 8.090671
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 8.196796
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 8.291926
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 8.298926
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 8.305927
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 8.311926
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 11.416087
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 11.485122
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 12.161288
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 12.285349
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 12.370151
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 12.499315
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 12.553152
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 12.560151
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 12.567149
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 24.730044
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 24.849113
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 26.696729
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 26.789148
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 26.842144
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 26.922224
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 26.970643
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 26.976644
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 26.98268
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 26.989368
+        }
+      ]
+    },
+    {
+      "run_id": "72c709c8-b662-44e2-8dd3-95be408cef5c",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.068668
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.081995
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.09667
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 1.618017
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 2.234426
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 2.311046
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 2.343101
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 2.403965
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 2.464752
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 2.474734
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 2.496736
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 2.503736
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 5.621934
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 5.777783
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 6.223099
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 6.332094
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 6.462958
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 6.47096
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 6.476961
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 6.482958
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 9.284397
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 9.329877
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 9.5282
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 9.651365
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 9.677569
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 9.764462
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 9.819928
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 9.826928
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 9.83479
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 13.539654
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 13.83768
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 16.184446
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 16.347408
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 16.509255
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 16.85592
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 17.052054
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 17.063829
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 17.07083
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 17.097315
+        }
+      ]
+    },
+    {
+      "run_id": "7c8cf6a6-9132-4617-ab0a-c2ebb4e0a666",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.014113
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.019111
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.028112
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 1.529437
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 2.551869
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 2.598866
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 2.632381
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 2.681171
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 2.735755
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 2.741758
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 2.766756
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 2.770756
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 5.673413
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 5.900155
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 6.279464
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 6.369056
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 6.439345
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 6.447342
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 6.454344
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 6.459341
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 9.420295
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 9.512668
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 9.869889
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 9.930544
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 9.949519
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 10.010122
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 10.041882
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 10.04588
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 10.050368
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 13.70978
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 13.895835
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 16.482907
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 16.760033
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 16.900926
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 17.093598
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 17.222155
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 17.230888
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 17.237815
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 17.256817
+        }
+      ]
+    },
+    {
+      "run_id": "610ebdaf-4bea-4b73-ae9d-0e5d627d58f7",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.013417
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.017413
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.024454
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 2.38536
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 2.835642
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 2.885685
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 2.912643
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 2.956642
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 2.9879
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 2.992863
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 3.010866
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 3.01619
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 6.329786
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 6.463966
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 6.73996
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 6.829449
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 6.921959
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 6.933606
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 6.940612
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 6.946448
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 9.68954
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 9.730418
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 10.22544
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 10.292105
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 10.32418
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 10.404136
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 10.448219
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 10.45201
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 10.45701
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 17.008938
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 17.265941
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 19.152808
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 19.270503
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 19.356214
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 19.495359
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 19.628359
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 19.636361
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 19.647378
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 19.66136
+        }
+      ]
+    },
+    {
+      "run_id": "90c00398-de68-43a9-90e2-2008e600e9d0",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.013999
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.020002
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.029003
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 2.706607
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 3.064407
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 3.103406
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 3.120444
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 3.155248
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 3.185871
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 3.196287
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 3.210552
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 3.217248
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 6.39251
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 6.4988
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 6.851531
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 6.966784
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 7.033537
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 7.047215
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 7.054249
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 7.06083
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 9.978566
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 10.042438
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 10.365551
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 10.463563
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 10.50025
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 10.557225
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 10.601694
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 10.605694
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 10.608693
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 17.258484
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 17.463057
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 19.376305
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 19.477905
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 19.579901
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 19.7369
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 19.865159
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 19.876156
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 19.884998
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 19.904997
+        }
+      ]
+    },
+    {
+      "run_id": "153f147e-e8ce-40d1-8c51-45bb1620fea6",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.01185
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.015849
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.020851
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 3.115935
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 3.474738
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 3.510738
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 3.543738
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 3.585737
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 3.621849
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 3.625639
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 3.63785
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 3.640851
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 6.814285
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 6.9262
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 7.286378
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 7.361309
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 7.442308
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 7.45331
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 7.464933
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 7.471411
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 10.291057
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 10.353358
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 10.770014
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 10.83591
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 10.862177
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 10.891177
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 10.914053
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 10.918208
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 10.932657
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 19.568397
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 19.77949
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 21.637886
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 21.742764
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 21.844961
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 21.967917
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 22.092028
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 22.100025
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 22.105929
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 22.121939
+        }
+      ]
+    },
+    {
+      "run_id": "a312de0d-8933-404b-8059-837baee13bdd",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.012754
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.017752
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.027001
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 2.927901
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 3.550699
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 3.609703
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 3.63288
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 3.684775
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 3.750776
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 3.755802
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 3.772777
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 3.77778
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 7.127002
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 7.275029
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 7.54827
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 7.637884
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 7.689906
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 7.704907
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 7.715048
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 7.724904
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 10.582196
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 10.64515
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 11.040749
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 11.122347
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 11.15728
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 11.200722
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 11.241801
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 11.250841
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 11.257802
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 19.939452
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 20.128615
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 22.112986
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 22.222113
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 22.389672
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 22.505086
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 22.642804
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 22.653583
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 22.660588
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 22.67358
+        }
+      ]
+    },
+    {
+      "run_id": "03e57be7-3644-4469-87af-4961c619fae9",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.011
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.014001
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.020001
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 3.643965
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 4.029263
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 4.087176
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 4.113094
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 4.158472
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 4.184409
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 4.186345
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 4.19641
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 4.200412
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 7.491146
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 7.599096
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 7.828562
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 7.922544
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 8.001572
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 8.010605
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 8.018189
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 8.023168
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 10.933536
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 10.998537
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 11.427198
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 11.510959
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 11.552998
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 11.635657
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 11.705337
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 11.715941
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 11.724336
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 22.242861
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 22.444809
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 24.332198
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 24.433385
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 24.513581
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 24.604518
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 24.704312
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 24.713367
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 24.717366
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 24.738369
+        }
+      ]
+    },
+    {
+      "run_id": "c0d43db8-8c3d-408a-b80c-53d7040dddfd",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.006994
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.010995
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.015995
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 3.632976
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 4.209577
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 4.250017
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 4.271933
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 4.306931
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 4.352929
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 4.356931
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 4.367931
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 4.371983
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 7.631107
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 7.730106
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 8.017331
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 8.102259
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 8.156326
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 8.164326
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 8.173328
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 8.179356
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 11.125619
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 11.202595
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 11.676348
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 11.810087
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 11.859152
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 11.918056
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 11.967024
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 11.973024
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 11.977026
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 22.60197
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 22.793678
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 24.76338
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 24.862606
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 24.957237
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 25.093765
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 25.220316
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 25.231319
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 25.244317
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 25.263318
+        }
+      ]
+    },
+    {
+      "run_id": "13738494-ea6a-4d2e-b18c-00ead0172bfe",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.007001
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.010002
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.017006
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 4.139546
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 4.632922
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 4.689471
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 4.72164
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 4.804836
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 4.859604
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 4.868638
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 4.888601
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 4.894601
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 7.994208
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 8.092287
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 8.372032
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 8.459417
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 8.531277
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 8.541255
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 8.550427
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 8.557262
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 11.714924
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 11.812109
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 12.361907
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 12.485738
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 12.562557
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 12.633125
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 12.69986
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 12.711861
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 12.717903
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 24.758339
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 24.956824
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 26.784304
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 26.850111
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 26.912963
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 27.005775
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 27.112776
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 27.117774
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 27.123775
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 27.133777
+        }
+      ]
+    },
+    {
+      "run_id": "ccfbd151-1826-4675-9028-c1b3dc06f7d4",
+      "status": "SUCCEEDED",
+      "events": [
+        {
+          "seq": 1,
+          "kind": "RUN_CREATED",
+          "seconds": 0.010256
+        },
+        {
+          "seq": 2,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 0.013219
+        },
+        {
+          "seq": 3,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 0.019439
+        },
+        {
+          "seq": 4,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 4.330748
+        },
+        {
+          "seq": 5,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 4.727971
+        },
+        {
+          "seq": 6,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 4.821739
+        },
+        {
+          "seq": 7,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 4.858739
+        },
+        {
+          "seq": 8,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 4.950702
+        },
+        {
+          "seq": 9,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 4.989866
+        },
+        {
+          "seq": 10,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 4.994702
+        },
+        {
+          "seq": 11,
+          "kind": "ACTION_PREPARED",
+          "seconds": 5.008701
+        },
+        {
+          "seq": 12,
+          "kind": "DECISION_APPLIED",
+          "seconds": 5.011702
+        },
+        {
+          "seq": 13,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 8.146802
+        },
+        {
+          "seq": 14,
+          "kind": "ACTION_DISPATCHED",
+          "seconds": 8.283842
+        },
+        {
+          "seq": 15,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 8.584602
+        },
+        {
+          "seq": 16,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 8.685496
+        },
+        {
+          "seq": 17,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 8.763063
+        },
+        {
+          "seq": 18,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 8.773015
+        },
+        {
+          "seq": 19,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 8.787123
+        },
+        {
+          "seq": 20,
+          "kind": "ACTION_RESULT",
+          "seconds": 8.794119
+        },
+        {
+          "seq": 21,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 11.967536
+        },
+        {
+          "seq": 22,
+          "kind": "ACTION_CONSUMED",
+          "seconds": 12.056534
+        },
+        {
+          "seq": 23,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 12.528252
+        },
+        {
+          "seq": 24,
+          "kind": "MODEL_REQUESTED",
+          "seconds": 12.664998
+        },
+        {
+          "seq": 25,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 12.727998
+        },
+        {
+          "seq": 26,
+          "kind": "MODEL_RESPONSE_RECEIVED",
+          "seconds": 12.896572
+        },
+        {
+          "seq": 27,
+          "kind": "DECISION_COMMITTED",
+          "seconds": 12.957603
+        },
+        {
+          "seq": 28,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 12.966603
+        },
+        {
+          "seq": 29,
+          "kind": "DECISION_APPLIED",
+          "seconds": 12.974602
+        },
+        {
+          "seq": 30,
+          "kind": "LEASE_CLAIMED",
+          "seconds": 25.270414
+        },
+        {
+          "seq": 31,
+          "kind": "VERIFICATION_STARTED",
+          "seconds": 25.469485
+        },
+        {
+          "seq": 32,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 27.19818
+        },
+        {
+          "seq": 33,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 27.27693
+        },
+        {
+          "seq": 34,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 27.325932
+        },
+        {
+          "seq": 35,
+          "kind": "STORAGE_ADMITTED",
+          "seconds": 27.395179
+        },
+        {
+          "seq": 36,
+          "kind": "PROGRESS_RECORDED",
+          "seconds": 27.498814
+        },
+        {
+          "seq": 37,
+          "kind": "VERIFICATION_COMPLETED",
+          "seconds": 27.510846
+        },
+        {
+          "seq": 38,
+          "kind": "STATE_CHECKPOINTED",
+          "seconds": 27.519625
+        },
+        {
+          "seq": 39,
+          "kind": "CHECKPOINT_READY",
+          "seconds": 27.534596
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "SQL durations include server execution/waits, not separately identified lock wait.",
+    "Nested span totals overlap; do not add stage totals.",
+    "Fixture verification is AST acceptance, not Docker or model capacity."
+  ]
+}
