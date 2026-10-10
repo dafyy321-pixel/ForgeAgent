@@ -15,6 +15,15 @@ from .domain import TERMINAL, Budget, CreateRun, Fault, Harness, Strict, Task, d
 from .research import CostAssumptions
 
 
+class CaseSource(Strict):
+    repository: str = Field(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+    base_commit: str = Field(pattern=r"^[0-9a-f]{40}([0-9a-f]{24})?$")
+    task_id: str = Field(min_length=1, max_length=240)
+    problem_family: str = Field(min_length=1, max_length=100)
+    language: Literal["python", "typescript"]
+    source_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+
 class Case(Strict):
     id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,100}$")
     project_id: str
@@ -23,6 +32,7 @@ class Case(Strict):
     capabilities: list[str] = Field(default_factory=lambda: ["repo.read", "workspace.write", "tests.run"])
     expected_status: Literal["SUCCEEDED", "PAUSED", "FAILED"] = "SUCCEEDED"
     expected_reason: str = ""
+    provenance: CaseSource | None = None
 
     @model_validator(mode="after")
     def expectation(self):
@@ -66,13 +76,27 @@ def register(s, tenant, body):
     bindings = {}
     for case in body.cases:
         project = db.get(s, db.Project, tenant, case.project_id)
+        if case.provenance and case.provenance.base_commit != (project.data.get("repository") or {}).get("commit"):
+            raise Fault("CASE_SOURCE_BINDING", "External case provenance must match the registered Git commit", 422)
         bindings[case.project_id] = digest(project.data)
     data = {**body.model_dump(mode="json"), "project_bindings": bindings}
     fingerprints = [digest({"project": bindings[c.project_id], "task": c.task.model_dump()}) for c in body.cases]
+    identities = [digest([c.provenance.repository, c.provenance.task_id]) if c.provenance else fingerprint
+                  for c, fingerprint in zip(body.cases, fingerprints, strict=True)]
+    if len(set(identities)) != len(identities) or len(set(fingerprints)) != len(fingerprints):
+        raise Fault("DUPLICATE_TASK", "Renaming or rewording one source issue cannot create independent tasks", 422)
+    partitions = {"repositories": sorted({c.provenance.repository for c in body.cases if c.provenance}),
+                  "problem_families": sorted({c.provenance.problem_family for c in body.cases if c.provenance})}
     for existing in db.rows(s, db.EvaluationDataset, tenant):
         if (body.split == "held_out" or existing.data.get("split") == "held_out") and set(existing.data.get("case_fingerprints", [])) & set(fingerprints):
             raise Fault("HOLDOUT_OVERLAP", "Development and held-out task fingerprints must be disjoint", 422)
+        if body.split == "held_out" or existing.data.get("split") == "held_out":
+            old = existing.data.get("source_partitions", {})
+            if any(set(partitions[key]) & set(old.get(key, [])) for key in partitions):
+                raise Fault("HOLDOUT_SOURCE_OVERLAP", "Curated holdouts must isolate repositories and problem families", 422)
     data["case_fingerprints"] = fingerprints
+    data["case_identities"] = dict(zip([c.id for c in body.cases], identities, strict=True))
+    data["source_partitions"] = partitions
     data["digest"] = digest(data)
     record = db.EvaluationDataset(tenant_id=tenant, id=body.id, data=data)
     s.add(record)
@@ -140,6 +164,8 @@ def start(s, tenant, actor, body):
         "implementation": service.implementation_bindings(),
         "runs": [x["id"] for x in entries],
         "entries": entries,
+        "case_identities": dataset.data.get("case_identities", {}),
+        "case_sources": {case.id: case.provenance.model_dump() for case in cases if case.provenance},
     }
     return {"id": record.id, "status": record.status, **record.data}
 
@@ -184,6 +210,7 @@ def report(s, record, tenant):
                 "verdict": (run.state.get("verification") or {}).get("verdict"),
                 "state_digest": digest(run.state),
                 "version": run.version,
+                "repository_commit": (run.state.get("repository") or {}).get("commit"),
                 "research": snapshot(s, run, record.data.get("cost_assumptions")),
             }
         )
@@ -197,6 +224,7 @@ def report(s, record, tenant):
     for name in configs:
         rows = [r for r in results if r["config"] == name]
         rates = [mean(r["correct_disposition"] for r in grouped[name, case]) for case in case_ids]
+        repair_rates = [mean(r["status"] == "SUCCEEDED" and r["verdict"] == "PASS" for r in grouped[name, case]) for case in case_ids]
         cost = sum(r["cost"] for r in rows)
         successes = sum(r["status"] == "SUCCEEDED" for r in rows)
         summaries[name] = {
@@ -204,6 +232,11 @@ def report(s, record, tenant):
             "cluster_95_ci": cluster_interval(rates, record.data["seed"]),
             "cost": cost,
             "cost_per_success": cost / successes if successes else None,
+            "repair_rate": mean(repair_rates), "repair_cluster_95_ci": cluster_interval(repair_rates, record.data["seed"]),
+            "all_attempts_cost_usd": cost,
+            "success_attempt_cost_usd": sum(r["cost"] for r in rows if r["status"] == "SUCCEEDED" and r["verdict"] == "PASS"),
+            "correct_pauses": sum(r["status"] == "PAUSED" and r["correct_disposition"] for r in rows),
+            "manual_decisions": sum(r["research"]["manual_decisions"] for r in rows),
             "latency_mean": mean(r["seconds"] for r in rows),
             "latency_p50": percentile([r["seconds"] for r in rows], 0.5),
             "latency_p95": percentile([r["seconds"] for r in rows], 0.95),
@@ -220,12 +253,21 @@ def report(s, record, tenant):
         baseline_cost = summaries[configs[0]]["cost"]
         ratio = summaries[name]["cost"] / baseline_cost if baseline_cost else None
         supported = finished and interval is not None and interval[0] >= -record.data["noninferiority_margin"]
+        repair_deltas = {case: mean(r["status"] == "SUCCEEDED" and r["verdict"] == "PASS" for r in grouped[name, case])
+                         - mean(r["status"] == "SUCCEEDED" and r["verdict"] == "PASS" for r in grouped[configs[0], case])
+                         for case in case_ids}
+        projects = {row["project_id"] for row in results}
         comparisons[name] = {
             "baseline": configs[0],
             "paired_difference": mean(differences),
             "cluster_95_ci": interval,
             "cost_ratio": ratio,
             "noninferiority_supported": supported,
+            "paired_repair_difference": mean(repair_deltas.values()),
+            "repair_cluster_95_ci": cluster_interval(list(repair_deltas.values()), record.data["seed"]),
+            "negative_transfer_cases": [{"case_id": case, "repair_difference": delta} for case, delta in repair_deltas.items() if delta < 0],
+            "per_project_repair_difference": {project: mean(repair_deltas[case] for case in case_ids
+                if grouped[name, case][0]["project_id"] == project) for project in sorted(projects)},
         }
     result = {
         "id": record.id,
@@ -238,7 +280,7 @@ def report(s, record, tenant):
         "results": results,
         "total": len(results),
         "successes": sum(x["status"] == "SUCCEEDED" for x in results),
-        "independent_cases": len(case_ids),
+        "independent_cases": len({record.data.get("case_identities", {}).get(case, case) for case in case_ids}),
         "summaries": summaries,
         "comparisons": comparisons,
         "limitations": "Cluster bootstrap keeps repetitions together within registered cases. Incomplete full-cost estimates cannot establish total savings. External benchmark and oracle evidence require separate reports.",

@@ -26,6 +26,17 @@ def normalize_swebench(record, split):
         "source_digest": digest(record), "provenance": "Imported record; license and environment require review"}
 
 
+def normalize_external(record, split):
+    """Reviewed Python/TS issue records; retain acceptance, exclude gold solution."""
+    from .evaluations import CaseSource
+
+    result = normalize_swebench(record, split)
+    source = CaseSource(repository=record["repo"], base_commit=record["base_commit"],
+        task_id=record["instance_id"], problem_family=record["problem_family"],
+        language=record["language"], source_digest=digest(record))
+    return {**result, "benchmark": "external-reviewed", "case_source": source.model_dump()}
+
+
 def prepare(directory, case, environment_image, verification_argv, allowed_paths, acceptance_paths=None):
     from .api import ProjectInput
 
@@ -63,8 +74,9 @@ def prepare(directory, case, environment_image, verification_argv, allowed_paths
         build=BuildContract(dependency_image=environment_image))
     # Image is pinned in the reviewed execution environment, never supplied as a mutable tag.
     return {"project": project.model_dump(mode="json"), "environment_image": environment_image,
-        "case": {"id": identity, "project_id": identity, "task": {"goal": case["goal"], "allowed_paths": allowed_paths}},
-        "provenance": {key: case.get(key) for key in ["benchmark", "instance_id", "source_digest", "split", "base_commit"]},
+        "case": {"id": identity, "project_id": identity, "task": {"goal": case["goal"], "allowed_paths": allowed_paths},
+                 **({"provenance": case["case_source"]} if case.get("case_source") else {})},
+        "provenance": {key: case.get(key) for key in ["benchmark", "instance_id", "source_digest", "split", "base_commit", "repo"]},
         "input_digest": digest(case), "limitations": "Imports are bounded by ForgeAgent Git bundle/workspace limits; official benchmark scoring runs separately."}
 
 

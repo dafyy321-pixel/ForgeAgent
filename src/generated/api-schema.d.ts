@@ -1484,6 +1484,25 @@ export interface components {
              * @default
              */
             expected_reason?: string;
+            provenance?: components["schemas"]["CaseSource"] | null;
+        };
+        /** CaseSource */
+        CaseSource: {
+            /** Repository */
+            repository: string;
+            /** Base Commit */
+            base_commit: string;
+            /** Task Id */
+            task_id: string;
+            /** Problem Family */
+            problem_family: string;
+            /**
+             * Language
+             * @enum {string}
+             */
+            language: "python" | "typescript";
+            /** Source Digest */
+            source_digest: string;
         };
         /** CatalogPage */
         CatalogPage: {

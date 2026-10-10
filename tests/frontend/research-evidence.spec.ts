@@ -22,6 +22,9 @@ test('paired comparison separates repair from expected pause and incomplete cost
               cluster_95_ci: null,
               cost: 0.05,
               latency_p95: 2,
+              repair_rate: 0.5,
+              correct_pauses: 1,
+              manual_decisions: 2,
               research: {
                 full_cost_complete: false,
                 missing_cost_components: ['human_seconds'],
@@ -29,7 +32,15 @@ test('paired comparison separates repair from expected pause and incomplete cost
               },
             },
           },
-          comparisons: {},
+          comparisons: {
+            structure: {
+              baseline: 'baseline',
+              paired_difference: -1,
+              paired_repair_difference: -1,
+              negative_transfer_cases: [{ case_id: 'regression-case', repair_difference: -1 }],
+              per_project_repair_difference: { 'external-project': -1 },
+            },
+          },
           results: [
             { id: 'success', config: 'baseline', status: 'SUCCEEDED' },
             { id: 'pause', config: 'baseline', status: 'PAUSED' },
@@ -42,6 +53,14 @@ test('paired comparison separates repair from expected pause and incomplete cost
   const table = page.getByRole('table', { name: '实验配置比较' });
   await expect(table).toContainText('1 / 2');
   await expect(table).toContainText('100.0%');
+  await expect(table).toContainText('PASS 修复率 50.0%');
+  await expect(page.getByText('实际修复率差 -100.0%', { exact: false })).toContainText(
+    '负迁移任务 1 个',
+  );
+  await expect(page.getByText('实际修复率差 -100.0%', { exact: false })).toContainText(
+    'regression-case',
+  );
+  await expect(page.getByText('正确暂停 1 次，人工决策 2 次。', { exact: false })).toBeVisible();
   await expect(table).toContainText('样本不足，未计算');
   await expect(table).toContainText('不完整：human_seconds');
   await expect(

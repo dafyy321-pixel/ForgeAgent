@@ -4,10 +4,10 @@ import argparse
 import json
 from pathlib import Path
 
-from forgeagent.benchmarks import export_predictions, normalize_swebench, prepare
+from forgeagent.benchmarks import export_predictions, normalize_external, normalize_swebench, prepare
 
 parser = argparse.ArgumentParser()
-parser.add_argument("mode", choices=["import-swebench", "prepare", "export-predictions"])
+parser.add_argument("mode", choices=["import-swebench", "import-external", "prepare", "export-predictions"])
 parser.add_argument("input", type=Path)
 parser.add_argument("output", type=Path)
 parser.add_argument("--split", choices=["development", "held_out"], default="development")
@@ -21,6 +21,8 @@ if args.mode == "export-predictions":
     result = export_predictions(values)
 elif args.mode == "import-swebench":
     result = "\n".join(json.dumps(normalize_swebench(row, args.split), ensure_ascii=False) for row in values) + "\n"
+elif args.mode == "import-external":
+    result = "\n".join(json.dumps(normalize_external(row, args.split), ensure_ascii=False) for row in values) + "\n"
 else:
     if not args.repository or not args.environment:
         parser.error("Preparation requires a local repository and reviewed environment configuration")

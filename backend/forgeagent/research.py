@@ -64,7 +64,8 @@ def snapshot(s, run, assumptions=None):
             components["tools_usd"] = None
         elif components["tools_usd"] is not None:
             components["tools_usd"] += float(tariff * count)
-    manual = sum(event.type in {"APPROVAL_DECIDED", "ACTION_RECONCILED", "MODEL_USAGE_RECONCILED"} for event in events)
+    manual = sum(event.type in {"APPROVAL_DECIDED", "ACTION_RECONCILED", "MODEL_USAGE_RECONCILED",
+                               "USER_INPUT", "RESUME_REQUESTED", "REMOTE_INPUT_QUEUED"} for event in events)
     human_seconds = rates.human_seconds_by_run.get(run.id, None if manual else 0)
     if human_seconds is None or human_seconds < 0:
         components["human_usd"] = None

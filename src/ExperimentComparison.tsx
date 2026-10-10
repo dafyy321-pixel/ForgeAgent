@@ -10,6 +10,11 @@ type Summary = {
   cost: number;
   latency_p95?: number | null;
   research?: Research;
+  repair_rate?: number;
+  repair_cluster_95_ci?: number[] | null;
+  correct_pauses?: number;
+  manual_decisions?: number;
+  success_attempt_cost_usd?: number;
 };
 type Comparison = {
   baseline: string;
@@ -17,12 +22,15 @@ type Comparison = {
   cluster_95_ci?: number[] | null;
   cost_ratio?: number | null;
   noninferiority_supported?: boolean;
+  paired_repair_difference?: number;
+  negative_transfer_cases?: { case_id: string; repair_difference: number }[];
+  per_project_repair_difference?: Record<string, number>;
 };
 type Report = {
   status: string;
   summaries?: Record<string, Summary>;
   comparisons?: Record<string, Comparison>;
-  results?: { config: string; status: string; reserved?: number }[];
+  results?: { config: string; status: string; verdict?: string | null; reserved?: number }[];
 };
 const percentage = (value: number) => `${(value * 100).toFixed(1)}%`;
 const interval = (value?: number[] | null) =>
@@ -52,6 +60,12 @@ export function ExperimentComparison({ report }: { report: Report }) {
                   <th scope="row">{name}</th>
                   <td>
                     {rows.filter((row) => row.status === 'SUCCEEDED').length} / {rows.length}
+                    {summary.repair_rate != null && (
+                      <>
+                        <br />
+                        PASS 修复率 {percentage(summary.repair_rate)}
+                      </>
+                    )}
                   </td>
                   <td>
                     {percentage(summary.correct_disposition_rate)}
@@ -75,19 +89,35 @@ export function ExperimentComparison({ report }: { report: Report }) {
         </table>
       </div>
       <p className="muted">
-        实际修复按 SUCCEEDED 计数；正确暂停可能满足预期处置，但不计入修复成功。运行中结果尚未定稿。
+        完成数量按 SUCCEEDED 计数；PASS
+        修复率还要求独立验收通过。正确暂停不计入修复成功。运行中结果尚未定稿。
       </p>
       {Object.entries(report.comparisons || {}).map(([name, comparison]) => (
-        <p key={name}>
-          {name} 相对 {comparison.baseline}：处置符合率差 {percentage(comparison.paired_difference)}
-          ； 配对 95% 区间 {interval(comparison.cluster_95_ci)}；模型费用比{' '}
-          {comparison.cost_ratio?.toFixed(3) ?? '无法计算'}。
-          {report.status !== 'completed'
-            ? ' 等待完成与对账。'
-            : comparison.noninferiority_supported
-              ? ' 达到声明的非劣界限。'
-              : ' 未建立非劣证据。'}
-        </p>
+        <div key={name}>
+          <p>
+            {name} 相对 {comparison.baseline}：处置符合率差{' '}
+            {percentage(comparison.paired_difference)}； 配对 95% 区间{' '}
+            {interval(comparison.cluster_95_ci)}；模型费用比{' '}
+            {comparison.cost_ratio?.toFixed(3) ?? '无法计算'}。
+            {report.status !== 'completed'
+              ? ' 等待完成与对账。'
+              : comparison.noninferiority_supported
+                ? ' 达到声明的非劣界限。'
+                : ' 未建立非劣证据。'}
+          </p>
+          {comparison.paired_repair_difference != null && (
+            <p>
+              实际修复率差 {percentage(comparison.paired_repair_difference)}；负迁移任务{' '}
+              {comparison.negative_transfer_cases?.length ?? 0} 个。
+              {(comparison.negative_transfer_cases || [])
+                .map((item) => ` ${item.case_id} ${percentage(item.repair_difference)}`)
+                .join('；')}
+              {Object.entries(comparison.per_project_repair_difference || {})
+                .map(([project, value]) => ` ${project}：${percentage(value)}`)
+                .join('；')}
+            </p>
+          )}
+        </div>
       ))}
       {Object.entries(report.summaries || {}).map(([name, summary]) => (
         <p className="muted" key={name}>
@@ -96,6 +126,10 @@ export function ExperimentComparison({ report }: { report: Report }) {
             .map(([category, n]) => `${category} ${n}`)
             .join('；') || '无已记录失败'}
           。
+          {summary.correct_pauses != null &&
+            ` 正确暂停 ${summary.correct_pauses} 次，人工决策 ${summary.manual_decisions ?? 0} 次。`}
+          {summary.success_attempt_cost_usd != null &&
+            ` 成功尝试模型费用 $${summary.success_attempt_cost_usd.toFixed(4)}；上表模型费用包含失败尝试。`}
         </p>
       ))}
       <p className="muted">
