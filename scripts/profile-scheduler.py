@@ -11,7 +11,7 @@ from pathlib import Path
 
 import psycopg
 import pytest
-from forgeagent import context, db, service, worker
+from forgeagent import db, service, worker
 from forgeagent.domain import digest
 from forgeagent.sandbox import sandbox
 from forgeagent.telemetry import observed
@@ -65,12 +65,9 @@ def main():
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(samples))
     trace.set_tracer_provider(provider)
-    for module, name, stage in [(service, "checkpoint", "state.checkpoint"),
-                                (context, "count", "context.tokenization"),
-                                (worker, "compile_context", "context.compile"),
-                                (sandbox, "restore", "workspace.restore"),
-                                (sandbox, "patch", "delivery.patch"),
-                                (sandbox, "delivery", "delivery.generate_and_check"),
+    # These legacy public entry points remain uninstrumented in the runtime;
+    # the combined delivery and other stages now have production decorators.
+    for module, name, stage in [(sandbox, "patch", "delivery.patch"),
                                 (sandbox, "check_patch", "delivery.check_patch")]:
         if hasattr(module, name):
             setattr(module, name, observed(stage)(getattr(module, name)))

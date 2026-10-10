@@ -20,7 +20,7 @@ from .domain import TERMINAL, Fault, canonical, digest, uid
 from .sandbox import files, sandbox
 from .state_types import ModelReceipt, RunState
 from .storage import objects
-from .telemetry import observed, tracer
+from .telemetry import observed, operation, run_operation
 from .verification import verify
 from .workspace import clear_tree, write_tree
 
@@ -45,6 +45,7 @@ class Worker:
         self.target_run = target_run
         self.provider_slots = asyncio.Semaphore(settings.provider_concurrency)
         self.code_index_cache = SyntaxCache()
+        self.trace_roots = {}
 
     @observed("runtime.claim_recover")
     def claim(self, tenant):
@@ -140,6 +141,7 @@ class Worker:
                 r.status = "ACTIVE"
             db.emit(s, r, "LEASE_CLAIMED", "Worker acquired exclusive decision lease", recovered=bool(expired_at or interrupted),
                     recovery_version=2, expired_at=expired_at)
+            self.trace_roots[(tenant, r.id, r.epoch)] = r.root_id
             return r.id, r.epoch
 
     def renew(self, tenant, id, epoch):
@@ -176,13 +178,15 @@ class Worker:
         if not lease:
             return False
         id, epoch = lease
+        root_id = self.trace_roots.pop((tenant, id, epoch), id)
+        with run_operation("run.quantum", tenant, id, root_id, epoch):
+            return await self.leased_quantum(tenant, id, epoch)
+
+    async def leased_quantum(self, tenant, id, epoch):
         beat = asyncio.create_task(self.heartbeat(tenant, id, epoch))
 
         async def traced():
-            with tracer.start_as_current_span(
-                "run.advance", attributes={"forge.run_id": id, "forge.lease_epoch": epoch},
-                record_exception=False, set_status_on_exception=False,
-            ):
+            with operation("run.advance"):
                 await self.advance(tenant, id, epoch)
 
         task = asyncio.create_task(traced())
@@ -559,8 +563,7 @@ class Worker:
                     call_id,
                 )
             else:
-                raw_text, usage, raw, provider_id = (await self.model(messages, state["semantic"]["model_id"], request=request)
-                    if request else await self.model(messages, state["semantic"]["model_id"]))
+                raw_text, usage, raw, provider_id = await self.invoke_model(call_id, messages, state["semantic"]["model_id"], request)
         except Exception as exc:
             def record_failure(exc=exc):
                 with db.transaction(tenant) as s:
@@ -630,9 +633,14 @@ class Worker:
         await asyncio.to_thread(record_response)
         await self.consume_response(tenant, id, epoch, call_id)
 
+    @observed("model.dispatch", {"call_id": "forge.call_id"})
+    async def invoke_model(self, call_id, messages, model_id, request):
+        return (await self.model(messages, model_id, request=request) if request else await self.model(messages, model_id))
+
     async def consume_response(self, tenant, id, epoch, call_id):
         await asyncio.to_thread(self.consume_response_sync, tenant, id, epoch, call_id)
 
+    @observed("model.consume", {"call_id": "forge.call_id"})
     def consume_response_sync(self, tenant, id, epoch, call_id):
         with db.transaction(tenant) as s:
             from .knowledge import lock
@@ -751,7 +759,7 @@ class Worker:
                     "actions": native_actions if decision.kind == "tool_calls" else []}}
             db.emit(s, r, "DECISION_APPLIED", "Decision effects committed", decision_kind=decision.kind)
 
-    @observed("tool.dispatch")
+    @observed("tool.dispatch", {"action_id": "forge.action_id"})
     async def dispatch(self, tenant, id, epoch, action_id, root):
         def prepare_dispatch():
             with db.transaction(tenant) as s:

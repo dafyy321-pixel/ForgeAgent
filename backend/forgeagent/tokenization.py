@@ -6,6 +6,7 @@ import tiktoken
 
 from .config import settings
 from .domain import Fault, canonical
+from .telemetry import observed
 
 
 @lru_cache(maxsize=8)
@@ -16,6 +17,7 @@ def encoder(name):
         raise Fault("TOKENIZER_UNAVAILABLE", "Configured tokenizer cannot be loaded; configure or prewarm its cache") from exc
 
 
+@observed("context.tokenization")
 def count(value):
     text = value if isinstance(value, str) else canonical(value).decode("utf-8")
     return len(encoder(settings.model_tokenizer).encode(text, disallowed_special=()))

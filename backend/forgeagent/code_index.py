@@ -12,6 +12,7 @@ from tree_sitter import Language, Parser
 from tree_sitter_typescript import language_tsx, language_typescript
 
 from .domain import Fault, canonical, digest
+from .telemetry import observed
 from .workspace import body, mode
 
 EXTENSIONS = {".py", ".ts", ".tsx", ".mts", ".cts"}
@@ -159,6 +160,7 @@ def resolve_import(path: str, target: str, paths: set[str]) -> list[str]:
     return [candidate for candidate in candidates if candidate in paths]
 
 
+@observed("context.code_index")
 def retrieve(manifest: dict, query: str, policy: str, relevant_paths=(), limit=12,
              cache: SyntaxCache | None = None, cache_scope=()) -> dict[str, Any]:
     records: dict[str, dict[str, Any]] = {}

@@ -10,6 +10,7 @@ from .auth import PROJECT_OPERATIONS, Identity, project_access, require_run_acce
 from .config import settings
 from .domain import CAPABILITIES, TERMINAL, TOOL_INPUTS, UNSETTLED, CreateRun, Fault, canonical, digest, uid
 from .storage import objects
+from .telemetry import annotate, observed
 
 TOOLS = {
     "repo.list": {"effect": "read", "capability": "repo.read"},
@@ -279,6 +280,7 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
     return r
 
 
+@observed("state.checkpoint")
 def checkpoint(s, run):
     # The checkpoint cursor must name an event that includes every state change it stores.
     db.emit(s, run, "STATE_CHECKPOINTED", "Logical state committed before snapshot publication")
@@ -311,7 +313,9 @@ def checkpoint(s, run):
     return cp
 
 
+@observed("budget.reserve", {"operation_id": "forge.call_id"})
 def reserve(s, run, operation_id, amount, token_upper=0):
+    annotate(**{"forge.reserved_micros": amount})
     account = db.get(s, db.BudgetAccount, run.tenant_id, run.root_id, True)
     existing = s.scalar(
         select(db.BudgetEntry).where(
@@ -428,7 +432,9 @@ def join_children(s, run, children):
     return required_pending, required_failed
 
 
+@observed("budget.settle", {"operation_id": "forge.call_id"})
 def settle(s, run, operation_id, actual, actual_tokens=None):
+    annotate(**{"forge.cost_known": actual is not None, "forge.charged_micros": actual})
     account = db.get(s, db.BudgetAccount, run.tenant_id, run.root_id, True)
     entry = s.scalar(
         select(db.BudgetEntry)

@@ -2,6 +2,7 @@ from .config import settings
 from .context_summary import phase_summary, summarize, validate
 from .domain import Decision, Fault, canonical, digest
 from .knowledge import metadata
+from .telemetry import observed
 from .tokenization import count
 
 SYSTEM = """You are a coding agent operating inside a scoped workspace. Task constraints and capability limits
@@ -59,6 +60,7 @@ def decision_schema(state):
     return schema
 
 
+@observed("context.compile")
 def compile_context(task, state, observations, skills, memories, window, output, workspace=None, code_retrieval=None):
     harness = state.get("semantic", {}).get("harness", {})
     if not harness.get("memory", True):

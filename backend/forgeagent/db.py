@@ -22,6 +22,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from .config import settings
 from .domain import Fault, now, uid
+from .telemetry import annotate, event_trace, operation
 
 
 class Base(DeclarativeBase):
@@ -210,9 +211,10 @@ Session = sessionmaker(engine, expire_on_commit=False)
 
 @contextmanager
 def transaction(tenant):
-    with Session.begin() as s:
-        s.execute(text("SELECT set_config('forge.tenant_id', :tenant, true)"), {"tenant": tenant})
-        yield s
+    with operation("db.transaction"):
+        with Session.begin() as s:
+            s.execute(text("SELECT set_config('forge.tenant_id', :tenant, true)"), {"tenant": tenant})
+            yield s
 
 
 def clock(s):
@@ -269,7 +271,10 @@ def emit(s, run, kind, message, **details):
     run.updated_at = clock(s)
     current = deepcopy(projection(run))
     payload = {"schema_version": 2, "message": message, "transition": EventReducer.transition(previous, current),
-               "prior_digest": digest(previous), "projection_digest": digest(current), **details}
+               "prior_digest": digest(previous), "projection_digest": digest(current), **details,
+               "trace": event_trace(run.tenant_id, run.root_id)}
+    annotate(**{"forge.run_id": run.id, "forge.root_id": run.root_id, "forge.lease_epoch": run.epoch,
+                "forge.event_seq": run.seq})
     s.add(
         Event(
             tenant_id=run.tenant_id,

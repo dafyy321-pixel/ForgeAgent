@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .config import settings
 from .domain import Fault, digest, uid
+from .telemetry import observed
 from .workspace import body, clear_tree, files, import_commits, write_tree
 from .workspace import safe_path as safe_path
 
@@ -30,6 +31,7 @@ class Sandbox:
         scope = digest(tenant)[7:23]
         return settings.data_dir.resolve() / "workspaces" / scope / run_id / str(epoch)
 
+    @observed("workspace.restore")
     def restore(self, tenant, run_id, epoch, content, repository=None):
         root = self.root(tenant, run_id, epoch)
         base = settings.data_dir.resolve() / "workspaces"
@@ -295,6 +297,7 @@ class Sandbox:
             patch, _ = patch_tree(root, baseline, current, repository)
             return patch
 
+    @observed("delivery.generate_and_check")
     def delivery(self, baseline, current, repository=None):
         """Generate and independently apply the delivered bytes in one disposable Git repository."""
         with tempfile.TemporaryDirectory(prefix="forge-delivery-") as directory:
