@@ -2,19 +2,66 @@
 
 import ast
 import re
+import threading
+from collections import OrderedDict
+from copy import deepcopy
 from pathlib import PurePosixPath
 from typing import Any
 
 from tree_sitter import Language, Parser
 from tree_sitter_typescript import language_tsx, language_typescript
 
-from .domain import Fault, digest
+from .domain import Fault, canonical, digest
 from .workspace import body, mode
 
 EXTENSIONS = {".py", ".ts", ".tsx", ".mts", ".cts"}
 MAX_FILE_BYTES = 1024 * 1024
 MAX_INDEX_BYTES = 2 * 1024 * 1024
 MAX_INDEX_FILES = 200
+PARSER_VERSION = "syntax-index@2"
+
+
+class SyntaxCache:
+    """Bounded process-local metadata only. Never cache source or share task scopes."""
+
+    def __init__(self, max_entries=1024, max_bytes=8 * 1024 * 1024):
+        self.max_entries, self.max_bytes = max_entries, max_bytes
+        self.entries: OrderedDict[tuple, tuple] = OrderedDict()
+        self.bytes = 0
+        self.lock = threading.Lock()
+
+    def get(self, scope, path, checksum):
+        with self.lock:
+            key = (scope, path)
+            value = self.entries.get(key)
+            if value and value[0] == (PARSER_VERSION, checksum):
+                self.entries.move_to_end(key)
+                return deepcopy(value[1])
+        return None
+
+    def put(self, scope, path, checksum, record):
+        size = len(canonical(record)) + len(str(scope).encode()) + 256
+        with self.lock:
+            key = (scope, path)
+            old = self.entries.pop(key, None)
+            if old:
+                self.bytes -= old[2]
+            if size > self.max_bytes or self.max_entries < 1:
+                return
+            self.entries[key] = ((PARSER_VERSION, checksum), deepcopy(record), size)
+            self.bytes += size
+            while len(self.entries) > self.max_entries or self.bytes > self.max_bytes:
+                _, value = self.entries.popitem(last=False)
+                self.bytes -= value[2]
+
+    def prune(self, scope, paths):
+        with self.lock:
+            for key in list(self.entries):
+                if key[0] == scope and key[1] not in paths:
+                    self.bytes -= self.entries.pop(key)[2]
+
+    def clear(self, scope):
+        self.prune(scope, set())
 
 
 def analyze(path: str, source: str) -> dict[str, Any]:
@@ -108,37 +155,61 @@ def resolve_import(path: str, target: str, paths: set[str]) -> list[str]:
     return [candidate for candidate in candidates if candidate in paths]
 
 
-def retrieve(manifest: dict, query: str, policy: str, relevant_paths=(), limit=12) -> dict[str, Any]:
+def retrieve(manifest: dict, query: str, policy: str, relevant_paths=(), limit=12,
+             cache: SyntaxCache | None = None, cache_scope=()) -> dict[str, Any]:
     records: dict[str, dict[str, Any]] = {}
     sources: dict[str, str] = {}
     skipped: list[dict[str, str]] = []
-    size, attempted = 0, 0
+    words = set(re.findall(r"[\w]+", query.lower())) - {"the", "and", "for", "with", "from", "fix"}
+    terms = [word for word in words if len(word) > 2]
+    candidates, lexical_scores = [], {}
+    scanned_bytes = 0
     for path, value in sorted(manifest.items()):
         if PurePosixPath(path).suffix not in EXTENSIONS or mode(value) == "120000":
             continue
         raw = body(value)
-        if attempted >= MAX_INDEX_FILES or len(raw) > MAX_FILE_BYTES or size + len(raw) > MAX_INDEX_BYTES:
+        if len(raw) > MAX_FILE_BYTES:
+            skipped.append({"path": path, "reason": "index_limit"})
+            continue
+        scanned_bytes += len(raw)
+        try:
+            source = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            skipped.append({"path": path, "reason": "unparseable"})
+            continue
+        lowered = source.lower()
+        score = sum(word in lowered for word in terms) + 3 * sum(word in path.lower() for word in terms)
+        lexical_scores[path] = score + (8 if path in relevant_paths else 0)
+        candidates.append((path, source, raw))
+    if cache:
+        cache.prune(cache_scope, {path for path, _, _ in candidates})
+    size, attempted, hits, parsed = 0, 0, 0, 0
+    for path, source, raw in sorted(candidates, key=lambda item: (-lexical_scores[item[0]], item[0])):
+        if attempted >= MAX_INDEX_FILES or size + len(raw) > MAX_INDEX_BYTES:
             skipped.append({"path": path, "reason": "index_limit"})
             continue
         attempted += 1
         size += len(raw)
+        checksum = digest(raw)
+        record = cache.get(cache_scope, path, checksum) if cache else None
         try:
-            source = raw.decode("utf-8")
-            records[path] = analyze(path, source)
-            sources[path] = source
-        except (UnicodeDecodeError, Fault):
+            if record is None:
+                parsed += 1
+                record = analyze(path, source)
+                if cache:
+                    cache.put(cache_scope, path, checksum, record)
+            else:
+                hits += 1
+            records[path], sources[path] = record, source
+        except Fault:
             skipped.append({"path": path, "reason": "unparseable"})
     paths = set(records)
     edges = {path: sorted({p for target in item["imports"] for p in resolve_import(path, target, paths)})
              for path, item in records.items()}
-    words = set(re.findall(r"[\w]+", query.lower())) - {"the", "and", "for", "with", "from", "fix"}
     scores = {}
     reasons: dict[str, list[str]] = {path: [] for path in records}
     for path, item in records.items():
-        score = sum(word in sources[path].lower() for word in words if len(word) > 2)
-        score += 3 * sum(word in path.lower() for word in words if len(word) > 2)
-        if path in relevant_paths:
-            score += 8
+        score = lexical_scores[path]
         if policy == "structure":
             score += 4 * sum(bool(words & set(re.findall(r"\w+", symbol["name"].lower()))) for symbol in item["symbols"])
         scores[path] = float(score)
@@ -166,6 +237,8 @@ def retrieve(manifest: dict, query: str, policy: str, relevant_paths=(), limit=1
                       "imports": edges[path], "score": scores[path], "reasons": reasons[path],
                       "line_start": start + 1, "excerpt": excerpt,
                       "truncated": start > 0 or len(excerpt.splitlines()) + start < len(lines)})
-    return {"version": 1, "policy": policy, "workspace_digest": digest(manifest), "indexed_files": len(records),
+    return {"version": 2, "parser_version": PARSER_VERSION, "policy": policy, "workspace_digest": digest(manifest), "indexed_files": len(records),
+            "eligible_files": len(candidates), "scanned_bytes": scanned_bytes, "parsed_files": parsed,
+            "cache_hits": hits, "selection": "lexical_relevance_before_bounded_syntax_parse",
             "indexed_bytes": size, "skipped": skipped[:200], "skipped_count": len(skipped), "items": items,
             "limitations": "Syntax imports only; no dynamic import, package alias or semantic type resolution. Excerpts are untrusted."}

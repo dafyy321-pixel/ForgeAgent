@@ -1,5 +1,5 @@
 import pytest
-from forgeagent.code_index import analyze, resolve_import, retrieve
+from forgeagent.code_index import SyntaxCache, analyze, resolve_import, retrieve
 from forgeagent.context import compile_context
 from forgeagent.domain import Fault, Task, digest
 from forgeagent.workspace import entry
@@ -63,6 +63,50 @@ def test_index_limits_are_explicit(monkeypatch):
     assert result["indexed_files"] == 1 and result["skipped"] == [{"path": "b.py", "reason": "index_limit"}]
 
 
+def test_digest_cache_reuses_only_unchanged_files_and_current_imports():
+    cache = SyntaxCache()
+    workspace = {"pkg/main.py": "from .helper import calculate\ndef invoice(): return calculate()",
+                 "pkg/helper.py": "def calculate(): return 1"}
+    cold = retrieve(workspace, "invoice calculate", "structure", cache=cache, cache_scope=("a", "run"))
+    warm = retrieve(workspace, "invoice calculate", "structure", cache=cache, cache_scope=("a", "run"))
+    assert cold["parsed_files"] == 2 and warm["parsed_files"] == 0 and warm["cache_hits"] == 2
+    assert cold["items"] == warm["items"]
+    workspace["pkg/helper.py"] = "def calculate(): return 2"
+    changed = retrieve(workspace, "invoice calculate", "structure", cache=cache, cache_scope=("a", "run"))
+    assert changed["parsed_files"] == 1 and changed["cache_hits"] == 1
+    assert next(i for i in changed["items"] if i["path"] == "pkg/helper.py")["digest"] != next(
+        i for i in cold["items"] if i["path"] == "pkg/helper.py")["digest"]
+    del workspace["pkg/helper.py"]
+    removed = retrieve(workspace, "invoice calculate", "structure", cache=cache, cache_scope=("a", "run"))
+    assert removed["items"][0]["imports"] == []
+    assert ("a", "run") == next(iter(cache.entries))[0] and len(cache.entries) == 1
+    other = retrieve(workspace, "invoice calculate", "structure", cache=cache, cache_scope=("b", "run"))
+    assert other["cache_hits"] == 0
+    cache.clear(("a", "run"))
+    assert all(key[0] != ("a", "run") for key in cache.entries)
+
+
+def test_relevance_selects_late_file_beyond_old_file_and_byte_limits():
+    workspace = {f"a/{i:04}.py": "# unrelated\n" * 600 for i in range(400)}
+    workspace["z/invoice.py"] = "def quantize_invoice(): return 42"
+    result = retrieve(workspace, "quantize invoice", "structure", limit=1)
+    assert result["items"][0]["path"] == "z/invoice.py"
+    assert result["eligible_files"] == 401 and result["scanned_bytes"] > 2 * 1024 * 1024
+    assert result["indexed_files"] <= 200 and result["indexed_bytes"] <= 2 * 1024 * 1024
+    assert result["skipped_count"] > 0
+
+
+def test_cache_eviction_and_returned_metadata_cannot_change_results():
+    cache = SyntaxCache(max_entries=1, max_bytes=4096)
+    workspace = {"a.py": "def alpha(): return 1", "b.py": "def beta(): return 2"}
+    uncached = retrieve(workspace, "alpha beta", "structure")
+    cached = retrieve(workspace, "alpha beta", "structure", cache=cache)
+    assert uncached["items"] == cached["items"] and len(cache.entries) == 1 and cache.bytes <= 4096
+    record = cache.get((), "b.py", digest(workspace["b.py"].encode()))
+    record["symbols"].clear()
+    assert cache.get((), "b.py", digest(workspace["b.py"].encode()))["symbols"]
+
+
 async def test_worker_persists_the_enabled_code_context(tenant, make_run):
     from forgeagent import db
     from forgeagent.domain import Harness
@@ -75,6 +119,22 @@ async def test_worker_persists_the_enabled_code_context(tenant, make_run):
         assert manifest["code_retrieval"]["policy"] == "structure"
         assert any(i["type"] == "code_context" and i["content"]["path"] == "src/calculator.py" for i in manifest["items"])
         assert len(db.rows(s, db.ModelCall, tenant, run_id=run_id)) == 1
+
+
+async def test_paused_worker_drops_task_index_metadata(tenant, make_run):
+    from forgeagent import db, service
+    from forgeagent.domain import Harness
+    from forgeagent.worker import Worker
+
+    run_id = make_run(harness=Harness(code_retrieval="structure"))
+    worker = Worker(target_run=run_id)
+    await worker.once(tenant)
+    assert worker.code_index_cache.entries
+    with db.transaction(tenant) as s:
+        run = db.get(s, db.Run, tenant, run_id)
+        service.control(s, tenant, run_id, "pause", run.version, "Review current source")
+    await worker.once(tenant)
+    assert not worker.code_index_cache.entries and worker.code_index_cache.bytes == 0
 
 
 async def test_input_changed_during_indexing_discards_stale_context(tenant, make_run, monkeypatch):

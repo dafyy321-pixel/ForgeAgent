@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "kind": "synthetic_index_mechanism",
+  "files": 1201,
+  "samples": [
+    {
+      "stage": "cold",
+      "seconds": 0.10997360001783818,
+      "parsed_files": 200,
+      "cache_hits": 0,
+      "indexed_files": 200,
+      "indexed_bytes": 901085,
+      "eligible_files": 1201,
+      "first_path": "z/invoice.py"
+    },
+    {
+      "stage": "warm",
+      "seconds": 0.09116090007591993,
+      "parsed_files": 0,
+      "cache_hits": 200,
+      "indexed_files": 200,
+      "indexed_bytes": 901085,
+      "eligible_files": 1201,
+      "first_path": "z/invoice.py"
+    },
+    {
+      "stage": "changed",
+      "seconds": 0.08876259997487068,
+      "parsed_files": 1,
+      "cache_hits": 199,
+      "indexed_files": 200,
+      "indexed_bytes": 901085,
+      "eligible_files": 1201,
+      "first_path": "z/invoice.py"
+    }
+  ],
+  "cache_metadata_accounted_bytes": 101297,
+  "model_run": "not_run",
+  "limitations": [
+    "Three measurements, no statistical latency claim.",
+    "Relevance selection covers a bounded syntax view, not a full repository graph.",
+    "Metadata accounting is serialized bytes plus overhead allowance, not process RSS."
+  ]
+}

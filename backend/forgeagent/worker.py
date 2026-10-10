@@ -37,11 +37,14 @@ def ordered_actions(actions):
 
 class Worker:
     def __init__(self, owner=None, model=None, target_run=None):
+        from .code_index import SyntaxCache
+
         self.owner = owner or uid()
         self.model = model or models.generate
         self.stopping = False
         self.target_run = target_run
         self.provider_slots = asyncio.Semaphore(settings.provider_concurrency)
+        self.code_index_cache = SyntaxCache()
 
     @observed("runtime.claim_recover")
     def claim(self, tenant):
@@ -205,6 +208,8 @@ class Worker:
                     job.status = "READY" if r.status in {"WAITING", "CANCELLING"} else "DONE"
                 if r.status in TERMINAL:
                     service.release_child_allocation(s, r)
+                if r.status not in {"ACTIVE", "QUEUED"} or r.state.get("knowledge_erased"):
+                    self.code_index_cache.clear((tenant, id))
 
     async def advance(self, tenant, id, epoch):
         def pending_remote():
@@ -372,7 +377,8 @@ class Worker:
             from .code_index import retrieve
 
             content = json.loads(objects.get(tenant, ref))
-            return binding, retrieve(content, task["goal"] + " " + str(extra), policy, relevant)
+            return binding, retrieve(content, task["goal"] + " " + str(extra), policy, relevant,
+                                     cache=self.code_index_cache, cache_scope=(tenant, id))
 
         code_binding, code_context = await asyncio.to_thread(prepare_code_context)
         def prepare_request():
