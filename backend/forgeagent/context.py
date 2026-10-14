@@ -70,6 +70,14 @@ def compile_context(task, state, observations, skills, memories, window, output,
         memories = []
     budget = window - output - 2048
     system = SYSTEM + "\nJSON decision schema:\n" + canonical(decision_schema(state)).decode()
+    discussing = task.get("mode") == "discuss"
+    if discussing:
+        system += ("\nDISCUSSION MODE: Read-only collaboration before the user confirms execution. "
+                   "Answer in the user's language, clarify missing requirements, and inspect relevant project files when useful. "
+                   "Do not modify files, execute tests, delegate, or claim delivery. Use request_input for a conversational "
+                   "answer or question; use propose_completion to present a concrete plan ready for user confirmation. "
+                   "In this mode propose_completion only saves the proposed plan and waits; it never executes it. "
+                   "Put the complete user-visible answer in summary. Do not ask the user to configure a task contract.")
     mandatory = [
         {"type": "constraints", "content": system, "trust": "system"},
         {"type": "task", "content": task, "trust": "user"},
@@ -80,7 +88,10 @@ def compile_context(task, state, observations, skills, memories, window, output,
     mandatory.append({"type": "facts", "trust": "runtime", "content": {k: state.get(k) for k in (
         "workspace_digest", "artifact_version", "last_failure", "child_results", "reason"
     )}})
-    if harness.get("planning", True):
+    if state.get("dialogue"):
+        mandatory.append({"type": "conversation", "trust": "user_and_assistant_history", "content": [
+            {"role": m["role"], "content": m["content"]} for m in state["dialogue"]]})
+    if harness.get("planning", True) and not discussing:
         mandatory.append({"type": "plan", "trust": "runtime", "content": {
             "method": "constraint_checklist@1", "steps": ["Inspect relevant files and failure evidence",
                 "Make a change inside the allowed paths", "Run relevant checks", "Propose independent verification"],

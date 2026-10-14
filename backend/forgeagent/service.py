@@ -124,6 +124,8 @@ def authorization(s, run, capability=None):
 def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_id=None, admin=False):
     from . import knowledge
 
+    if spec.task.mode == "discuss" and (not set(spec.capabilities) <= {"repo.read", "reference.read"} or spec.model == "fixture"):
+        raise Fault("DISCUSSION_SCOPE", "Discussions permit only project/reference reads with the configured model", 422)
     if not key or len(key) > 200:
         raise Fault("IDEMPOTENCY_REQUIRED", "A bounded Idempotency-Key is required", 422)
     if not parent and not evaluation_id and not project_access(s, Identity(tenant, actor, admin), spec.project_id, "create"):
@@ -271,6 +273,7 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
             "model_errors": 0,
             "evaluation_id": evaluation_id,
             "child_contract": spec.child_contract.model_dump(),
+            "dialogue": [],
             "deadline": (min(
                 parent.created_at + timedelta(seconds=parent.state["budget"]["max_wall_seconds"]),
                 db.clock(s) + timedelta(seconds=spec.child_contract.deadline_seconds or spec.budget.max_wall_seconds),
@@ -292,6 +295,17 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
     checkpoint(s, r)
     db.schedule(s, r)
     return r
+
+
+def append_message(s, run, role, content, key=None):
+    """Bounded durable public conversation; model reasoning and raw tools stay separate."""
+    messages = run.state.get("dialogue", [])
+    if len(messages) >= 40 or sum(len(m["content"]) for m in messages) + len(content) > 60000:
+        raise Fault("CONVERSATION_LIMIT", "Conversation is full; start a new discussion with a reviewed summary")
+    message = {"id": uid(), "role": role, "content": content, "time": db.clock(s).isoformat(), "key": key}
+    run.state = {**run.state, "dialogue": [*messages, message]}
+    db.emit(s, run, "CHAT_MESSAGE", content, role=role, message_id=message["id"])
+    return message
 
 
 @observed("state.checkpoint")

@@ -112,6 +112,10 @@ def run_view(s, r, cache=None):
         "lease_epoch": r.epoch,
         "semantic_manifest": semantic,
         "inputRequired": st.get("input_required", False),
+        "mode": st["task"].get("mode", "execute"),
+        "planReady": bool(st.get("plan_ready")),
+        "executionId": st.get("execution_id"),
+        "sourceDiscussionId": st.get("source_discussion_id"),
     }
 
 

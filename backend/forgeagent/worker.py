@@ -744,7 +744,13 @@ class Worker:
                         r.state = {**r.state, "reason": f"{exc.code}: {exc.message}"}
                         db.emit(s, r, "RESOURCE_LIMIT", exc.message)
                         return
+            elif state["task"].get("mode") == "discuss" and decision.kind in {"request_input", "propose_completion"}:
+                service.append_message(s, r, "assistant", decision.summary)
+                r.status, r.wait_reason, r.phase = "PAUSED", None, "DISCUSSING"
+                r.state = {**r.state, "reason": "等待确认方案" if decision.kind == "propose_completion" else "等待你的回复",
+                           "input_required": True, "plan_ready": decision.kind == "propose_completion"}
             elif decision.kind == "request_input":
+                service.append_message(s, r, "assistant", decision.summary)
                 r.status, r.wait_reason = "PAUSED", None
                 r.state = {**r.state, "reason": decision.summary, "input_required": True}
             elif decision.kind == "delegate":
@@ -976,6 +982,8 @@ class Worker:
         def prepare_verification():
             with db.transaction(tenant) as s:
                 r = db.fence(s, tenant, id, self.owner, epoch)
+                if r.state["task"].get("mode") == "discuss":
+                    raise Fault("DISCUSSION_SCOPE", "A discussion cannot enter code verification")
                 optional_live = [c for c in db.rows(s, db.Run, tenant, parent_id=id) if c.status not in TERMINAL
                                  and not c.state.get("child_contract", {}).get("required", True)]
                 if optional_live:

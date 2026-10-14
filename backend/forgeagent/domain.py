@@ -119,6 +119,7 @@ def default_deliverables() -> list[Literal["patch", "test_report", "summary"]]:
 
 
 class Task(Strict):
+    mode: Literal["execute", "discuss"] = "execute"
     goal: str = Field(min_length=1, max_length=12000)
     allowed_paths: list[str] = Field(default_factory=lambda: ["src", "tests"], min_length=1, max_length=100)
     acceptance_profile: str = ""

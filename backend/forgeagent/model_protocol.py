@@ -32,7 +32,7 @@ def strict_schema(value):
     return value
 
 
-def native_tools(catalog, capabilities):
+def native_tools(catalog, capabilities, discussing=False):
     tools, names = [], {}
     for name, descriptor in sorted(catalog.items()):
         if descriptor["capability"] not in capabilities or (name not in TOOL_INPUTS and "input_schema" not in descriptor):
@@ -57,6 +57,10 @@ def native_tools(catalog, capabilities):
                                   "The runtime decides whether acceptance passed; this does not claim success.",
             "delegate": "Create a child task within the parent's capability, path and budget limits.",
         }[kind]
+        if discussing and kind in {"request_input", "propose_completion"}:
+            description = ("Reply conversationally or ask a clarification; summary is the complete user-visible answer."
+                           if kind == "request_input" else
+                           "Present a concrete proposed plan for user confirmation. Only saves the plan; does not modify or verify code.")
         tools.append({"type": "function", "name": wire_name, "description": description,
                       "parameters": strict_schema(schema), "strict": True})
     return tools, names
@@ -142,7 +146,7 @@ def build_request(messages, state, catalog):
     if mode == "native":
         if not settings.model_supports_tools:
             raise Fault("MODEL_CAPABILITY", "Selected model profile does not support native tools")
-        tools, names = native_tools(catalog, capabilities)
+        tools, names = native_tools(catalog, capabilities, state.get("task", {}).get("mode") == "discuss")
         messages[0]["content"] = messages[0]["content"].split("\nJSON decision schema:", 1)[0].replace(
             "Return only a JSON decision matching the supplied schema.", "Use the supplied native functions for scoped actions and control decisions.")
     schema = None
