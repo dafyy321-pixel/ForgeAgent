@@ -31,7 +31,7 @@ class Fault(Exception):
 
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED"}
 UNSETTLED = {"DISPATCHED", "RUNNING", "UNKNOWN", "CANCEL_REQUESTED"}
-CAPABILITIES = {"repo.read", "workspace.write", "tests.run", "delegate", "external.read", "external.write"}
+CAPABILITIES = {"repo.read", "workspace.write", "tests.run", "delegate", "external.read", "external.write", "reference.read"}
 
 
 class Strict(BaseModel):
@@ -175,6 +175,7 @@ class CreateRun(Strict):
     model: str = "configured"
     skills: list[str] = Field(default_factory=list)
     connections: list[str] = Field(default_factory=list, max_length=20)
+    reference_targets: list[str] = Field(default_factory=list, max_length=10)
     harness: Harness = Field(default_factory=Harness)
     child_contract: ChildContract = Field(default_factory=ChildContract)
 
@@ -263,7 +264,28 @@ class SkillReadArgs(Strict):
     path: str = Field("SKILL.md", max_length=500)
 
 
+class ReaAnalyzeArgs(Strict):
+    target_id: str = Field(min_length=1, max_length=100)
+
+
+class ReaViewArgs(Strict):
+    action_id: str = Field(min_length=1, max_length=100)
+    collection: Literal["modules"] = "modules"
+    offset: int = Field(0, ge=0)
+    limit: int = Field(20, ge=1, le=50)
+
+
+class ReaTraceArgs(Strict):
+    action_id: str = Field(min_length=1, max_length=100)
+    kind: Literal["string", "module", "api", "channel", "node-id"] = "string"
+    value: str = Field(min_length=1, max_length=500)
+    direction: Literal["both", "outgoing", "incoming"] = "both"
+
+
 TOOL_INPUTS = {
+    "rea.analyze": ReaAnalyzeArgs,
+    "rea.view": ReaViewArgs,
+    "rea.trace": ReaTraceArgs,
     "skill.read": SkillReadArgs,
     "repo.list": Strict,
     "repo.read": ReadArgs,

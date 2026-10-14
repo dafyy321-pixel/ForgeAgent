@@ -2,7 +2,9 @@
 
 基于 PostgreSQL 的持久 Agent Runtime，配套 React 任务控制台。任务、审批、动作、预算、检查点和验收证据保存于服务端；浏览器仅保存草稿、收藏和可选登录会话。
 
-当前实现与证据边界见 [当前能力矩阵](docs/capabilities.md)，最新修改与验证见 [二轮实施记录](docs/ForgeAgent-二轮优化实施记录-2026-10-10.md)，此前结果见 [上一轮记录](docs/ForgeAgent-面试建议实施记录.md)。这是一套可运行的开发实现，尚未通过完整方案要求的生产、恶意多租户与外部 benchmark 验收。
+当前实现与证据边界见 [当前能力矩阵](docs/capabilities.md)，最新修改与验证见 [自愈 Harness 实施记录](docs/evidence-recovery-implementation-2026-10-14.md)，此前结果见 [二轮实施记录](docs/ForgeAgent-二轮优化实施记录-2026-10-10.md) 和 [上一轮记录](docs/ForgeAgent-面试建议实施记录.md)。这是一套可运行的开发实现，尚未通过完整方案要求的生产、恶意多租户与外部 benchmark 验收。
+
+新增的 [证据驱动恢复](docs/evidence-recovery.md) 可在创建任务时启用；[REA 静态分析](docs/rea-integration.md) 支持固定参照快照、原生 Evidence、分页与特征追踪。动态桌面观察尚未开放。
 
 ## 导航
 
@@ -33,6 +35,8 @@ ForgeAgent 面向需要持续运行、可追踪、可恢复的软件工程 Agent
 | 费用与资源 | root 费用/Token/CPU/存储/墙钟额度、子任务分配与结算、未知账单门禁 |
 | 工程工作区 | 固定 Git commit/worktree、文本和二进制文件语义、范围读写/搜索/补丁/移动/删除 |
 | 独立验收 | 固定验收契约、测试保护、只读 Docker 验证、摘要绑定的证据与交付物 |
+| 证据驱动恢复 | 持久证据与诊断、未知根因、有界恢复、修复前补证据与独立再验收 |
+| REA 静态分析 | 固定版本 CLI、项目参照快照、JavaScript/Electron 分析、原生证据导出与定向追踪 |
 | 模型与上下文 | OpenAI/Anthropic 适配、结构化决策校验、约束优先编译、full/elide 策略与原始观察 recall |
 | 知识治理 | 项目记忆、来源与有效期、候选技能、不可覆盖的技能版本和配对评测发布门禁 |
 | 外部连接 | 版本化 MCP/A2A 接入、任务句柄、状态查询、取消和显式输入响应 |

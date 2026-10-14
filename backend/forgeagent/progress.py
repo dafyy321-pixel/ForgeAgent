@@ -59,6 +59,8 @@ def observed(s, run, tool, receipt, status):
         evidence = digest([tool, receipt.get("source_digest") or receipt.get("digest")])
     elif tool == "tests.run":
         evidence = digest([tool, run.state["workspace_digest"], receipt.get("exit_code")])
+    elif tool.startswith("rea."):
+        evidence = receipt.get("source_digest")
     elif tool == "child.integrate":
         evidence = digest([tool, receipt["child_id"]])
     seen = progress.get("evidence", [])

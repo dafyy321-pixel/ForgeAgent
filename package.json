@@ -4,6 +4,7 @@
   "version": "0.2.0",
   "type": "module",
   "scripts": {
+    "rea:install": "node scripts/install-rea.mjs",
     "dev": "vite --host 127.0.0.1",
     "start:local": "node scripts/start-local.mjs",
     "build": "npm run icons:export && tsc -b && vite build",

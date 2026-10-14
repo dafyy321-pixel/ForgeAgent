@@ -66,6 +66,9 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
       skills: rt.state.skills.filter((s) => s.enabled).map((s) => s.id),
     };
   });
+  const references = useCatalog<{ id: string; label: string; snapshot_digest: string }>(
+    `/reference-targets?project_id=${encodeURIComponent(draft.project)}&limit=50`,
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -137,7 +140,10 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
           <select
             aria-label="项目"
             value={draft.project}
-            onChange={(e) => field('project', e.target.value)}
+            onChange={(e) => {
+              field('project', e.target.value);
+              field('referenceTargets', []);
+            }}
           >
             {Array.from(
               new Set([
@@ -295,6 +301,31 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
               />
               启用证据驱动恢复（先诊断再修复，未知原因可暂停）
             </label>
+            <div className="field">
+              REA 参照目标（静态分析）
+              {references.error && <p role="alert">{references.error}</p>}
+              {!references.items.length && <small>管理员需先登记当前项目的参照目录快照。</small>}
+              {references.items.map((target) => (
+                <label className="selection-item" key={target.id}>
+                  <input
+                    type="checkbox"
+                    checked={(draft.referenceTargets || []).includes(target.id)}
+                    onChange={() =>
+                      field(
+                        'referenceTargets',
+                        (draft.referenceTargets || []).includes(target.id)
+                          ? (draft.referenceTargets || []).filter((id) => id !== target.id)
+                          : [...(draft.referenceTargets || []), target.id],
+                      )
+                    }
+                  />
+                  {target.label} <small>{target.snapshot_digest.slice(0, 19)}</small>
+                </label>
+              ))}
+              {references.cursor && (
+                <Button onClick={() => void references.more()}>加载更多参照目标</Button>
+              )}
+            </div>
           </div>
         )}
         {advanced && (

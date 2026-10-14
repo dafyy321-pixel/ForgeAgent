@@ -286,6 +286,8 @@ class Worker:
                     for a in actions:
                         if a.status in {"READY", "PREPARED", "WAITING_APPROVAL"}:
                             a.status = "CANCELLED"
+                    if r.state.get("active_recovery") or r.state.get("diagnosis_pending"):
+                        recovery.invalidate(s, r, "CANCELLED")
                     r.status, r.wait_reason = "CANCELLED", None
                     db.emit(s, r, "RUN_CANCELLED", "All in-flight effects settled; no new actions dispatched")
                     return
@@ -820,6 +822,10 @@ class Worker:
                 from .remote import dispatch_remote
 
                 receipt = await dispatch_remote(tenant, id, action_id, args)
+            elif tool.startswith("rea."):
+                from .rea import execute
+
+                receipt = await execute(tenant, id, epoch, self.owner, action_id, attempt_id, tool, args)
             elif tool != "tests.run":
                 def local_tool():
                     changed = None
@@ -946,6 +952,16 @@ class Worker:
                     ))}
                 progress.observed(s, r, tool, receipt, action_status)
                 recovery.observed(s, r, a, receipt)
+                if tool.startswith("rea.") and action_status == "SUCCEEDED":
+                    view = receipt["view_evidence"]
+                    diagnosis.evidence(s, r, "rea", receipt_ref, {
+                        "evidence_id": receipt["evidence_id"], "target_id": receipt["target_id"],
+                        "runtime": receipt["runtime"], "evidence_ref": receipt["evidence_ref"],
+                        "view_evidence_id": view["evidence_id"], "authority": view.get("authority"),
+                        "confidence": view.get("confidence"), "environment": view.get("environment"),
+                        "coverage": view["normalized_result"].get("coverage"),
+                        "unknowns": view["normalized_result"].get("unknowns"),
+                        "limitations": view.get("limitations", []) + receipt["limitations"]}, a.id)
                 db.emit(s, r, "ACTION_RESULT", f"{tool}: {action_status}", action_id=a.id, observation=a.receipt)
                 if action_status == "FAILED":
                     diagnosis.queue(s, r, "tool", receipt_ref, {

@@ -141,6 +141,8 @@ def catalog(state):
     from .service import TOOLS
 
     result = copy.deepcopy(TOOLS)
+    if not state.get("reference_targets"):
+        result = {name: spec for name, spec in result.items() if not name.startswith("rea.")}
     for connection in state.get("remote_connections", []):
         for tool in connection["data"]["tools"]:
             schema = copy.deepcopy(tool["input_schema"])

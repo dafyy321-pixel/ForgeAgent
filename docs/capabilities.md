@@ -1,6 +1,6 @@
 # 当前能力与证据
 
-更新：2026-10-10。本表用于区分实现、机制测试、基础设施互操作与真实任务效果；不以功能数量推断质量。本轮提交及验收见 [二轮实施记录](ForgeAgent-二轮优化实施记录-2026-10-10.md)，旧结果保留在 [上一轮记录](ForgeAgent-面试建议实施记录.md)。
+更新：2026-10-14。本表用于区分实现、机制测试、基础设施互操作与真实任务效果；不以功能数量推断质量。新增 [证据驱动恢复](evidence-recovery.md) 与 [REA 静态分析](rea-integration.md)；此前提交及验收见 [二轮实施记录](ForgeAgent-二轮优化实施记录-2026-10-10.md)，旧结果保留在 [上一轮记录](ForgeAgent-面试建议实施记录.md)。
 
 | 能力 | 实现位置 | 本地机制验证 | 真实环境与效果证据 |
 |---|---|---|---|
@@ -9,6 +9,8 @@
 | 外部效果与 UNKNOWN | remote/remote_contracts | 独立 SQLite/HTTP oracle 提交后丢响应、TLS 协议契约 | 四协议真实服务/凭证代理待环境；不保证任意服务 exactly-once |
 | Git 工作区与接入 | repository/repo_tools/ProjectWizard | 固定 commit、二进制/空文件/模式、补丁真实应用、流式上传预检 | 子模块须单独登记；真实大型仓库和 S3 上传待环境 |
 | 类型化验收、有限修复回路 | verification/domain | 独立验收契约、测试保护、INCONCLUSIVE、反馈修复 | 真实模型 Python/TS 修复效果未测 |
+| 证据驱动诊断恢复 | diagnosis/recovery/worker | PostgreSQL 不可变证据、故障假设、补证据门禁、根额度、版本失效、取消与独立再验收 | 默认显式启用；分类不保证根因，模型修复收益未测 |
+| REA 静态参照分析 | rea/processes/API/console | REA 6.4.0 真实 CLI、保存后复用、分页/追踪/导出、unknown/coverage、Windows 进程族清理 | JavaScript/Electron 小型固定源码快照已联调；大型应用、Linux 硬内存限制及动态 provider 待验证 |
 | 模型协议、计费和 Token | model_protocol/billing/tokenization | native/structured/JSON、缓存/推理、未知费用、真实 BPE | 提供方计数/计费/缓存收益待真实 API |
 | root 资源与子任务契约 | resources/service | CPU 上界、存储、墙钟、分配/join/返还 | gVisor 实际计量/隔离待 Linux；默认单 Agent |
 | 检索、摘要、规划 | context/code_index/context_summary/knowledge | Python AST、TS/TSX Tree-sitter、内容摘要缓存、相关排序后有界解析、来源保留与固定检查清单 | 结构检索默认关闭；解析缓存与自编案例测量不代表模型收益；不是语义规划器 |
@@ -20,6 +22,7 @@
 
 ## 验证基线和复现
 
+- 2026-10-14 最终全量：后端 358 通过 / 10 跳过，Edge 20 通过；真实 REA CLI 已运行，调度并行负载超时及后续完整复测均保留在 [自愈 Harness 实施记录](evidence-recovery-implementation-2026-10-14.md)。
 - 基线 `662605e` 的历史验收：后端 304 通过、9 跳过，Edge 14 通过。该数字不代表后续 commit 的测试结果；本轮增量验证见实施记录。
 - 当前 CI 已扩大为 `uv run ty check backend/forgeagent`，并检查 Ruff、TypeScript、OpenAPI 生成、React Hooks/危险语法 lint 和 Prettier。
 - 最终业务版本 `089726e`：后端 340 通过 / 9 跳过，含原调度时限；Edge 单 worker 全量 18 通过。最终阶段样本及在线构建失败后离线 wheel/隔离安装结果见二轮实施记录。

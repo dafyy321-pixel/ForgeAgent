@@ -13,6 +13,9 @@ from .storage import objects
 from .telemetry import annotate, observed
 
 TOOLS = {
+    "rea.analyze": {"effect": "read", "capability": "reference.read"},
+    "rea.view": {"effect": "read", "capability": "reference.read"},
+    "rea.trace": {"effect": "read", "capability": "reference.read"},
     "repo.list": {"effect": "read", "capability": "repo.read"},
     "repo.read": {"effect": "read", "capability": "repo.read"},
     "repo.write": {"effect": "workspace_write", "capability": "workspace.write"},
@@ -194,6 +197,9 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
     from .remote_contracts import pin
 
     remote_connections = pin(s, tenant, spec.connections, parent)
+    from .rea import pin as pin_references
+
+    reference_targets, rea_runtime = pin_references(s, tenant, actor, spec, parent, admin)
     if spec.task.acceptance_profile and spec.task.acceptance_profile != acceptance.get("id"):
         raise Fault("ACCEPTANCE_PROFILE", "Acceptance profile does not match the registered project", 422)
     semantic = {
@@ -205,6 +211,8 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
         "tools_digest": digest(TOOLS),
         "skills_digest": digest(skill_data),
         "remote_digest": digest(remote_connections),
+        "reference_digest": digest(reference_targets),
+        "rea_runtime": rea_runtime,
         "verifier": VERIFIER,
         "baseline_digest": baseline_ref["digest"],
         "acceptance_digest": digest(acceptance),
@@ -245,6 +253,7 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
             "executor_digest": digest(semantic["implementation"]),
             "skills": skill_data,
             "remote_connections": remote_connections,
+            "reference_targets": reference_targets,
             "skill_assignments": skill_assignments,
             "memories": memories,
             "memory_lineage": [m["id"] for m in memories],
@@ -615,6 +624,10 @@ def prepare_action(s, run, call, logical_key):
             raise Fault("TOOL_UNAVAILABLE", "Tool is not in the pinned tool catalog", 422)
         TOOL_INPUTS[call.tool].model_validate(call.args)
         authorization(s, run, tool["capability"])
+        if call.tool.startswith("rea."):
+            from .rea import validate_action
+
+            validate_action(s, run, call.tool, call.args)
         if tool["effect"] == "workspace_write" and (run.state.get("recovery_guard") or {}).get("requires_probe"):
             raise Fault("RECOVERY_PROBE_REQUIRED", "Inspect public failure evidence or relevant source before editing")
     except (Fault, ValidationError) as exc:

@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     callback_secret: str = ""
     remote_credentials: str = "{}"
     max_object_bytes: int = 16 * 1024 * 1024
+    rea_runtime_dir: Path | None = None
+    rea_target_roots: str = "[]"
 
 
 settings = Settings()

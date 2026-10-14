@@ -1,0 +1,8 @@
+{
+  "name": "forgeagent-rea-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "rea-agents": "6.4.0"
+  }
+}

@@ -7,12 +7,12 @@ from .domain import Fault, ToolCall, uid
 from .state_types import RunState
 
 VERSION = "bounded-recovery@1"
-PROBES = {"repo.read", "repo.search", "repo.symbols", "observation.read"}
+PROBES = {"repo.read", "repo.search", "repo.symbols", "observation.read", "rea.analyze", "rea.view", "rea.trace"}
 
 
-def invalidate(s, run):
+def invalidate(s, run, status="SUPERSEDED"):
     if run.state.get("active_recovery"):
-        db.get(s, db.RecoveryAttempt, run.tenant_id, run.state["active_recovery"]).status = "SUPERSEDED"
+        db.get(s, db.RecoveryAttempt, run.tenant_id, run.state["active_recovery"]).status = status
     run.state = {**run.state, "diagnosis_pending": None, "active_recovery": None,
                  "recovery_guard": None, "recovery_completion": None, "diagnosis_summary": None,
                  "verification_feedback": None}

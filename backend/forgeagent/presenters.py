@@ -148,6 +148,7 @@ def action_view(s, a, cache=None):
 def event_view(e):
     kind = next((kind for marker, kind in [("APPROVAL", "approval"), ("VERIFICATION", "verification"),
         ("CANCEL", "cancel"), ("LEASE", "recovery"), ("PAUSED", "recovery"),
+        ("DIAGNOSIS", "recovery"), ("RECOVERY", "recovery"), ("EVIDENCE", "recovery"),
         ("ACTION", "tool"), ("DECISION", "plan")] if marker in e.type), "task")
     return {"id": e.id, "runId": e.run_id, "kind": kind, "title": e.payload["message"],
             "detail": canonical(service.public_payload({k: v for k, v in e.payload.items()

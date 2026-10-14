@@ -418,6 +418,7 @@ export function Tools({ app }: { app: AppController }) {
           <p className="muted">写入受路径和前置摘要约束。命令只在无网 Docker 沙箱执行。</p>
         </div>
       </Panel>
+      <ReferenceTargets />
       {diagnostic && (
         <Panel title="实时环境检查">
           <div className="panel-pad">
@@ -485,6 +486,66 @@ export function Tools({ app }: { app: AppController }) {
         />
       )}
     </>
+  );
+}
+
+function ReferenceTargets() {
+  const projects = useCatalog<{ id: string }>('/catalog/projects?limit=100');
+  const [project, setProject] = useState('runtime-lab');
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState('');
+  const readiness = useRemote('/rea/readiness');
+  const targets = useCatalog<{ id: string; label: string; snapshot_digest: string }>(
+    `/reference-targets?project_id=${encodeURIComponent(project)}&limit=50`,
+  );
+  async function disable(id: string) {
+    try {
+      await api(`/reference-targets/${encodeURIComponent(id)}/disable`, 'POST');
+      await targets.reload();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  return (
+    <Panel title="REA 参照目标">
+      <div className="panel-pad">
+        <p className="muted">
+          管理员登记参照目录的固定快照；任务选择后可分析源码，无需运行参照应用。
+        </p>
+        <p>静态分析：{readiness.data?.static?.ready ? '可用' : '尚未就绪'} · 动态观察：尚未启用</p>
+        <label className="field">
+          参照项目
+          <select value={project} onChange={(e) => setProject(e.target.value)}>
+            {Array.from(new Set([project, ...projects.items.map((p) => p.id)])).map((id) => (
+              <option key={id}>{id}</option>
+            ))}
+          </select>
+        </label>
+        {(error || targets.error) && <p role="alert">{error || targets.error}</p>}
+        {readiness.error && <p className="muted">{readiness.error}</p>}
+        <Button onClick={() => setAdding(true)}>登记参照目录</Button>
+        {targets.items.map((target) => (
+          <div key={target.id}>
+            <p>
+              {target.label} · <span className="mono wrap">{target.snapshot_digest}</span>
+            </p>
+            <Button onClick={() => void disable(target.id)}>停用参照目标</Button>
+          </div>
+        ))}
+        {targets.cursor && <Button onClick={() => void targets.more()}>加载更多参照目标</Button>}
+      </div>
+      {adding && (
+        <JsonForm
+          title="登记参照目录"
+          path="/reference-targets"
+          initial={{ project_id: project, label: '', path: '' }}
+          onDone={() => {
+            setAdding(false);
+            void targets.reload();
+          }}
+        />
+      )}
+    </Panel>
   );
 }
 

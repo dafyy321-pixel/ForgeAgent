@@ -26,6 +26,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --frozen
       - run: npm ci
+      - name: Install pinned static REA runtime
+        run: npm run rea:install
       - name: Provision non-superuser database
         env:
           PGPASSWORD: test-admin

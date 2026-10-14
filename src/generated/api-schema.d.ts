@@ -4,6 +4,75 @@
  */
 
 export interface paths {
+    "/v1/reference-targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Reference Targets */
+        get: operations["reference_targets_v1_reference_targets_get"];
+        put?: never;
+        /** Register Reference */
+        post: operations["register_reference_v1_reference_targets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/reference-targets/{id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable Reference */
+        post: operations["disable_reference_v1_reference_targets__id__disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/rea/readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Rea Readiness */
+        get: operations["rea_readiness_v1_rea_readiness_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{id}/reference-evidence/{action_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Reference Evidence */
+        get: operations["export_reference_evidence_v1_runs__id__reference_evidence__action_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health/live": {
         parameters: {
             query?: never;
@@ -1662,6 +1731,8 @@ export interface components {
             skills?: string[];
             /** Connections */
             connections?: string[];
+            /** Reference Targets */
+            reference_targets?: string[];
             harness?: components["schemas"]["Harness"];
             child_contract?: components["schemas"]["ChildContract"];
         };
@@ -1935,6 +2006,15 @@ export interface components {
             outcome: "occurred" | "absent";
             /** Evidence */
             evidence: string;
+        };
+        /** RegisterTarget */
+        RegisterTarget: {
+            /** Project Id */
+            project_id: string;
+            /** Path */
+            path: string;
+            /** Label */
+            label: string;
         };
         /** RemoteArtifactInput */
         RemoteArtifactInput: {
@@ -2281,6 +2361,389 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    reference_targets_v1_reference_targets_get: {
+        parameters: {
+            query: {
+                project_id: string;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogPage"];
+                };
+            };
+            /** @description Structured API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+        };
+    };
+    register_reference_v1_reference_targets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterTarget"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Structured API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+        };
+    };
+    disable_reference_v1_reference_targets__id__disable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Structured API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+        };
+    };
+    rea_readiness_v1_rea_readiness_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Structured API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+        };
+    };
+    export_reference_evidence_v1_runs__id__reference_evidence__action_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Structured API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+        };
+    };
     live_health_live_get: {
         parameters: {
             query?: never;

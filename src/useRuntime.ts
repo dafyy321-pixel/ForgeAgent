@@ -22,6 +22,7 @@ export type TaskDraft = {
   connections?: string[];
   allowDelegation?: boolean;
   evidenceRecovery?: boolean;
+  referenceTargets?: string[];
 };
 export type Scenario =
   | 'active'
@@ -382,6 +383,7 @@ export function useRuntime() {
       model: d.model === 'fixture' ? 'fixture' : 'configured',
       skills: d.skills,
       connections: d.connections || [],
+      reference_targets: d.referenceTargets || [],
       capabilities: [
         'repo.read',
         'workspace.write',
@@ -389,6 +391,7 @@ export function useRuntime() {
         ...(d.allowExternalRead ? ['external.read'] : []),
         ...(d.allowExternal ? ['external.write'] : []),
         ...(d.allowDelegation ? ['delegate'] : []),
+        ...(d.referenceTargets?.length ? ['reference.read'] : []),
       ],
     };
     const r = await api<components['schemas']['RunView']>('/runs', 'POST', spec);

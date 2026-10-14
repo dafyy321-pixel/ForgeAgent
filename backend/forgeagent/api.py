@@ -28,6 +28,7 @@ from .domain import (
     digest,
     uid,
 )
+from .rea import RegisterTarget
 from .remote import accept_callback, prepare_remote, validate_url
 from .repository import RepositoryInput
 from .sandbox import safe_path, sandbox
@@ -48,6 +49,62 @@ async def lifespan(app):
 
 app = FastAPI(title="ForgeAgent Runtime", version="0.2.0", lifespan=lifespan)
 Actor = Annotated[Identity, Depends(authorized_identity)]
+
+
+@app.post("/v1/reference-targets", status_code=201)
+def register_reference(body: RegisterTarget, actor: Actor):
+    require_admin(actor)
+    from .rea import register
+
+    with db.transaction(actor.tenant) as s:
+        return register(s, actor.tenant, body)
+
+
+@app.get("/v1/reference-targets", response_model=CatalogPage)
+def reference_targets(actor: Actor, project_id: str, limit: int = Query(50, ge=1, le=100), cursor: str | None = None):
+    from .pagination import records
+    from .rea import target_view
+
+    with db.transaction(actor.tenant) as s:
+        if not project_access(s, actor, project_id, "read"):
+            raise Fault("FORBIDDEN", "Project read permission is required", 403)
+        query = select(db.PolicyVersion).where(db.PolicyVersion.tenant_id == actor.tenant,
+            db.PolicyVersion.data["kind"].as_string() == "reference_target",
+            db.PolicyVersion.data["project_id"].as_string() == project_id, db.PolicyVersion.status == "active")
+        rows, next_cursor = records(s, actor, db.PolicyVersion, query, ["reference-targets", project_id], cursor, limit)
+        return {"items": [target_view(row) for row in rows], "next_cursor": next_cursor}
+
+
+@app.post("/v1/reference-targets/{id}/disable")
+def disable_reference(id: str, actor: Actor):
+    require_admin(actor)
+    from .rea import target_view
+
+    with db.transaction(actor.tenant) as s:
+        row = db.get(s, db.PolicyVersion, actor.tenant, id, True)
+        if row.data.get("kind") != "reference_target":
+            raise Fault("NOT_FOUND", "Reference target not found", 404)
+        row.status = "disabled"
+        return target_view(row)
+
+
+@app.get("/v1/rea/readiness")
+def rea_readiness(actor: Actor):
+    require_admin(actor)
+    from .rea import readiness
+
+    return readiness()
+
+
+@app.get("/v1/runs/{id}/reference-evidence/{action_id}")
+def export_reference_evidence(id: str, action_id: str, actor: Actor):
+    with db.transaction(actor.tenant) as s:
+        action = db.get(s, db.Action, actor.tenant, action_id)
+        if action.run_id != id or action.tool != "rea.analyze" or action.status != "SUCCEEDED":
+            raise Fault("REA_EVIDENCE_SCOPE", "Select a completed analysis from this task", 403)
+        receipt = json.loads(objects.get(actor.tenant, action.receipt["ref"]))
+        raw = objects.get(actor.tenant, receipt["evidence_ref"])
+    return Response(raw, media_type="application/json", headers={"Content-Disposition": 'attachment; filename="rea-evidence.json"'})
 
 
 @app.middleware("http")
