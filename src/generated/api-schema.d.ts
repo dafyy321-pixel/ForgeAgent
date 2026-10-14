@@ -1721,6 +1721,8 @@ export interface components {
              */
             executor?: "current" | "archived";
             spec: components["schemas"]["CreateRun"];
+            /** Plan Digest */
+            plan_digest: string;
         };
         /** ConnectionInput */
         ConnectionInput: {
@@ -1901,6 +1903,25 @@ export interface components {
              * @default base64
              */
             encoding?: string;
+        };
+        /** FollowupDiscussion */
+        FollowupDiscussion: {
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Reason
+             * @default User request
+             */
+            reason?: string;
+            /** Checkpoint Id */
+            checkpoint_id?: string | null;
+            /**
+             * Executor
+             * @default current
+             * @enum {string}
+             */
+            executor?: "current" | "archived";
+            spec: components["schemas"]["CreateRun"];
         };
         /** GarbageCollection */
         GarbageCollection: {
@@ -5828,7 +5849,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ConfirmExecution"];
+                "application/json": components["schemas"]["FollowupDiscussion"];
             };
         };
         responses: {

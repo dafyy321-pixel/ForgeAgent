@@ -74,6 +74,10 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const submitted = useRef(false);
+  const stalePlan =
+    !!rt.createContext &&
+    rt.state.runs.find((r) => r.id === rt.createContext?.runId)?.stateVersion !==
+      rt.createContext.version;
   useEffect(() => {
     if (!submitted.current && !rt.createContext)
       try {
@@ -86,7 +90,7 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
   };
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (submitted.current) return;
+    if (submitted.current || stalePlan) return;
     const next: Record<string, string> = {};
     for (const k of ['title', 'description', 'criteria', 'scope'] as const)
       if (!draft[k].trim()) next[k] = '请填写此项，任务需要明确的目标与边界。';
@@ -125,6 +129,11 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
         <section className="confirmed-plan-preview">
           <h3>待执行方案</h3>
           <p>{rt.createContext.plan}</p>
+          {stalePlan && (
+            <div className="notice warning" role="alert">
+              方案已更新，请关闭弹窗并重新阅读后确认。<Button onClick={close}>重新阅读方案</Button>
+            </div>
+          )}
         </section>
       )}
       <form onSubmit={submit} noValidate>
@@ -387,7 +396,7 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
             <Button onClick={close} disabled={busy}>
               保存草稿并关闭
             </Button>
-            <Button primary type="submit" disabled={busy}>
+            <Button primary type="submit" disabled={busy || stalePlan}>
               <Plus size={16} />
               {busy ? '正在创建…' : rt.createContext ? '确认并开始执行' : '创建任务'}
             </Button>

@@ -227,7 +227,9 @@ def clock(s):
 def get(s, cls, tenant, id, lock=False):
     query = select(cls).where(cls.tenant_id == tenant, cls.id == id)
     if lock:
-        query = query.with_for_update()
+        # Run identities never change. NO KEY UPDATE still serializes writers,
+        # while allowing child foreign-key checks to acquire KEY SHARE.
+        query = query.with_for_update(key_share=cls is Run)
     value = s.scalar(query)
     if value is None:
         raise Fault("NOT_FOUND", "Resource not found", 404)

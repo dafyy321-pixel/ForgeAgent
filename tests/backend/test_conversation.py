@@ -34,7 +34,7 @@ async def test_durable_multiturn_discussion_and_confirmed_execution(tenant, make
     view = client.get(f"/v1/runs/{run_id}").json()
     assert client.post(f"/v1/runs/{run_id}/verify", json={"expected_version": view["stateVersion"]}).status_code == 409
     spec = {"project_id": "runtime-lab", "model": "fixture", "task": {"goal": "Fix add", "allowed_paths": ["src"]}}
-    confirmation = {"expected_version": view["stateVersion"], "spec": spec}
+    confirmation = {"expected_version": view["stateVersion"], "spec": spec, "plan_digest": history["plan_digest"]}
     started = client.post(f"/v1/runs/{run_id}/execute", json=confirmation, headers={"Idempotency-Key": "execute-1"})
     assert started.status_code == 202, started.text
     execution = started.json()
@@ -96,13 +96,14 @@ def test_plan_confirmation_rejects_unready_or_other_projects(tenant, make_run, c
         run.state = {**run.state, "plan_ready": False}
         db.emit(s, run, "TEST_PAUSE", "pause")
         version = run.version
-    payload = {"expected_version": version, "spec": {"project_id": "other", "task": {"goal": "write"}}}
+    payload = {"expected_version": version, "plan_digest": "stale", "spec": {"project_id": "other", "task": {"goal": "write"}}}
     assert client.post(f"/v1/runs/{run_id}/execute", json=payload, headers={"Idempotency-Key": uid()}).status_code == 409
     with db.transaction(tenant) as s:
         run = db.get(s, db.Run, tenant, run_id)
         run.state = {**run.state, "plan_ready": True}
         db.emit(s, run, "TEST_READY", "ready")
         payload["expected_version"] = run.version
+        payload["plan_digest"] = service.discussion_plan_digest(run)
     assert client.post(f"/v1/runs/{run_id}/execute", json=payload, headers={"Idempotency-Key": uid()}).status_code == 422
 
 
@@ -141,6 +142,7 @@ async def test_followup_preserves_workspace_through_plan_confirmation(tenant, ma
     plan = client.get(f"/v1/runs/{followup['id']}").json()
     execution = client.post(f"/v1/runs/{followup['id']}/execute", json={
         "expected_version": plan["stateVersion"],
+        "plan_digest": client.get(f"/v1/runs/{followup['id']}/conversation").json()["plan_digest"],
         "spec": {"project_id": "runtime-lab", "model": "fixture", "task": {"goal": "Keep fixed addition"}},
     }, headers={"Idempotency-Key": "followup-execution"})
     assert execution.status_code == 202, execution.text

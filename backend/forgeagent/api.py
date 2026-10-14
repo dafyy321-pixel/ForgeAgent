@@ -763,7 +763,8 @@ def conversation(id: str, actor: Actor):
         r = db.get(s, db.Run, actor.tenant, id)
         return {"messages": [{k: v for k, v in m.items() if k != "key"} for m in r.state.get("dialogue", [])],
                 "initial": r.state["task"]["goal"], "mode": r.state["task"].get("mode", "execute"),
-                "plan_ready": bool(r.state.get("plan_ready")), "execution_id": r.state.get("execution_id")}
+                "plan_ready": bool(r.state.get("plan_ready")), "execution_id": r.state.get("execution_id"),
+                "version": r.version, "plan_digest": service.discussion_plan_digest(r)}
 
 
 @app.post("/v1/runs/{id}/messages")
@@ -796,12 +797,16 @@ def conversation_message(id: str, body: UserInput, actor: Actor, idempotency_key
         return presenters.run_view(s, r)
 
 
-class ConfirmExecution(Control):
+class FollowupDiscussion(Control):
     spec: CreateRun
 
 
+class ConfirmExecution(FollowupDiscussion):
+    plan_digest: str = Field(min_length=1, max_length=100)
+
+
 @app.post("/v1/runs/{id}/followup", status_code=202, response_model=RunView)
-def followup_discussion(id: str, body: ConfirmExecution, actor: Actor, idempotency_key: Annotated[str, Header()]):
+def followup_discussion(id: str, body: FollowupDiscussion, actor: Actor, idempotency_key: Annotated[str, Header()]):
     from .knowledge import lock
     from .resources import put_reviewed
 
@@ -838,12 +843,14 @@ def execute_plan(id: str, body: ConfirmExecution, actor: Actor, idempotency_key:
         r = db.get(s, db.Run, actor.tenant, id, True)
         requested = digest(body.spec.model_dump(mode="json"))
         if r.state.get("execution_id"):
-            if requested != r.state.get("execution_request_digest"):
+            if (requested != r.state.get("execution_request_digest")
+                or body.plan_digest != r.state.get("execution_plan_digest")):
                 raise Fault("PLAN_ALREADY_STARTED", "This plan already started with different execution parameters")
             execution = db.get(s, db.Run, actor.tenant, r.state["execution_id"])
             require_run_access(s, actor, execution)
             return presenters.run_view(s, execution)
-        if (r.version != body.expected_version or r.status != "PAUSED" or r.cancel_requested
+        if (r.version != body.expected_version or body.plan_digest != service.discussion_plan_digest(r)
+            or r.status != "PAUSED" or r.cancel_requested
             or r.state["task"].get("mode") != "discuss" or not r.state.get("plan_ready")):
             raise Fault("PLAN_CONFLICT", "Confirm the current completed discussion plan before execution")
         if body.spec.project_id != r.project_id or body.spec.task.mode != "execute":
@@ -859,10 +866,13 @@ def execute_plan(id: str, body: ConfirmExecution, actor: Actor, idempotency_key:
             execution.state = {**execution.state, "workspace_ref": put_reviewed(s, execution, content),
                                "workspace_digest": digest(content)}
         # The confirmed history is frozen into the new run; the discussion never gains write authority.
-        execution.state = {**execution.state, "source_discussion_id": id, "dialogue": r.state.get("dialogue", [])}
-        db.emit(s, execution, "PLAN_CONFIRMED", "用户确认方案，创建独立执行任务", discussion_id=id)
+        execution.state = {**execution.state, "source_discussion_id": id, "dialogue": r.state.get("dialogue", []),
+                           "confirmed_plan_digest": body.plan_digest, "confirmed_plan_version": body.expected_version}
+        db.emit(s, execution, "PLAN_CONFIRMED", "用户确认方案，创建独立执行任务", discussion_id=id,
+                plan_digest=body.plan_digest, reviewed_version=body.expected_version)
         service.checkpoint(s, execution)
         r.state = {**r.state, "execution_id": execution.id, "execution_request_digest": requested,
+                   "execution_plan_digest": body.plan_digest,
                    "input_required": False, "reason": "方案已确认，执行任务已创建"}
         db.emit(s, r, "EXECUTION_CREATED", "方案已确认", execution_id=execution.id)
         return presenters.run_view(s, execution)

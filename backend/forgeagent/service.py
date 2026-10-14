@@ -113,8 +113,14 @@ def provision(tenant="local", actor="local-user"):
                 s.add(db.ToolVersion(tenant_id=tenant, id=name + "@1", data={"name": name, "version": "1", **spec}))
 
 
+def discussion_plan_digest(run):
+    return digest({"task": run.state["task"], "dialogue": run.state.get("dialogue", [])})
+
+
 def authorization(s, run, capability=None):
     current = db.get(s, db.Authorization, run.tenant_id, run.actor)
+    if current.status != "active":
+        raise Fault("PERMISSION_REVOKED", "Current identity authorization is inactive", 403)
     caps = set(current.data.get("capabilities", [])) & set(run.state["capabilities"])
     if capability and capability not in caps:
         raise Fault("PERMISSION_REVOKED", f"Current permission does not allow {capability}", 403)
@@ -143,6 +149,8 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
     project = db.get(s, db.Project, tenant, spec.project_id)
     db.get(s, db.AgentVersion, tenant, spec.agent_version)
     auth = db.get(s, db.Authorization, tenant, actor)
+    if auth.status != "active":
+        raise Fault("PERMISSION_REVOKED", "Current identity authorization is inactive", 403)
     if not set(spec.capabilities) <= set(auth.data["capabilities"]):
         raise Fault("CAPABILITY_DENIED", "Task capabilities exceed current permissions", 403)
     if spec.model == "fixture" and (
@@ -178,7 +186,7 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
     # The idempotency lock is per request key, so equal requests still serialize safely.
     knowledge.lock(s, tenant)
     s.refresh(auth)
-    if not set(spec.capabilities) <= set(auth.data["capabilities"]) or (
+    if auth.status != "active" or not set(spec.capabilities) <= set(auth.data["capabilities"]) or (
         not parent and not evaluation_id and not project_access(s, Identity(tenant, actor, admin), spec.project_id, "create")
     ):
         raise Fault("PERMISSION_REVOKED", "Creation permissions changed during object publication", 403)
@@ -519,7 +527,10 @@ def control(s, tenant, id, command, expected_version, reason, executor="current"
     if command == "cancel":
         r.cancel_requested = True
         r.status = "CANCELLING"
-        for child in db.rows(s, db.Run, tenant, parent_id=id):
+        children = s.scalars(select(db.Run).where(db.Run.tenant_id == tenant, db.Run.parent_id == id)
+                             .order_by(db.Run.id).with_for_update(key_share=True)
+                             .execution_options(populate_existing=True))
+        for child in children:
             if child.status not in TERMINAL:
                 child.cancel_requested = True
                 child.status = "CANCELLING"

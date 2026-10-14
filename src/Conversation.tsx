@@ -27,6 +27,8 @@ import type { Execution } from './runtime';
 
 type Message = { id: string; role: 'user' | 'assistant'; content: string; time: string };
 type Conversation = {
+  version: number;
+  plan_digest: string;
   initial: string;
   messages: Message[];
   plan_ready: boolean;
@@ -611,8 +613,14 @@ export function ConversationPanel({ runtime: rt, run: r }: { runtime: Runtime; r
           </div>
           <Button
             primary
-            disabled={!history?.plan_ready || !assistant || busy || !!pending.current}
-            onClick={() => rt.prepareExecution(r, assistant?.content || '')}
+            disabled={
+              !history?.plan_ready ||
+              history.version !== r.stateVersion ||
+              !assistant ||
+              busy ||
+              !!pending.current
+            }
+            onClick={() => history && rt.prepareExecution(r, assistant?.content || '', history)}
           >
             确认方案并执行
             <ArrowRight size={16} />

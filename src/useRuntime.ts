@@ -97,6 +97,8 @@ export function useRuntime() {
     runId: string;
     draft: TaskDraft;
     plan: string;
+    version: number;
+    planDigest: string;
   } | null>(null);
   const [toast, setToast] = useState('');
   const [now, setNow] = useState(stamp);
@@ -407,7 +409,9 @@ export function useRuntime() {
     const r = await api<components['schemas']['RunView']>(
       createContext ? `/runs/${createContext.runId}/execute` : '/runs',
       'POST',
-      createContext ? { expected_version: version(createContext.runId), spec } : spec,
+      createContext
+        ? { expected_version: createContext.version, plan_digest: createContext.planDigest, spec }
+        : spec,
     );
     await refresh();
     setOverlay(null);
@@ -415,10 +419,16 @@ export function useRuntime() {
     changeRoute({ ...route, page: 'task', id: r.id, project: d.project, tab: 'conversation' });
     return r.id;
   }
-  function prepareExecution(run: WorkspaceState['runs'][number], plan: string) {
+  function prepareExecution(
+    run: WorkspaceState['runs'][number],
+    plan: string,
+    snapshot: { version: number; plan_digest: string },
+  ) {
     setCreateContext({
       runId: run.id,
       plan,
+      version: snapshot.version,
+      planDigest: snapshot.plan_digest,
       draft: {
         title: run.title,
         description: run.description,

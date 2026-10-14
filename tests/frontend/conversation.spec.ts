@@ -62,6 +62,7 @@ test('plan confirmation UI waits for explicit confirmation and then opens the ex
 }, testInfo) => {
   const id = await pausedDiscussion(request);
   let executionId: string | null = null;
+  const current = await (await request.get(`http://127.0.0.1:8000/v1/runs/${id}`)).json();
   // Only the plan-ready presentation is simulated; the independent backend test covers model-to-plan transitions.
   await page.route('**/v1/workspace?*', async (route) => {
     const response = await route.fetch();
@@ -86,6 +87,8 @@ test('plan confirmation UI waits for explicit confirmation and then opens the ex
           },
         ],
         plan_ready: true,
+        version: current.stateVersion,
+        plan_digest: 'reviewed-plan',
       },
     }),
   );
@@ -95,6 +98,8 @@ test('plan confirmation UI waits for explicit confirmation and then opens the ex
     const body = route.request().postDataJSON();
     expect(body.spec.project_id).toBe('runtime-lab');
     expect(body.spec.task.mode).toBe('execute');
+    expect(body.expected_version).toBe(current.stateVersion);
+    expect(body.plan_digest).toBe('reviewed-plan');
     const execution = await request.post('http://127.0.0.1:8000/v1/examples/smoke', {
       headers: { 'Idempotency-Key': crypto.randomUUID() },
     });
@@ -160,4 +165,41 @@ test('an uncertain message retries the same payload and key after a reload', asy
   await expect.poll(() => attempts.length).toBe(2);
   expect(attempts[1]).toEqual(attempts[0]);
   await expect(input).toHaveValue('');
+});
+
+test('a plan changed in another tab disables its old confirmation', async ({ page, request }) => {
+  const id = await pausedDiscussion(request);
+  const run = await (await request.get(`http://127.0.0.1:8000/v1/runs/${id}`)).json();
+  let version = run.stateVersion;
+  await page.route('**/v1/workspace/revision', (route) =>
+    route.fulfill({ json: { revision: String(version) } }),
+  );
+  await page.route('**/v1/workspace?*', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.runs = body.runs.map((r: { id: string }) =>
+      r.id === id ? { ...r, planReady: true, stateVersion: version } : r,
+    );
+    await route.fulfill({ response, json: body });
+  });
+  await page.route(`**/v1/runs/${id}/conversation`, (route) =>
+    route.fulfill({
+      json: {
+        initial: '讨论方案',
+        version,
+        plan_digest: `plan-${version}`,
+        plan_ready: true,
+        messages: [{ id: 'plan', role: 'assistant', content: `方案版本 ${version}` }],
+      },
+    }),
+  );
+  await page.goto(`/tasks/${id}`);
+  await page.getByRole('button', { name: '确认方案并执行', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '确认方案并执行', exact: true });
+  await expect(dialog.getByRole('button', { name: '确认并开始执行' })).toBeEnabled();
+  version++;
+  await expect(dialog.getByRole('alert')).toContainText('方案已更新');
+  await expect(dialog.getByRole('button', { name: '确认并开始执行' })).toBeDisabled();
+  await dialog.getByRole('button', { name: '重新阅读方案' }).click();
+  await expect(dialog).not.toBeVisible();
 });
