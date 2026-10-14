@@ -87,6 +87,54 @@ After this change the REA suite passed 7 tests with one platform skip.
 The expanded live task also explicitly tells the model to consume successful
 analysis/read receipts and proceed to writing, rather than repeat unchanged work.
 
+A later attempt implemented the repair but called `request_input` with a completion
+report. Native control-tool descriptions now explain that `request_input` pauses
+for a concrete missing requirement/authority question, while `propose_completion`
+submits ready work to the independent verifier. The runtime still honors the
+selected control; it never silently converts a request for user input to success.
+
+Concurrent test jobs also demonstrated actual `REA_BACKPRESSURE`. This now maps
+to a supported environment failure, while `REA_TIMEOUT` maps to an observer-tool
+failure. Both may retry only the same scoped, read-only observation within the
+existing recovery quotas. An unchanged repeated failure still pauses the task;
+supervision, integrity, authority and unknown failures remain fail-closed.
+
+The follow-up full backend run passed **374 tests, with 8 skips**, in 355.14
+seconds. Two subsequently added durable REA recovery-policy cases passed
+separately in 2.26 seconds. Skips cover explicit opt-in infrastructure tests and
+Windows symlink support; the billable scenarios are run separately below.
+The final source also passes Ruff, backend type checking and Git whitespace checks.
+
+The live fixture includes public standard-library tests and a separate sealed
+Unicode acceptance suite. Its success assertion allows bounded earlier failed
+attempts and requires at least one independently verified successful recovery,
+no active recovery intents, fully applied provider receipts and zero outstanding
+budget reservations. An earlier test assertion incorrectly required the first
+attempt to succeed even though the real task ultimately passed; that assertion
+was corrected without relaxing final acceptance or recovery quotas.
+
+Final expanded live test: **passed in 118.36 seconds**. Run
+`108af919-cd00-4ced-a2dc-75f07f204312` used the exact `gpt-6-luna/high`
+Responses profile with 10 fully accounted provider calls. Its local pinned-rate
+ledger settled **$0.008974**, with **zero reserved balance**. Protected acceptance
+went from **FAIL to PASS**, and the recovery attempt finished **SUCCEEDED**.
+REA analysis and public unittest execution succeeded. One intermediate `rea.view`
+action failed; the task subsequently completed using further public observations.
+This is an eventual recovery result, not a claim that every proposed tool action
+succeeded or that one sample establishes a general model success rate.
+
+The initial diagnosis correctly retained `root_class=unknown` with a hypothesis
+of implementation/target/specification error. Final behavior was checked by a
+separate sealed test suite covering trimmed queries, case-insensitive matches,
+Chinese text, full-width Unicode normalization, empty queries, absent matches,
+stable ordering and preservation of the input list. Generated code ran only in
+the network-disabled, non-root sandbox. Tested image digest:
+`sha256:429174cc0b6de4daefb2a87e919e22f89efa551cd82b47077f2fdc022ac5bbcd`.
+Local evidence: `.forge/live-model/runtime-facts/live-recovery.json` and
+`.forge/live-model/live-recovery-junit.xml`. This uses local Docker/runc and static
+REA; production gVisor and the remaining release infrastructure remain separate
+gates.
+
 Local sanitized evidence is in `.forge/live-model/`. Account-wide usage and
 downloaded frontend assets remain ignored and are not release artifacts.
 
@@ -105,3 +153,20 @@ reasoning/stream settings so developer credentials cannot affect fixtures. Real
 Docker tests additionally require `FORGE_TEST_DOCKER=1` and a built sandbox image.
 The full release suite also needs independent gVisor-manager, protocol, S3 and
 restore infrastructure; running only the model test does not certify those gates.
+
+The expanded, billable recovery scenario is opt-in separately:
+
+```
+FORGE_TEST_LIVE_RECOVERY=1
+FORGE_TEST_DOCKER=1
+python -m pytest tests/backend/test_live_recovery.py -q
+```
+
+Set `GITHUB_SHA` and `FORGE_RELEASE_FACTS_DIR` as above. It uses a real fixed REA
+reference snapshot, real provider tools, PostgreSQL records and protected Python
+unittest acceptance in a network-disabled Docker sandbox. The initial unchanged
+baseline failure is deliberately seeded; no subsequent model decision or verifier
+result is simulated. Run live REA cases serially with other REA integration tests
+to avoid contending for the single analyzer slot. Evidence identifies the base
+commit and content hashes of changed source/test files, rather than representing
+uncommitted changes as a clean commit.

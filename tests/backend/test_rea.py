@@ -11,11 +11,11 @@ import time
 from pathlib import Path
 
 import pytest
-from forgeagent import db, processes, progress, rea, service
+from forgeagent import db, diagnosis, processes, progress, rea, recovery, service
 from forgeagent.api import app
 from forgeagent.auth import Identity, identity
 from forgeagent.config import settings
-from forgeagent.domain import Fault, ToolCall
+from forgeagent.domain import Fault, Harness, ToolCall
 from forgeagent.storage import objects
 from forgeagent.worker import Worker
 
@@ -34,6 +34,31 @@ def test_normal_analyzer_exit_reaps_descendants_before_directory_cleanup(tmp_pat
         assert not Path(temporary).exists()
     threading.Event().wait(.6)
     assert not marker.exists()
+
+
+@pytest.mark.parametrize("code,root", [("REA_BACKPRESSURE", "environment"), ("REA_TIMEOUT", "tool")])
+def test_rea_transient_failure_retries_only_the_observation_and_stops_repetition(tenant, make_run, reference, monkeypatch, code, root):
+    # No CLI invocation: exercise durable policy and scoped retry preparation.
+    monkeypatch.setattr(rea, "runtime_binding", lambda: {"version": "test-bound"})
+    run_id = make_run(reference_targets=[reference[0]], capabilities=["repo.read", "reference.read"],
+                      harness=Harness(evidence_recovery=True))
+    with db.transaction(tenant) as s:
+        run = db.get(s, db.Run, tenant, run_id)
+        bound = diagnosis.binding(run)
+        action = service.prepare_action(s, run, ToolCall(tool="rea.analyze", args={"target_id": reference[0]}), "initial")
+        action.status, action.receipt = "FAILED", {"error_code": code}
+        facts = {"tool": "rea.analyze", "error_code": code, "exit_code": 1}
+        diagnosis.queue(s, run, "tool", None, facts, action.id)
+        recovery.advance(s, run)
+        assert run.state["diagnosis_summary"]["root_class"] == root
+        assert run.state.get("repair_attempts", 0) == 0 and run.state["recoveries_used"] == 1
+        assert diagnosis.binding(run) == bound
+        queued = [a for a in db.rows(s, db.Action, tenant, run_id=run_id) if a.status == "READY"]
+        assert len(queued) == 1 and queued[0].tool == "rea.analyze" and queued[0].args == action.args
+        diagnosis.queue(s, run, "tool", None, facts, action.id)
+        recovery.advance(s, run)
+        assert run.status == "PAUSED" and "Same failure" in run.state["reason"]
+        assert all(a.tool == "rea.analyze" and a.status != "READY" for a in db.rows(s, db.Action, tenant, run_id=run_id))
 
 
 @pytest.fixture

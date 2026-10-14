@@ -45,11 +45,11 @@ def classify(source, facts):
     code = facts.get("error_code")
     if facts.get("failure_class") == "hard_constraint":
         return "constraint", "supported", "Protected constraints failed", "stop"
-    if code in {"SANDBOX_BACKPRESSURE", "SANDBOX_UNAVAILABLE", "SANDBOX_MANAGER_REQUIRED"}:
+    if code in {"SANDBOX_BACKPRESSURE", "SANDBOX_UNAVAILABLE", "SANDBOX_MANAGER_REQUIRED", "REA_BACKPRESSURE"}:
         return "environment", "supported", "Execution infrastructure did not admit the operation", "retry_observation"
     if facts.get("inconclusive_reason") in {"timed_out", "truncated", "unregistered_exit", "not_run"}:
         return "unknown", "unknown", "Acceptance could not establish an outcome; root cause is unknown", "stop"
-    if code in {"TOOL_TIMEOUT", "SESSION_EXPIRED"}:
+    if code in {"TOOL_TIMEOUT", "SESSION_EXPIRED", "REA_TIMEOUT"}:
         return "tool", "supported", "The observer session failed; target behavior remains unknown", "retry_observation"
     if source == "verification" and facts.get("verdict") == "FAIL":
         return "unknown", "hypothesis", "Acceptance failed; implementation, target understanding and specification remain candidates", "inspect_then_repair"

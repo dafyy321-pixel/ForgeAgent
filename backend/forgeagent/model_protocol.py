@@ -49,7 +49,15 @@ def native_tools(catalog, capabilities):
             child = CreateRun.model_json_schema()
             schema["$defs"] = child.pop("$defs", {})
             schema["properties"]["child"] = child
-        tools.append({"type": "function", "name": wire_name, "description": kind,
+        description = {
+            "request_input": "Pause the task to ask the user a concrete question about missing requirements or authority. "
+                             "Use only when user input is necessary; progress and completion reports belong in propose_completion.",
+            "propose_completion": "Submit the current workspace for independent acceptance verification. "
+                                  "Use when implementation is ready, including when protected tests can only be run by the verifier. "
+                                  "The runtime decides whether acceptance passed; this does not claim success.",
+            "delegate": "Create a child task within the parent's capability, path and budget limits.",
+        }[kind]
+        tools.append({"type": "function", "name": wire_name, "description": description,
                       "parameters": strict_schema(schema), "strict": True})
     return tools, names
 

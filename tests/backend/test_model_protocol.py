@@ -110,7 +110,8 @@ async def test_native_call_id_and_encrypted_reasoning_survive_runtime_resume(ten
             return SimpleNamespace(input_tokens=1000)
         async def create(self, **payload):
             requests.append(payload)
-            tool = next(t for t in payload["tools"] if t["description"] == ("repo.read" if len(requests) == 1 else "propose_completion"))
+            tool = next(t for t in payload["tools"] if
+                        (t["description"] == "repo.read" if len(requests) == 1 else t["name"] == "forge_propose_completion"))
             args = {"path": "src/calculator.py"} if len(requests) == 1 else {"summary": "proposed"}
             raw = {"id": "resp_" + str(len(requests)), "model": "fixed-test-model", "service_tier": "default", "status": "completed", "usage": usage(),
                    "output": [{"type": "reasoning", "id": "rs_opaque", "encrypted_content": "encrypted-only", "summary": []},
