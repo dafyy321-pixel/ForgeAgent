@@ -47,6 +47,7 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
   const connections = useRemote('/connections');
   const key = 'forge-task-draft-v2';
   const [draft, setDraft] = useState<TaskDraft>(() => {
+    if (rt.createContext) return rt.createContext.draft;
     try {
       const saved = JSON.parse(localStorage.getItem(key) || 'null');
       if (saved) return saved;
@@ -74,7 +75,7 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
   const [busy, setBusy] = useState(false);
   const submitted = useRef(false);
   useEffect(() => {
-    if (!submitted.current)
+    if (!submitted.current && !rt.createContext)
       try {
         localStorage.setItem(key, JSON.stringify(draft));
       } catch {}
@@ -109,13 +110,23 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
   }
   return (
     <Dialog
-      title="创建任务"
-      subtitle="明确目标、验收条件和允许的修改范围。"
+      title={rt.createContext ? '确认方案并执行' : '创建任务'}
+      subtitle={
+        rt.createContext
+          ? '确认本次修改范围、验收要求和执行额度。对话费用单独记录，代码在独立工作区修改。'
+          : '明确目标、验收条件和允许的修改范围。'
+      }
       onClose={() => {
         if (!busy) close();
       }}
       wide
     >
+      {rt.createContext && (
+        <section className="confirmed-plan-preview">
+          <h3>待执行方案</h3>
+          <p>{rt.createContext.plan}</p>
+        </section>
+      )}
       <form onSubmit={submit} noValidate>
         <label className="field">
           任务目标
@@ -139,6 +150,7 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
           项目
           <select
             aria-label="项目"
+            disabled={!!rt.createContext}
             value={draft.project}
             onChange={(e) => {
               field('project', e.target.value);
@@ -377,7 +389,7 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
             </Button>
             <Button primary type="submit" disabled={busy}>
               <Plus size={16} />
-              {busy ? '正在创建…' : '创建任务'}
+              {busy ? '正在创建…' : rt.createContext ? '确认并开始执行' : '创建任务'}
             </Button>
           </div>
         </div>

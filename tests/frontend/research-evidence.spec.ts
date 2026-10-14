@@ -78,6 +78,7 @@ test('case replay shows committed summaries without dispatching new effects', as
   page.on('request', (request) => {
     if (request.url().includes('/v1/') && request.method() !== 'GET') writes.push(request.url());
   });
+  await page.getByText('执行详情', { exact: true }).click();
   await page
     .getByRole('navigation', { name: '任务工作区' })
     .getByRole('button', { name: '案例回放', exact: true })

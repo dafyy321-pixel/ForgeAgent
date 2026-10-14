@@ -12,7 +12,6 @@ import {
   Code2,
   FileCheck2,
   FileText,
-  FlaskConical,
   Project,
   GitBranch,
   Inbox,
@@ -42,6 +41,7 @@ import {
   type RunEvent,
 } from './runtime';
 import { TaskWorkspace } from './TaskWorkspace';
+import { StartWork } from './Conversation';
 
 export function RunBadge({ run: r }: { run: Execution }) {
   return (
@@ -57,7 +57,15 @@ export function RunBadge({ run: r }: { run: Execution }) {
       ) : (
         <span className="status-dot" />
       )}
-      {statusText[r.status]}
+      {r.mode === 'discuss' && r.status === 'PAUSED'
+        ? r.executionId
+          ? '已开始执行'
+          : r.planReady
+            ? '等待确认'
+            : r.inputRequired
+              ? '等待回复'
+              : '已暂停'
+        : statusText[r.status]}
     </span>
   );
 }
@@ -81,6 +89,11 @@ export function useFollowing() {
   };
 }
 export function nextStep(r: Execution) {
+  if (r.mode === 'discuss' && (r.inputRequired || r.executionId))
+    return {
+      label: r.executionId ? '查看已确认方案' : r.planReady ? '确认或继续讨论' : '回复问题',
+      tab: 'conversation',
+    };
   return r.status === 'SUCCEEDED'
     ? { label: '查看交付', tab: 'verification' }
     : needsAttention(r)
@@ -159,7 +172,16 @@ export function ConsoleContent({ runtime: rt }: { runtime: Runtime }) {
     (r) => route.project === '所有项目' || r.project === route.project,
   );
   if (route.page === 'task') return <TaskWorkspace runtime={rt} />;
-  if (route.page === 'overview') return <Overview runtime={rt} runs={scoped} />;
+  if (route.page === 'overview')
+    return (
+      <>
+        <StartWork key={rt.route.project} runtime={rt} />
+        <details className="workspace-dashboard">
+          <summary>工作空间概况与运行记录</summary>
+          <Overview runtime={rt} runs={scoped} />
+        </details>
+      </>
+    );
   if (route.page === 'runs') return <TaskList runtime={rt} runs={scoped} />;
   if (['inbox', 'approvals', 'recovery'].includes(route.page))
     return <InboxView runtime={rt} runs={scoped} />;
@@ -201,16 +223,7 @@ function Overview({ runtime: rt, runs }: { runtime: Runtime; runs: Execution[] }
   const active: Execution[] = summary?.active_runs || [];
   return (
     <>
-      <Heading eyebrow="" title="工作台" description="任务的下一步，清楚地在这里。">
-        <Button onClick={() => rt.scenario('active')}>
-          <FlaskConical size={16} />
-          运行契约示例
-        </Button>
-        <Button primary onClick={rt.app.newRun}>
-          <Plus size={17} />
-          创建任务
-        </Button>
-      </Heading>
+      <h2>工作空间概况</h2>
       <div className="overview-stats">
         <button onClick={() => rt.app.navigate('inbox')}>
           <span className="stat-symbol amber">

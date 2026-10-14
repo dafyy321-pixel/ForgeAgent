@@ -23,6 +23,7 @@ export type TaskDraft = {
   allowDelegation?: boolean;
   evidenceRecovery?: boolean;
   referenceTargets?: string[];
+  mode?: 'execute' | 'discuss';
 };
 export type Scenario =
   | 'active'
@@ -69,7 +70,7 @@ function readRoute(): Route {
   return {
     page: id ? 'task' : known.includes(path[0] as Page) ? (path[0] as Page) : 'overview',
     id,
-    tab: q.get('view') || 'timeline',
+    tab: q.get('view') || 'conversation',
     project: q.get('project') || '所有项目',
     q: q.get('q') || '',
     filter: q.get('status') || 'all',
@@ -80,7 +81,7 @@ function url(r: Route) {
   if (r.project !== '所有项目') q.set('project', r.project);
   if (r.q) q.set('q', r.q);
   if (r.filter !== 'all') q.set('status', r.filter);
-  if (r.tab !== 'timeline') q.set('view', r.tab);
+  if (r.tab !== 'conversation') q.set('view', r.tab);
   return `${r.page === 'task' ? `/tasks/${encodeURIComponent(r.id)}` : r.page === 'overview' ? '/' : `/${r.page}`}${q.size ? '?' + q : ''}`;
 }
 export function useRuntime() {
@@ -92,6 +93,11 @@ export function useRuntime() {
     5000,
   );
   const [overlay, setOverlay] = useState<'create' | 'command' | 'notifications' | null>(null);
+  const [createContext, setCreateContext] = useState<{
+    runId: string;
+    draft: TaskDraft;
+    plan: string;
+  } | null>(null);
   const [toast, setToast] = useState('');
   const [now, setNow] = useState(stamp);
   const [evalRunning, setEvalRunning] = useState(false);
@@ -288,8 +294,8 @@ export function useRuntime() {
     setOverlay(null);
   }
   const navigate = (page: Page) =>
-    changeRoute({ ...route, page, id: '', q: '', filter: 'all', tab: 'timeline' });
-  const openRun = (id: string) => changeRoute({ ...route, page: 'task', id, tab: 'timeline' });
+    changeRoute({ ...route, page, id: '', q: '', filter: 'all', tab: 'conversation' });
+  const openRun = (id: string) => changeRoute({ ...route, page: 'task', id, tab: 'conversation' });
   const back = () => {
     if (history.state?.forgeDepth > 0) history.back();
     else navigate('runs');
@@ -365,11 +371,12 @@ export function useRuntime() {
       pending.current.delete(id);
     }
   }
-  async function create(d: TaskDraft) {
+  function specFor(d: TaskDraft): components['schemas']['CreateRun'] {
     const spec: components['schemas']['CreateRun'] = {
       project_id: d.project,
       title: d.title,
       task: {
+        mode: d.mode || 'execute',
         goal: d.description,
         criteria: d.criteria.split('\n').filter(Boolean),
         scope: d.scope,
@@ -386,18 +393,66 @@ export function useRuntime() {
       reference_targets: d.referenceTargets || [],
       capabilities: [
         'repo.read',
-        'workspace.write',
-        'tests.run',
+        ...(d.mode === 'discuss' ? [] : ['workspace.write', 'tests.run']),
         ...(d.allowExternalRead ? ['external.read'] : []),
         ...(d.allowExternal ? ['external.write'] : []),
         ...(d.allowDelegation ? ['delegate'] : []),
         ...(d.referenceTargets?.length ? ['reference.read'] : []),
       ],
     };
-    const r = await api<components['schemas']['RunView']>('/runs', 'POST', spec);
+    return spec;
+  }
+  async function create(d: TaskDraft) {
+    const spec = specFor(d);
+    const r = await api<components['schemas']['RunView']>(
+      createContext ? `/runs/${createContext.runId}/execute` : '/runs',
+      'POST',
+      createContext ? { expected_version: version(createContext.runId), spec } : spec,
+    );
     await refresh();
-    changeRoute({ ...route, page: 'task', id: r.id, project: d.project, tab: 'timeline' });
+    setOverlay(null);
+    setCreateContext(null);
+    changeRoute({ ...route, page: 'task', id: r.id, project: d.project, tab: 'conversation' });
     return r.id;
+  }
+  function prepareExecution(run: WorkspaceState['runs'][number], plan: string) {
+    setCreateContext({
+      runId: run.id,
+      plan,
+      draft: {
+        title: run.title,
+        description: run.description,
+        project: run.project,
+        model: 'configured',
+        criteria: run.criteria.join('\n') || '项目独立验收通过\n修改与确认方案一致',
+        scope: run.scope || '仅修改确认范围内的项目文件',
+        allowedPaths: 'src,tests',
+        budget: stateRef.current.settings.budget,
+        skills: [],
+        evidenceRecovery: true,
+      },
+    });
+    setOverlay('create');
+  }
+  async function discuss(description: string, project: string, budget: number, source?: string) {
+    const spec = specFor({
+      title: description.split('\n')[0].slice(0, 120),
+      description,
+      project,
+      budget,
+      criteria: '',
+      scope: '只读讨论；确认方案后才可修改代码',
+      mode: 'discuss',
+      model: 'configured',
+      skills: [],
+    });
+    const r = await api<components['schemas']['RunView']>(
+      source ? `/runs/${source}/followup` : '/runs',
+      'POST',
+      source ? { expected_version: version(source), spec } : spec,
+    );
+    await refresh();
+    changeRoute({ ...route, page: 'task', id: r.id, project, tab: 'conversation' });
   }
   async function scenario(_kind: Scenario = 'active') {
     try {
@@ -487,7 +542,10 @@ export function useRuntime() {
     selectedRun: state.runs.find((r) => r.id === route.id) || null,
     openRun,
     closeRun: back,
-    newRun: () => setOverlay('create'),
+    newRun: () => {
+      setCreateContext(null);
+      setOverlay('create');
+    },
     updateRun,
     decideApproval: (id, d) => {
       void decide(id, d).then((e) => {
@@ -551,6 +609,9 @@ export function useRuntime() {
     route,
     summary,
     overlay,
+    createContext,
+    prepareExecution,
+    discuss,
     setOverlay,
     toast,
     now,
@@ -575,7 +636,8 @@ export function useRuntime() {
     artifactText,
     downloadArtifact,
     clearFilters: () => changeRoute({ ...route, q: '', filter: 'all' }, true),
-    openTask: (id: string, tab = 'timeline') => changeRoute({ ...route, page: 'task', id, tab }),
+    openTask: (id: string, tab = 'conversation') =>
+      changeRoute({ ...route, page: 'task', id, tab }),
     setFilter: (filter: string) => changeRoute({ ...route, filter }, true),
     setTab: (tab: string) => changeRoute({ ...route, tab }, true),
   };

@@ -17,6 +17,7 @@ test('task creation pins evidence recovery and renders recovery history', async 
   await expect(page.locator('#main-content .run-badge').first()).toHaveText('已验证完成', {
     timeout: 30000,
   });
+  await page.getByText('执行详情', { exact: true }).click();
   await page
     .getByRole('navigation', { name: '任务工作区' })
     .getByRole('button', { name: '恢复诊断', exact: true })
@@ -68,6 +69,7 @@ test('failed independent acceptance displays persisted uncertain diagnosis and e
     )
     .toBeGreaterThan(0);
   await page.goto(`/tasks/${id}`);
+  await page.getByText('执行详情', { exact: true }).click();
   await page
     .getByRole('navigation', { name: '任务工作区' })
     .getByRole('button', { name: '恢复诊断', exact: true })

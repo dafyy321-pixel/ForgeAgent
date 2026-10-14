@@ -38,6 +38,7 @@ import type { Runtime } from './useRuntime';
 import { EventStream, RunBadge, useFollowing } from './TaskViews';
 import { ActionLedger, RealContext, RecoveryHistory } from './RuntimePanels';
 import { CaseReplay } from './CaseReplay';
+import { ConversationPanel } from './Conversation';
 
 export function TaskWorkspace({ runtime: rt }: { runtime: Runtime }) {
   const r = rt.state.runs.find((r) => r.id === rt.route.id);
@@ -67,6 +68,7 @@ function RunWorkspace({ runtime: rt, run: r }: { runtime: Runtime; run: Executio
   const tab = rt.route.tab;
   const approvals = rt.state.approvals.filter((a) => a.runId === r.id);
   const tabs = [
+    ['conversation', '对话'],
     ['timeline', '执行记录'],
     ['actions', '动作账本'],
     ['changes', '变更与产物'],
@@ -89,7 +91,7 @@ function RunWorkspace({ runtime: rt, run: r }: { runtime: Runtime; run: Executio
     }
   }
   return (
-    <div className="task-workspace">
+    <div className={`task-workspace ${tab === 'conversation' ? 'is-conversation' : ''}`}>
       <button className="back-button" onClick={rt.back}>
         <ArrowLeft size={17} />
         返回任务列表
@@ -101,7 +103,7 @@ function RunWorkspace({ runtime: rt, run: r }: { runtime: Runtime; run: Executio
             {r.project}
           </span>
           <span className="mono">{r.id}</span>
-          <span>产物 v{r.version}</span>
+          {r.mode !== 'discuss' && <span>产物 v{r.version}</span>}
         </div>
         <h1>{r.title}</h1>
         <div className="task-heading-bottom">
@@ -168,60 +170,90 @@ function RunWorkspace({ runtime: rt, run: r }: { runtime: Runtime; run: Executio
           </div>
         </div>
       </div>
-      {(r.waitReason || r.cancelRequested || ['PAUSED', 'FAILED', 'QUEUED'].includes(r.status)) && (
-        <div className={`state-banner ${r.status === 'FAILED' ? 'error' : ''}`}>
-          <span>
-            {r.status === 'FAILED' ? (
-              <XCircle size={20} />
-            ) : r.cancelRequested ? (
-              <Clock3 size={20} />
-            ) : (
-              <Info size={20} />
+      {!(r.mode === 'discuss' && r.inputRequired) &&
+        (r.waitReason ||
+          r.cancelRequested ||
+          ['PAUSED', 'FAILED', 'QUEUED'].includes(r.status)) && (
+          <div className={`state-banner ${r.status === 'FAILED' ? 'error' : ''}`}>
+            <span>
+              {r.status === 'FAILED' ? (
+                <XCircle size={20} />
+              ) : r.cancelRequested ? (
+                <Clock3 size={20} />
+              ) : (
+                <Info size={20} />
+              )}
+            </span>
+            <div>
+              <strong>{r.waitReason ? waitLabels[r.waitReason] : r.phase}</strong>
+              <p>
+                {r.cancelRequested
+                  ? '取消不会撤销已发生的外部变更。未完成效果确认前，任务不会恢复或重发。'
+                  : r.waitReason === 'APPROVAL'
+                    ? '请审查明确的目标与影响，授权后才能继续。'
+                    : r.unknownEffect
+                      ? '远端响应丢失，不代表操作失败。请先确认结果。'
+                      : r.status === 'QUEUED'
+                        ? '等待隔离执行资源，不会提前派发工具操作。'
+                        : r.phase}
+              </p>
+            </div>
+            {needsAttention(r) && (
+              <Button
+                onClick={() => rt.setTab(r.waitReason === 'APPROVAL' ? 'review' : 'recovery')}
+              >
+                {r.waitReason === 'APPROVAL' ? '审查操作' : '检查与处理'}
+                <ArrowRight size={15} />
+              </Button>
             )}
-          </span>
-          <div>
-            <strong>{r.waitReason ? waitLabels[r.waitReason] : r.phase}</strong>
-            <p>
-              {r.cancelRequested
-                ? '取消不会撤销已发生的外部变更。未完成效果确认前，任务不会恢复或重发。'
-                : r.waitReason === 'APPROVAL'
-                  ? '请审查明确的目标与影响，授权后才能继续。'
-                  : r.unknownEffect
-                    ? '远端响应丢失，不代表操作失败。请先确认结果。'
-                    : r.status === 'QUEUED'
-                      ? '等待隔离执行资源，不会提前派发工具操作。'
-                      : r.phase}
-            </p>
           </div>
-          {needsAttention(r) && (
-            <Button onClick={() => rt.setTab(r.waitReason === 'APPROVAL' ? 'review' : 'recovery')}>
-              {r.waitReason === 'APPROVAL' ? '审查操作' : '检查与处理'}
-              <ArrowRight size={15} />
-            </Button>
-          )}
+        )}
+      {r.mode !== 'discuss' && (
+        <div className="milestones" aria-label="任务里程碑">
+          {r.milestones.map((m, i) => (
+            <div className={m.done ? 'done' : ''} key={m.label}>
+              <span>{m.done ? <Check size={13} /> : i + 1}</span>
+              {m.label}
+            </div>
+          ))}
         </div>
       )}
-      <div className="milestones" aria-label="任务里程碑">
-        {r.milestones.map((m, i) => (
-          <div className={m.done ? 'done' : ''} key={m.label}>
-            <span>{m.done ? <Check size={13} /> : i + 1}</span>
-            {m.label}
-          </div>
-        ))}
-      </div>
       <nav className="task-tabs" aria-label="任务工作区">
-        {tabs.map(([id, label]) => (
-          <button
-            key={id}
-            className={tab === id ? 'active' : ''}
-            aria-current={tab === id ? 'page' : undefined}
-            onClick={() => rt.setTab(id)}
-          >
-            {label}
-            {id === 'review' && approvals.some((a) => a.status === 'pending') && <i />}
-          </button>
-        ))}
+        {tabs
+          .filter(([id]) => ['conversation', 'changes', 'verification'].includes(id))
+          .map(([id, label]) => (
+            <button
+              key={id}
+              className={tab === id ? 'active' : ''}
+              aria-current={tab === id ? 'page' : undefined}
+              onClick={() => rt.setTab(id)}
+            >
+              {label}
+              {id === 'review' && approvals.some((a) => a.status === 'pending') && <i />}
+            </button>
+          ))}
+        <details
+          className="task-details-tabs"
+          open={!['conversation', 'changes', 'verification'].includes(tab) || undefined}
+        >
+          <summary>执行详情</summary>
+          <div>
+            {tabs
+              .filter(([id]) => !['conversation', 'changes', 'verification'].includes(id))
+              .map(([id, label]) => (
+                <button
+                  key={id}
+                  className={tab === id ? 'active' : ''}
+                  aria-current={tab === id ? 'page' : undefined}
+                  onClick={() => rt.setTab(id)}
+                >
+                  {label}
+                </button>
+              ))}
+          </div>
+        </details>
       </nav>
+      {tab === 'conversation' && <ConversationPanel runtime={rt} run={r} />}
       {tab === 'timeline' && (
         <>
           <div className="task-contract">

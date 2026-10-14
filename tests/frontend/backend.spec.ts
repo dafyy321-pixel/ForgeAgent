@@ -11,6 +11,7 @@ test('durable task completes and opens in a separate browser context', async ({
   await expect(page.locator('#main-content .run-badge').first()).toHaveText('已验证完成', {
     timeout: 30000,
   });
+  await page.getByText('执行详情', { exact: true }).click();
   await page
     .getByRole('navigation', { name: '任务工作区' })
     .getByRole('button', { name: '动作账本', exact: true })

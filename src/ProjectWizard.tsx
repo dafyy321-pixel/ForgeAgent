@@ -65,19 +65,43 @@ export function ProjectWizard({ onDone, onClose }: { onDone: () => void; onClose
     }
   }
   return (
-    <Dialog
-      title="接入 Git 仓库"
-      subtitle="固定版本 → 大小与路径检查 → 登记审核后的验收"
-      onClose={onClose}
-    >
+    <Dialog title="接入 Git 仓库" subtitle="准备文件 → 上传预检 → 确认接入" onClose={onClose}>
       <p>
-        先使用 CLI 的 <code>forge project register --dry-run</code> 检查本地仓库；本向导接收该固定
-        commit 的 Git bundle。依赖镜像、锁文件及验收命令写在受审验收 JSON 中。
+        接入后，可以讨论这个项目、确认修改方案，并下载代码补丁。请选择一个已提交的 Git
+        版本；浏览器上传不会修改你的本地目录。
       </p>
+      <details className="project-preparation">
+        <summary>第一次接入？查看文件准备步骤</summary>
+        <ol>
+          <li>
+            在准备接入的仓库目录中运行以下命令，复制完整版本号并生成上传文件：
+            <pre>
+              <code>{'git rev-parse HEAD\ngit bundle create reviewed.bundle HEAD'}</code>
+            </pre>
+          </li>
+          <li>
+            准备验收
+            JSON，写明真正检查结果的命令（argv）和独立测试（protected_tests）。依赖镜像、锁文件和构建命令放在
+            build 中。
+            <p>
+              可先运行 <code>forge project register 项目ID 仓库目录 acceptance.json --dry-run</code>{' '}
+              检查文件和验收配置。
+            </p>
+          </li>
+          <li>
+            填写下方信息并选择文件。预检通过后，点击“登记已预检项目”。回到首页选择该项目即可开始讨论。
+          </li>
+        </ol>
+        <p className="muted">
+          当前接入 UTF-8 文本代码，展开后约 8 MiB；bundle 上限 16
+          MiB。二进制、符号链接和子模块暂不支持。上传与登记需要管理员权限。
+        </p>
+      </details>
       <label className="field">
         项目 ID
         <input
           value={id}
+          placeholder="例如 my-app-v1，版本更新时使用新 ID"
           onChange={(e) => {
             setId(e.target.value);
             invalidate();
@@ -88,6 +112,7 @@ export function ProjectWizard({ onDone, onClose }: { onDone: () => void; onClose
         完整 Git commit
         <input
           value={commit}
+          placeholder="粘贴 git rev-parse HEAD 的完整输出"
           onChange={(e) => {
             setCommit(e.target.value.trim());
             invalidate();

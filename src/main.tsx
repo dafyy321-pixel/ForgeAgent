@@ -4,6 +4,7 @@ import { useRuntime } from './useRuntime';
 import Twitter from './variants/twitter';
 import { AuthGate } from './AuthGate';
 import './base.css';
+import './conversation.css';
 
 function Workspace() {
   const runtime = useRuntime();
@@ -21,7 +22,7 @@ function Workspace() {
       }
       if (e.altKey && e.key.toLowerCase() === 'n' && !dialog) {
         e.preventDefault();
-        runtime.setOverlay('create');
+        runtime.app.newRun();
       }
     };
     document.addEventListener('keydown', listener);

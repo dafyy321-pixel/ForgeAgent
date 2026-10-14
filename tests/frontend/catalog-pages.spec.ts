@@ -38,6 +38,8 @@ test('overview uses server totals and deliveries reach history independently of 
     });
   });
   await page.goto('/');
+  await page.getByRole('button', { name: '显示辅助信息', exact: true }).click();
+  await page.getByText('工作空间概况与运行记录', { exact: true }).click();
   await expect(page.getByText('58 个任务 · 44 个已验证完成', { exact: true })).toBeVisible();
   await expect(page.locator('.overview-stats')).toContainText('07');
   await expect(page.getByText('$12.35', { exact: true })).toBeVisible();

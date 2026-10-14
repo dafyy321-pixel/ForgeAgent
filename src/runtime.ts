@@ -13,6 +13,11 @@ export interface RunEvent {
   detail: string;
 }
 export interface Execution extends Run {
+  mode?: 'execute' | 'discuss';
+  planReady?: boolean;
+  executionId?: string | null;
+  sourceDiscussionId?: string | null;
+  sourceRunId?: string | null;
   stateVersion?: number;
   inputRequired?: boolean;
   reserved?: number;

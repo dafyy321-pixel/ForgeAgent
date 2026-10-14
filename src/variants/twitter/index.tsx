@@ -42,7 +42,7 @@ export default function Twitter({ runtime: rt }: { runtime: Runtime }) {
   const { app, state, route } = rt;
   const [menu, setMenu] = useState(false);
   const [info, setInfo] = useState(false);
-  const [right, setRight] = useState(true);
+  const [right, setRight] = useState(false);
   const projects = useCatalog<{ id: string }>('/catalog/projects?limit=100');
   const allProjects = Array.from(
     new Set([
@@ -144,11 +144,24 @@ export default function Twitter({ runtime: rt }: { runtime: Runtime }) {
               </select>
             </label>
             {projects.cursor && <Button onClick={() => void projects.more()}>加载更多项目</Button>}
-            <button className="new-task" onClick={app.newRun}>
+            <button className="new-task" onClick={() => go('overview')}>
               <Plus size={18} />
-              创建任务<kbd>Alt N</kbd>
+              新对话
             </button>
             {navigation}
+            <div className="sidebar-recent">
+              <span>最近的工作</span>
+              {state.runs.slice(0, 6).map((run) => (
+                <button
+                  key={run.id}
+                  className={route.id === run.id ? 'selected' : ''}
+                  onClick={() => app.openRun(run.id)}
+                  title={run.title}
+                >
+                  {run.title}
+                </button>
+              ))}
+            </div>
             <div className="sidebar-bottom">
               <button
                 className={`nav-link ${route.page === 'settings' ? 'active' : ''}`}
@@ -269,7 +282,7 @@ export default function Twitter({ runtime: rt }: { runtime: Runtime }) {
           <LayoutList size={21} />
           <span>任务</span>
         </button>
-        <button className="dock-create" aria-label="创建任务" onClick={app.newRun}>
+        <button className="dock-create" aria-label="新对话" onClick={() => go('overview')}>
           <Plus size={23} />
         </button>
         <button aria-label="待我处理" onClick={() => go('inbox')}>
