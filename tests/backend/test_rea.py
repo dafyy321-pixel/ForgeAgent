@@ -22,6 +22,12 @@ from forgeagent.worker import Worker
 RUNTIME = Path(__file__).resolve().parents[2] / ".forge/rea"
 
 
+def test_windows_job_rejects_other_platforms_before_loading_native_libraries(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    with pytest.raises(Fault, match="require Windows"):
+        processes.WindowsJob(None)
+
+
 def test_normal_analyzer_exit_reaps_descendants_before_directory_cleanup(tmp_path):
     marker = tmp_path / "orphan-marker"
     child = "import time,pathlib;time.sleep(.5);pathlib.Path(" + repr(str(marker)) + ").write_text('orphan')"

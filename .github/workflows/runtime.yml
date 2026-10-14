@@ -35,6 +35,10 @@ jobs:
       - run: uv run alembic upgrade head
       - run: uv run ruff check backend tests/backend migrations
       - run: uv run ty check backend/forgeagent
+      - name: Check platform-specific process supervision types
+        run: |
+          uv run ty check backend/forgeagent/processes.py --python-platform linux
+          uv run ty check backend/forgeagent/processes.py --python-platform win32
       - run: npm run lint
       - run: npm run format:check
       - run: npm run types:check
@@ -50,11 +54,22 @@ jobs:
       - run: npm run build
       - name: Start runtime
         run: |
-          uv run uvicorn forgeagent.api:app --host 127.0.0.1 --port 8000 > /tmp/forge-api.log 2>&1 &
-          uv run forge-worker > /tmp/forge-worker.log 2>&1 &
-          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/health/ready && break; sleep 1; done
+          # Long-lived uv run processes hold the cache lock and block setup-uv's post-job prune.
+          .venv/bin/python -m uvicorn forgeagent.api:app --host 127.0.0.1 --port 8000 > /tmp/forge-api.log 2>&1 &
+          echo "FORGE_API_PID=$!" >> "$GITHUB_ENV"
+          .venv/bin/forge-worker > /tmp/forge-worker.log 2>&1 &
+          echo "FORGE_WORKER_PID=$!" >> "$GITHUB_ENV"
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/health/ready && exit 0; sleep 1; done
+          cat /tmp/forge-api.log /tmp/forge-worker.log
+          exit 1
       - run: npx playwright install --with-deps chromium
       - run: npm run test:ui
+      - name: Stop runtime
+        if: always()
+        run: |
+          for pid in "$FORGE_WORKER_PID" "$FORGE_API_PID"; do
+            if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:

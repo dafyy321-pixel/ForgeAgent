@@ -53,7 +53,7 @@ jobs:
       - run: docker build -t forgeagent-sandbox:release-test sandbox
       - name: Start this commit's independent manager
         run: |
-          uv run uvicorn forgeagent.sandbox_manager:app --host 127.0.0.1 --port 18099 > .forge/release-manager.log 2>&1 &
+          .venv/bin/python -m uvicorn forgeagent.sandbox_manager:app --host 127.0.0.1 --port 18099 > .forge/release-manager.log 2>&1 &
           echo "RELEASE_MANAGER_PID=$!" >> "$GITHUB_ENV"
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:18099/openapi.json >/dev/null && exit 0; sleep 1; done
           exit 1

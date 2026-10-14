@@ -4,6 +4,7 @@ import ctypes
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -15,6 +16,8 @@ class WindowsJob:
     """Assign a suspended process before it can create descendants."""
 
     def __init__(self, process):
+        if sys.platform != "win32":
+            raise Fault("REA_SUPERVISION", "Analyzer process jobs require Windows")
         from ctypes import wintypes
 
         kernel = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -58,6 +61,8 @@ class WindowsJob:
             raise
 
     def close(self):
+        if sys.platform != "win32":
+            raise Fault("REA_SUPERVISION", "Analyzer process jobs require Windows")
         if self.handle:
             from ctypes import wintypes
 
