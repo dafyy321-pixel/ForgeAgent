@@ -36,7 +36,7 @@ async def count_request(request):
         elif request["protocol"] == "responses":
             async with openai_client() as client:
                 payload = {k: v for k, v in request["payload"].items()
-                           if k not in {"max_output_tokens", "store", "service_tier", "include", "prompt_cache_key"}}
+                           if k not in {"max_output_tokens", "store", "service_tier", "include", "prompt_cache_key", "stream"}}
                 response = await client.responses.input_tokens.count(**payload)
         else:
             from .domain import canonical
@@ -65,6 +65,17 @@ async def generate(messages, model_id, request=None) -> tuple[str, dict[str, Any
             headers = {"X-Client-Request-Id": request["client_request_id"]} if request.get("client_request_id") else {}
             response = (await client.responses.create(**request["payload"], extra_headers=headers) if request["protocol"] == "responses" else
                         await client.chat.completions.create(**request["payload"], extra_headers=headers))
+            if request["payload"].get("stream"):
+                final = None
+                async with response as events:
+                    async for event in events:
+                        if event.type in {"response.completed", "response.failed", "response.incomplete"}:
+                            if final is not None:
+                                raise Fault("MODEL_STREAM_PROTOCOL", "Stream repeated its terminal response; usage remains uncertain")
+                            final = event.response
+                if final is None:
+                    raise Fault("MODEL_STREAM_INCOMPLETE", "Stream ended without a terminal response; reconcile usage before retrying")
+                response = final
     elif settings.model_provider == "anthropic":
         async with anthropic_client() as client:
             response = await client.messages.create(**request["payload"])

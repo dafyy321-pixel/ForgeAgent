@@ -143,6 +143,10 @@ def build_request(messages, state, catalog):
             raise Fault("MODEL_CAPABILITY", "Selected model profile does not support structured output")
         schema = structured_schema(state, catalog)
     model = state["semantic"]["model_id"]
+    if provider == "anthropic" and settings.model_reasoning_effort is not None:
+        raise Fault("MODEL_CAPABILITY", "Explicit reasoning effort currently requires an OpenAI-compatible profile")
+    if settings.model_stream and (provider != "openai" or protocol != "responses"):
+        raise Fault("MODEL_CAPABILITY", "Streaming currently requires the OpenAI Responses protocol")
     if provider == "anthropic":
         payload = {"model": model, "system": messages[0]["content"], "messages": messages[1:], "max_tokens": settings.max_output}
         if tools:
@@ -152,6 +156,10 @@ def build_request(messages, state, catalog):
     elif protocol == "responses":
         payload = {"model": model, "input": messages, "max_output_tokens": settings.max_output,
                    "store": False, "service_tier": "default", "truncation": "disabled"}
+        if settings.model_reasoning_effort is not None:
+            payload["reasoning"] = {"effort": settings.model_reasoning_effort}
+        if settings.model_stream:
+            payload["stream"] = True
         if tools:
             payload.update(tools=tools, parallel_tool_calls=False, include=["reasoning.encrypted_content"])
         elif schema:
@@ -160,6 +168,8 @@ def build_request(messages, state, catalog):
             payload["text"] = {"format": {"type": "json_object"}}
     else:
         payload = {"model": model, "messages": messages, "max_completion_tokens": settings.max_output}
+        if settings.model_reasoning_effort is not None:
+            payload["reasoning_effort"] = settings.model_reasoning_effort
         if tools:
             payload.update(tools=[{"type": "function", "function": {k: v for k, v in t.items() if k != "type"}} for t in tools], parallel_tool_calls=False)
         elif schema:

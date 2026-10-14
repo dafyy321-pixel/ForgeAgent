@@ -44,6 +44,8 @@ def model_profile():
         "cached_input_price": settings.cached_input_price,
         "cache_write_price": settings.cache_write_price,
         "protocol": settings.model_protocol,
+        "reasoning_effort": settings.model_reasoning_effort,
+        "stream": settings.model_stream,
         "output_mode": settings.model_output_mode,
         "tokenizer": settings.model_tokenizer,
         "token_count": settings.model_token_count,

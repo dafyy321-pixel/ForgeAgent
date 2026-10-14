@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     cached_input_price: float | None = None
     cache_write_price: float | None = None
     model_protocol: Literal["responses", "chat"] = "responses"
+    model_reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None = None
+    model_stream: bool = False
     model_output_mode: Literal["native", "structured", "json"] = "native"
     model_tokenizer: str = "o200k_base"
     model_token_count: bool = True

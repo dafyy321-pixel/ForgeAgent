@@ -68,7 +68,9 @@ def normalize(raw, provider, protocol="responses", rates=None):
             details = raw["prompt_tokens_details" if protocol == "chat" else "input_tokens_details"]
             cached = details["cached_tokens"]
             # A configured separate write tariff requires explicit write accounting.
-            written = details["cache_write_tokens"] if rates.get("cache_write_price") is not None else details.get("cache_write_tokens", 0)
+            written = details.get("cache_write_tokens")
+            if written is None and rates.get("cache_write_price") is None:
+                written = 0
             reasoning = (raw.get("completion_tokens_details" if protocol == "chat" else "output_tokens_details") or {}).get("reasoning_tokens", 0)
             if raw["total_tokens"] != incoming + outgoing:
                 return None
