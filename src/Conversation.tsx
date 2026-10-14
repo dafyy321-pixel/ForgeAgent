@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, ApiError } from './api';
+import { draftKey } from './drafts';
 import { Button } from './components';
 import { useCatalog } from './useCatalog';
 import { useRemote } from './BackendViews';
@@ -120,7 +121,7 @@ function Composer({
 
 function savedDraft() {
   try {
-    return JSON.parse(localStorage.getItem('forge-chat-draft-v1') || '{}');
+    return JSON.parse(localStorage.getItem(draftKey('chat')) || '{}');
   } catch {
     return {};
   }
@@ -141,10 +142,7 @@ export function StartWork({ runtime: rt }: { runtime: Runtime }) {
   const diagnostics = useRemote('/diagnostics');
   useEffect(() => {
     try {
-      localStorage.setItem(
-        'forge-chat-draft-v1',
-        JSON.stringify({ text, project: selected, budget }),
-      );
+      localStorage.setItem(draftKey('chat'), JSON.stringify({ text, project: selected, budget }));
     } catch {}
   }, [text, selected, budget]);
   async function start() {
@@ -162,7 +160,7 @@ export function StartWork({ runtime: rt }: { runtime: Runtime }) {
     setError('');
     try {
       await rt.discuss(text.trim(), selected, budget);
-      localStorage.removeItem('forge-chat-draft-v1');
+      localStorage.removeItem(draftKey('chat'));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -395,7 +393,7 @@ function MessageText({ text }: { text: string }) {
 export function ConversationPanel({ runtime: rt, run: r }: { runtime: Runtime; run: Execution }) {
   const remote = useRemote(`/runs/${r.id}/conversation`, 2500);
   const history = remote.data as Conversation | null;
-  const storageKey = `forge-chat-reply-${r.id}`;
+  const storageKey = draftKey(`reply-${r.id}`);
   const [text, setText] = useState(() => {
     try {
       return localStorage.getItem(storageKey) || '';

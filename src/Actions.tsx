@@ -6,6 +6,7 @@ import type { Execution } from './runtime';
 import { useCatalog } from './useCatalog';
 import type { Runtime, TaskDraft } from './useRuntime';
 import { useRemote } from './BackendViews';
+import { draftKey } from './drafts';
 
 export function ActionOverlays({ runtime: rt }: { runtime: Runtime }) {
   const close = () => rt.setOverlay(null);
@@ -45,7 +46,7 @@ function Notifications({ runtime: rt, close }: { runtime: Runtime; close: () => 
 function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => void }) {
   const projects = useCatalog<{ id: string }>('/catalog/projects?limit=100');
   const connections = useRemote('/connections');
-  const key = 'forge-task-draft-v2';
+  const key = draftKey('task');
   const [draft, setDraft] = useState<TaskDraft>(() => {
     if (rt.createContext) return rt.createContext.draft;
     try {

@@ -759,7 +759,15 @@ export function EventStream({
         />
       )}
       {!compact && rt.state.event_next_cursor && (
-        <Button onClick={() => void rt.loadOlderEvents()}>加载更早记录</Button>
+        <Button
+          onClick={() => {
+            void rt.loadOlderEvents().then((ids) => {
+              if (ids) setVisible((old) => new Set([...old, ...ids]));
+            });
+          }}
+        >
+          加载更早记录
+        </Button>
       )}
       <div ref={bottom} />
     </div>

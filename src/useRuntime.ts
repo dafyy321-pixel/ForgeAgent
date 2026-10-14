@@ -114,6 +114,8 @@ export function useRuntime() {
   routeRef.current = route;
   const revision = useRef('');
   const refreshAbort = useRef<AbortController | null>(null);
+  const pageDepth = useRef(1);
+  const eventDepth = useRef(1);
   function workspacePath(cursor?: string) {
     const current = routeRef.current;
     const query = new URLSearchParams();
@@ -151,6 +153,34 @@ export function useRuntime() {
       const next = await api<WorkspaceState>(workspacePath(), 'GET', undefined, undefined, {
         signal: controller.signal,
       });
+      // Reload the same depth using fresh server cursors. Reusing old records
+      // could retain tasks to which access has since been revoked.
+      for (let page = 1; page < pageDepth.current && next.next_cursor; page++) {
+        const more = await api<WorkspaceState>(
+          workspacePath(next.next_cursor),
+          'GET',
+          undefined,
+          undefined,
+          { signal: controller.signal },
+        );
+        next.runs.push(...more.runs.filter((r) => !next.runs.some((old) => old.id === r.id)));
+        next.artifacts.push(
+          ...more.artifacts.filter((r) => !next.artifacts.some((old) => old.id === r.id)),
+        );
+        next.next_cursor = more.next_cursor;
+      }
+      const id = routeRef.current.id;
+      for (let page = 1; id && page < eventDepth.current && next.event_next_cursor; page++) {
+        const more = await api<{ items: RunEvent[]; next_cursor: string | null }>(
+          `/catalog/events?run_id=${encodeURIComponent(id)}&cursor=${encodeURIComponent(next.event_next_cursor)}&limit=100`,
+          'GET',
+          undefined,
+          undefined,
+          { signal: controller.signal },
+        );
+        next.events.push(...more.items.filter((r) => !next.events.some((old) => old.id === r.id)));
+        next.event_next_cursor = more.next_cursor;
+      }
       if (seq === requestSequence.current) {
         setState(next);
         setStorageError('');
@@ -171,8 +201,10 @@ export function useRuntime() {
     try {
       const next = await api<WorkspaceState>(workspacePath(cursor));
       if (sequence !== requestSequence.current) return;
+      pageDepth.current++;
       setState((previous) => ({
-        ...next,
+        ...previous,
+        next_cursor: next.next_cursor,
         runs: [
           ...previous.runs,
           ...next.runs.filter((run) => !previous.runs.some((old) => old.id === run.id)),
@@ -199,6 +231,7 @@ export function useRuntime() {
         `/catalog/events?run_id=${encodeURIComponent(id)}&cursor=${encodeURIComponent(cursor)}&limit=100`,
       );
       if (sequence !== requestSequence.current || id !== routeRef.current.id) return;
+      eventDepth.current++;
       setState((previous) => ({
         ...previous,
         event_next_cursor: page.next_cursor,
@@ -207,12 +240,17 @@ export function useRuntime() {
           ...page.items.filter((item) => !previous.events.some((old) => old.id === item.id)),
         ],
       }));
+      return page.items.map((item) => item.id);
     } catch (error) {
       setToast((error as Error).message);
     }
   }
   useEffect(() => {
     revision.current = '';
+    pageDepth.current = 1;
+    eventDepth.current = 1;
+    setState(empty);
+    setLoading(true);
     void refresh();
   }, [route.project, route.q, route.filter, route.id, route.page]);
   useEffect(() => {

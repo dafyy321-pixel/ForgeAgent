@@ -121,6 +121,8 @@ test('OIDC authorization code callback verifies PKCE and restores the task route
   let nonce = '';
   let challenge = '';
   let verifier = '';
+  let tokenCalls = 0;
+  let silentCallback = '';
   await page.route('**/v1/auth/config', (route) =>
     route.fulfill({
       json: {
@@ -152,12 +154,14 @@ test('OIDC authorization code callback verifies PKCE and restores the task route
       challenge = url.searchParams.get('code_challenge') || '';
       expect(url.searchParams.get('code_challenge_method')).toBe('S256');
       const callback = new URL(url.searchParams.get('redirect_uri')!);
+      if (url.searchParams.get('prompt') === 'none') silentCallback = callback.pathname;
       callback.searchParams.set('state', url.searchParams.get('state')!);
       callback.searchParams.set('code', 'fixture-code');
       await route.fulfill({ status: 302, headers: { location: callback.href } });
       return;
     }
     if (url.pathname === '/token') {
+      tokenCalls++;
       const form = new URLSearchParams(route.request().postData()!);
       verifier = form.get('code_verifier') || '';
       expect(form.get('code')).toBe('fixture-code');
@@ -177,9 +181,9 @@ test('OIDC authorization code callback verifies PKCE and restores the task route
         '.fixture-signature';
       await route.fulfill({
         json: {
-          access_token: 'fixture-access',
+          access_token: tokenCalls === 1 ? 'fixture-access' : 'renewed-access',
           token_type: 'Bearer',
-          expires_in: 600,
+          expires_in: tokenCalls === 1 ? 61 : 600,
           id_token: jwt,
         },
       });
@@ -196,8 +200,25 @@ test('OIDC authorization code callback verifies PKCE and restores the task route
   expect(await page.evaluate(() => sessionStorage.getItem('forge-access-token'))).toBe(
     'fixture-access',
   );
+  await expect.poll(() => tokenCalls).toBe(2);
+  expect(silentCallback).toBe('/auth/silent-callback');
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem('forge-access-token')))
+    .toBe('renewed-access');
+  // Logout clears only this identity's drafts, and preserves other accounts.
+  await page.evaluate(async () => {
+    const drafts = await import('/src/drafts.ts');
+    localStorage.setItem(drafts.draftKey('chat'), 'private requirement');
+    localStorage.setItem('forge-draft:another-account:chat', 'other requirement');
+  });
   await page.getByRole('button', { name: '退出登录' }).click();
   await expect(page.getByRole('button', { name: '登录工作空间' })).toBeVisible();
+  expect(await page.evaluate(() => Object.values(localStorage))).not.toContain(
+    'private requirement',
+  );
+  expect(await page.evaluate(() => localStorage.getItem('forge-draft:another-account:chat'))).toBe(
+    'other requirement',
+  );
 });
 
 test('sealed dataset metadata and erased reports render without disclosing missing bodies', async ({

@@ -100,6 +100,7 @@ export function ProjectWizard({ onDone, onClose }: { onDone: () => void; onClose
       <label className="field">
         项目 ID
         <input
+          disabled={busy}
           value={id}
           placeholder="例如 my-app-v1，版本更新时使用新 ID"
           onChange={(e) => {
@@ -111,6 +112,7 @@ export function ProjectWizard({ onDone, onClose }: { onDone: () => void; onClose
       <label className="field">
         完整 Git commit
         <input
+          disabled={busy}
           value={commit}
           placeholder="粘贴 git rev-parse HEAD 的完整输出"
           onChange={(e) => {
@@ -122,6 +124,7 @@ export function ProjectWizard({ onDone, onClose }: { onDone: () => void; onClose
       <label className="field">
         Git bundle
         <input
+          disabled={busy}
           type="file"
           accept=".bundle"
           onChange={(e) => {
@@ -133,6 +136,7 @@ export function ProjectWizard({ onDone, onClose }: { onDone: () => void; onClose
       <label className="field">
         验收与依赖 JSON
         <input
+          disabled={busy}
           type="file"
           accept=".json"
           onChange={(e) => {
@@ -145,7 +149,8 @@ export function ProjectWizard({ onDone, onClose }: { onDone: () => void; onClose
       {result && (
         <div role="status">
           <p>
-            预检通过：{result.files} 个文件，固定 commit {result.commit}。
+            预检通过：项目 {id}，{result.files} 个文件，固定 commit {result.commit}，验收文件{' '}
+            {contract?.name}。
           </p>
           <p>尚未执行独立验收。登记后可创建受预算约束的任务；配置的沙箱与依赖环境仍需实际检查。</p>
           <details>

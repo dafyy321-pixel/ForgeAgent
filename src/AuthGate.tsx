@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { UserManager, WebStorageStateStore } from 'oidc-client-ts';
+import { clearAccountDrafts, setDraftPrincipal } from './drafts';
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<'loading' | 'ready' | 'login' | 'error'>('loading');
@@ -14,6 +15,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
       const config = await response.json();
       if (!alive) return;
       if (config.mode === 'local') {
+        sessionStorage.removeItem('forge-access-token');
+        sessionStorage.removeItem('forge-draft-principal');
         setState('ready');
         return;
       }
@@ -23,6 +26,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         scope: config.scope,
         response_type: 'code',
         redirect_uri: location.origin + '/auth/callback',
+        silent_redirect_uri: location.origin + '/auth/silent-callback',
         post_logout_redirect_uri: location.origin + '/',
         userStore: new WebStorageStateStore({ store: sessionStorage }),
         stateStore: new WebStorageStateStore({ store: sessionStorage }),
@@ -30,8 +34,18 @@ export function AuthGate({ children }: { children: ReactNode }) {
         loadUserInfo: false,
         extraQueryParams: config.audience ? { audience: config.audience } : undefined,
       });
+      if (location.pathname === '/auth/silent-callback') {
+        await current.signinSilentCallback();
+        return;
+      }
       setManager(current);
       current.events.addUserLoaded((user) => {
+        setDraftPrincipal(
+          config.authority,
+          user.profile.sub,
+          user.profile.tenant_id,
+          user.access_token,
+        );
         sessionStorage.setItem('forge-access-token', user.access_token);
         if (alive) setState('ready');
       });
@@ -58,6 +72,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
       } else user = await current.getUser();
       if (!alive) return;
       if (user && !user.expired) {
+        setDraftPrincipal(
+          config.authority,
+          user.profile.sub,
+          user.profile.tenant_id,
+          user.access_token,
+        );
         sessionStorage.setItem('forge-access-token', user.access_token);
         setState('ready');
       } else {
@@ -83,6 +103,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
           <button
             className="auth-logout"
             onClick={() => {
+              clearAccountDrafts();
               sessionStorage.removeItem('forge-access-token');
               setState('login');
               void manager.removeUser();

@@ -5,6 +5,10 @@ test('repository wizard validates inputs, uploads raw bytes and requires reviewe
 }) => {
   let uploaded = false;
   let registered = false;
+  let releasePreflight!: () => void;
+  const preflightGate = new Promise<void>((resolve) => {
+    releasePreflight = resolve;
+  });
   await page.route('**/v1/repository-bundles/*', async (route) => {
     expect(route.request().headers()['content-type']).toBe('application/octet-stream');
     expect(route.request().postDataBuffer()?.toString()).toBe('fixture-bundle');
@@ -16,6 +20,7 @@ test('repository wizard validates inputs, uploads raw bytes and requires reviewe
     const data = route.request().postDataJSON();
     expect(data.repository.commit).toBe('a'.repeat(40));
     expect(data.repository.bundle_base64).toBeUndefined();
+    await preflightGate;
     await route.fulfill({
       json: {
         files: 3,
@@ -46,6 +51,10 @@ test('repository wizard validates inputs, uploads raw bytes and requires reviewe
     buffer: Buffer.from(JSON.stringify({ id: 'check@1', argv: ['python', '-m', 'unittest'] })),
   });
   await dialog.getByRole('button', { name: '上传并预检' }).click();
+  await expect(dialog.getByLabel('项目 ID', { exact: true })).toBeDisabled();
+  await expect(dialog.getByLabel('完整 Git commit')).toBeDisabled();
+  await expect(dialog.getByLabel('验收与依赖 JSON')).toBeDisabled();
+  releasePreflight();
   await expect(dialog.getByRole('status')).toContainText('尚未执行独立验收');
   await dialog.getByRole('button', { name: '登记已预检项目' }).click();
   await expect(dialog).toHaveCount(0);
