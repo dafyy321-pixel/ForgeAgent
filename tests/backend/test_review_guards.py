@@ -92,3 +92,19 @@ def test_parent_cancel_and_child_event_commit_without_deadlock_or_lost_state(ten
         assert parent.cancel_requested and child.cancel_requested
         assert child.state["review_child_progress"] == "committed"
         assert rebuild(s, tenant, child_id) == db.projection(child)
+
+
+def test_user_status_does_not_mix_failure_reason_with_machine_phase(tenant, make_run, client):
+    run_id = make_run()
+    with db.transaction(tenant) as s:
+        run = db.get(s, db.Run, tenant, run_id)
+        run.status, run.phase = "PAUSED", "PLANNING"
+        run.state = {**run.state, "reason": "MODEL_NOT_CONFIGURED: Configure model credentials and ID, then resume"}
+    view = client.get(f"/v1/runs/{run_id}").json()
+    assert view["phase"] == "PLANNING"
+    assert view["reason_code"] == "MODEL_NOT_CONFIGURED"
+    assert "尚未配置模型" in view["user_message"] and view["next_action"]["href"] == "/settings"
+    with db.transaction(tenant) as s:
+        run = db.get(s, db.Run, tenant, run_id)
+        run.status, run.phase = "SUCCEEDED", "VERIFYING"
+    assert client.get(f"/v1/runs/{run_id}").json()["user_message"] == "验收已通过"

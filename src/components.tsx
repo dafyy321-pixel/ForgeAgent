@@ -56,6 +56,42 @@ export function Empty({
     </div>
   );
 }
+export function QueryState({
+  loading,
+  error,
+  empty,
+  onRetry,
+  title,
+  description,
+  children,
+}: {
+  loading: boolean;
+  error: string;
+  empty: boolean;
+  onRetry: () => void;
+  title: string;
+  description: string;
+  children?: ReactNode;
+}) {
+  if (loading)
+    return (
+      <p role="status">
+        <LoaderCircle size={17} /> 正在加载…
+      </p>
+    );
+  if (error)
+    return (
+      <div role="alert">
+        <p>加载失败：{error}</p>
+        <Button onClick={onRetry}>重试</Button>
+      </div>
+    );
+  return empty ? (
+    <Empty title={title} description={description}>
+      {children}
+    </Empty>
+  ) : null;
+}
 export function Heading({
   eyebrow,
   title,

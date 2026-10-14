@@ -29,6 +29,7 @@ import { Button, Dialog, Empty } from './components';
 import {
   checksFor,
   needsAttention,
+  runMessage,
   relativeTime,
   waitLabels,
   type Decision,
@@ -185,7 +186,7 @@ function RunWorkspace({ runtime: rt, run: r }: { runtime: Runtime; run: Executio
               )}
             </span>
             <div>
-              <strong>{r.waitReason ? waitLabels[r.waitReason] : r.phase}</strong>
+              <strong>{runMessage(r)}</strong>
               <p>
                 {r.cancelRequested
                   ? '取消不会撤销已发生的外部变更。未完成效果确认前，任务不会恢复或重发。'
@@ -195,9 +196,20 @@ function RunWorkspace({ runtime: rt, run: r }: { runtime: Runtime; run: Executio
                       ? '远端响应丢失，不代表操作失败。请先确认结果。'
                       : r.status === 'QUEUED'
                         ? '等待隔离执行资源，不会提前派发工具操作。'
-                        : r.phase}
+                        : '执行现场已保存，可查看诊断信息并处理恢复条件。'}
               </p>
+              {r.reason_detail && (
+                <details>
+                  <summary>诊断详情</summary>
+                  <code>{r.reason_detail}</code>
+                </details>
+              )}
             </div>
+            {r.next_action && (
+              <a className="text-action" href={r.next_action.href}>
+                {r.next_action.label}
+              </a>
+            )}
             {needsAttention(r) && (
               <Button
                 onClick={() => rt.setTab(r.waitReason === 'APPROVAL' ? 'review' : 'recovery')}

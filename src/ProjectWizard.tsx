@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from './api';
 import { Button, Dialog } from './components';
+import { acceptanceTemplates, validateAcceptance } from './acceptanceTemplates';
 
 export function ProjectWizard({ onDone, onClose }: { onDone: () => void; onClose: () => void }) {
   const [id, setId] = useState('');
@@ -24,11 +25,14 @@ export function ProjectWizard({ onDone, onClose }: { onDone: () => void; onClose
     setError('');
     invalidate();
     try {
-      if (!id.trim() || !/^[a-f0-9]{40}([a-f0-9]{24})?$/.test(commit) || !bundle || !contract)
+      if (!/^[a-zA-Z0-9_-]{1,80}$/.test(id.trim()))
+        throw Error('项目 ID：使用 1–80 个字母、数字、下划线或短横线。');
+      if (!/^[a-f0-9]{40}([a-f0-9]{24})?$/.test(commit) || !bundle || !contract)
         throw Error('填写项目 ID、完整 commit，并选择 Git bundle 和验收 JSON。');
       if (bundle.size > 16 * 1024 * 1024 || contract.size > 2 * 1024 * 1024)
         throw Error('bundle 上限 16 MiB；验收与元数据 JSON 上限 2 MiB。');
       const acceptance = JSON.parse(await contract.text());
+      validateAcceptance(acceptance);
       const { build = {}, ...tests } = acceptance;
       const checksum = Array.from(
         new Uint8Array(await crypto.subtle.digest('SHA-256', await bundle.arrayBuffer())),
@@ -97,6 +101,28 @@ export function ProjectWizard({ onDone, onClose }: { onDone: () => void; onClose
           MiB。二进制、符号链接和子模块暂不支持。上传与登记需要管理员权限。
         </p>
       </details>
+      <div className="project-preparation">
+        <p>
+          下载最小验收示例，再替换其中的函数路径和行为断言。Python 示例使用标准库；Node
+          示例使用内置测试工具，执行镜像必须提供相应运行时。需要第三方依赖时，请由管理员准备固定的依赖镜像与锁文件。
+        </p>
+        <div className="button-row">
+          {Object.entries(acceptanceTemplates).map(([language, example]) => (
+            <a
+              key={language}
+              className="btn"
+              download={`acceptance-${language}.json`}
+              href={
+                'data:application/json;charset=utf-8,' +
+                encodeURIComponent(JSON.stringify(example, null, 2))
+              }
+            >
+              下载 {language === 'python' ? 'Python' : 'Node.js'} 验收示例
+            </a>
+          ))}
+        </div>
+        <p className="muted">上传和登记由管理员完成；项目成员接入后选择项目、提出需求即可。</p>
+      </div>
       <label className="field">
         项目 ID
         <input

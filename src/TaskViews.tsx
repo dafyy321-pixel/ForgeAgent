@@ -28,12 +28,13 @@ import {
   TriangleAlert,
   Workflow,
 } from './icons';
-import { Button, Dialog, Empty, Heading, Panel } from './components';
+import { Button, Dialog, Empty, Heading, Panel, QueryState } from './components';
 import { useCatalog } from './useCatalog';
 import { WorkbenchView } from './Views';
 import type { Runtime, Scenario } from './useRuntime';
 import {
   needsAttention,
+  runMessage,
   relativeTime,
   statusText,
   waitLabels,
@@ -138,7 +139,12 @@ export function TaskRow({
       {!compact && (
         <p className={`task-phase ${needsAttention(r) ? 'attention-text' : ''}`}>
           {needsAttention(r) ? <TriangleAlert size={15} /> : <GitBranch size={15} />}
-          <span>{r.waitReason ? waitLabels[r.waitReason] : r.phase}</span>
+          <span>{runMessage(r)}</span>
+          {r.next_action && (
+            <a className="text-action" href={r.next_action.href}>
+              {r.next_action.label}
+            </a>
+          )}
           <span className="task-cost">
             ${r.cost.toFixed(2)} / ${r.budget.toFixed(2)}
           </span>
@@ -530,18 +536,23 @@ function InboxView({ runtime: rt, runs }: { runtime: Runtime; runs: Execution[] 
           {items.map((r) => (
             <TaskRow key={r.id} run={r} runtime={rt} />
           ))}
-          {!items.length && (
-            <Empty
-              title="当前没有待处理事项"
-              description="新的审批、故障和结果待确认事项会出现在这里。"
-            >
-              <Button onClick={() => rt.app.navigate('runs')}>查看任务</Button>
-            </Empty>
-          )}
+          <QueryState
+            loading={query.loading}
+            error={query.error}
+            empty={!items.length}
+            onRetry={() => void query.reload()}
+            title="当前没有待处理事项"
+            description="新的审批、故障和结果待确认事项会出现在这里。"
+          >
+            <Button onClick={() => rt.app.navigate('runs')}>查看任务</Button>
+          </QueryState>
         </div>
       )}
-      {(history ? approvals.error : query.error) && (
-        <p role="alert">{history ? approvals.error : query.error}</p>
+      {history && approvals.error && (
+        <p role="alert">
+          {approvals.error}
+          <Button onClick={() => void approvals.reload()}>重试</Button>
+        </p>
       )}
       {(history ? approvals.cursor : query.cursor) && (
         <Button

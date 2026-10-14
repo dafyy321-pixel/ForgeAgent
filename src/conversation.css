@@ -630,8 +630,25 @@
     max-width: 170px;
   }
   .chat-send {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
+  }
+  .forge-console .search-trigger {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .composer-project select,
+  .composer-options .text-action,
+  .chat-budget summary {
+    min-height: 44px;
+    padding: 10px 4px;
+    font-size: 14px;
+  }
+  .composer-hint,
+  .welcome-description,
+  .composer-mode,
+  .confirmed-plan-preview p {
+    font-size: 14px;
   }
   .chat-plan-confirm {
     flex-direction: column;

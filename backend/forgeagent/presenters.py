@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from . import db, service
 from .auth import run_access
 from .domain import canonical, digest
+from .task_status import presentation
 
 
 def run_cache(s, runs):
@@ -45,7 +46,8 @@ def run_view(s, r, cache=None):
         "description": st["task"]["goal"],
         "project": r.project_id,
         "status": r.status,
-        "phase": st.get("reason") if r.status == "PAUSED" else r.phase,
+        "phase": r.phase,
+        **presentation(r),
         "progress": 100 if r.status == "SUCCEEDED" else 0,
         "progress_kind": "verified" if r.status == "SUCCEEDED" else "indeterminate",
         "progress_facts": st.get("progress", {}),
@@ -84,7 +86,7 @@ def run_view(s, r, cache=None):
             "workspace": bool(st.get("workspace_ref")),
             "compatible": semantic.get("implementation") == service.implementation_bindings()
             and semantic["tools_digest"] == digest(service.TOOLS),
-            "permission": set(st["capabilities"])
+            "permission": bool(authorization and authorization.status == "active") and set(st["capabilities"])
             <= set(authorization.data.get("capabilities", []) if authorization else []),
             "environment": st.get("environment_ready") is True,
             "environment_status": "ready" if st.get("environment_ready") is True else "unavailable" if st.get("environment_ready") is False else "unknown",

@@ -24,7 +24,7 @@ import {
   TriangleAlert,
 } from './icons';
 import type { Runtime } from './useRuntime';
-import type { Execution } from './runtime';
+import { runMessage, type Execution } from './runtime';
 
 type Message = { id: string; role: 'user' | 'assistant'; content: string; time: string };
 type Conversation = {
@@ -37,6 +37,8 @@ type Conversation = {
 };
 
 function phaseLabel(run: Execution) {
+  if (run.user_message || ['SUCCEEDED', 'FAILED', 'CANCELLED', 'PAUSED'].includes(run.status))
+    return runMessage(run);
   const labels: Record<string, string> = {
     QUEUED: '等待开始',
     CREATED: '准备任务',
@@ -597,7 +599,7 @@ export function ConversationPanel({ runtime: rt, run: r }: { runtime: Runtime; r
                 : r.status === 'PAUSED'
                   ? r.inputRequired
                     ? '等待你的回复。讨论阶段不会修改代码。'
-                    : r.phase
+                    : runMessage(r)
                   : '正在阅读项目并整理回复…'
               : phaseLabel(r)}
           </span>

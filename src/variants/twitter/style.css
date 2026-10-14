@@ -2099,10 +2099,12 @@
     min-height: 44px;
   }
   .header-actions .icon-btn {
-    min-width: 36px;
+    min-width: 44px;
+    min-height: 44px;
   }
   .console-topbar .mobile-menu {
-    min-width: 34px;
+    min-width: 44px;
+    min-height: 44px;
   }
   .mobile-dock {
     display: flex !important;

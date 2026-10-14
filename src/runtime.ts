@@ -13,6 +13,10 @@ export interface RunEvent {
   detail: string;
 }
 export interface Execution extends Run {
+  user_message?: string;
+  reason_code?: string | null;
+  reason_detail?: string;
+  next_action?: { label: string; href: string } | null;
   mode?: 'execute' | 'discuss';
   planReady?: boolean;
   executionId?: string | null;
@@ -101,6 +105,12 @@ export const statusText: Record<Run['status'], string> = {
   FAILED: '执行失败',
   CANCELLED: '已取消',
 };
+export function runMessage(run: Execution) {
+  if (run.user_message) return run.user_message;
+  if (run.status === 'SUCCEEDED') return '验收已通过';
+  if (run.status === 'PAUSED') return run.planReady ? '等待确认方案' : '任务已暂停，请检查恢复条件';
+  return run.waitReason ? waitLabels[run.waitReason] : statusText[run.status];
+}
 export const projects = ['forge-api', 'console-web', 'data-pipeline', 'search-service'];
 export function stamp() {
   return Date.now();

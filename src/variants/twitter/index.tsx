@@ -195,7 +195,11 @@ export default function Twitter({ runtime: rt }: { runtime: Runtime }) {
                 </span>
               </div>
               <div className="header-actions">
-                <button className="search-trigger" onClick={app.command}>
+                <button
+                  className="search-trigger"
+                  aria-label="搜索任务与页面"
+                  onClick={app.command}
+                >
                   <Search size={16} />
                   <span>搜索任务与页面</span>
                   <kbd>⌘ K</kbd>

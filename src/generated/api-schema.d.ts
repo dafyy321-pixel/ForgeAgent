@@ -2061,6 +2061,13 @@ export interface components {
              */
             erase_derived_runs: true;
         };
+        /** NextAction */
+        NextAction: {
+            /** Label */
+            label: string;
+            /** Href */
+            href: string;
+        };
         /** ProjectInput */
         ProjectInput: {
             /** Id */
@@ -2238,6 +2245,13 @@ export interface components {
             status: "QUEUED" | "ACTIVE" | "WAITING" | "PAUSED" | "CANCELLING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
             /** Phase */
             phase: string;
+            /** Reason Code */
+            reason_code: string | null;
+            /** Reason Detail */
+            reason_detail: string;
+            /** User Message */
+            user_message: string;
+            next_action: components["schemas"]["NextAction"] | null;
             /** Stateversion */
             stateVersion: number;
             /** Cost */

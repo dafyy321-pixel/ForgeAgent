@@ -48,7 +48,13 @@ test('repository wizard validates inputs, uploads raw bytes and requires reviewe
   await dialog.getByLabel('验收与依赖 JSON').setInputFiles({
     name: 'acceptance.json',
     mimeType: 'application/json',
-    buffer: Buffer.from(JSON.stringify({ id: 'check@1', argv: ['python', '-m', 'unittest'] })),
+    buffer: Buffer.from(
+      JSON.stringify({
+        id: 'check@1',
+        argv: ['python', '-m', 'unittest'],
+        protected_tests: { 'tests/check.py': 'assert 2 + 3 == 5' },
+      }),
+    ),
   });
   await dialog.getByRole('button', { name: '上传并预检' }).click();
   await expect(dialog.getByLabel('项目 ID', { exact: true })).toBeDisabled();

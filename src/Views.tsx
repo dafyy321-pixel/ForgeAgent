@@ -52,6 +52,7 @@ import {
   Button,
   Dialog,
   Empty,
+  QueryState,
   Heading,
   Metric,
   Panel,
@@ -185,7 +186,16 @@ function Skills({ app }: { app: AppController }) {
             </article>
           ))}
       </div>
-      {catalog.error && <p role="alert">{catalog.error}</p>}
+      <QueryState
+        loading={catalog.loading}
+        error={catalog.error}
+        empty={!app.skills.some((s) => filter === '全部' || s.category === filter)}
+        onRetry={() => void catalog.reload()}
+        title="暂无技能"
+        description="技能用于复用审核过的方法。管理员可以登记候选版本，完成评测后启用。"
+      >
+        <Button onClick={() => setAdding(true)}>登记技能版本</Button>
+      </QueryState>
       {catalog.cursor && (
         <Button disabled={catalog.loading} onClick={() => void catalog.more()}>
           加载更多技能

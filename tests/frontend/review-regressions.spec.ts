@@ -101,3 +101,56 @@ test('draft namespaces separate identities, tenants and legacy drafts', async ({
     removed: null,
   });
 });
+
+test('inbox distinguishes loading, error and empty; skills give a next step', async ({ page }) => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let fail = true;
+  await page.route('**/v1/runs?*', async (route) => {
+    await gate;
+    await route.fulfill(
+      fail
+        ? { status: 503, json: { code: 'UNAVAILABLE', message: 'test unavailable' } }
+        : { json: { items: [], next_cursor: null } },
+    );
+  });
+  await page.goto('/inbox');
+  const main = page.locator('#main-content');
+  await expect(main.getByRole('status')).toContainText('正在加载');
+  await expect(main.getByText('当前没有待处理事项')).toHaveCount(0);
+  release();
+  await expect(main.getByRole('alert')).toContainText('加载失败');
+  fail = false;
+  await main.getByRole('button', { name: '重试', exact: true }).click();
+  await expect(main.getByText('当前没有待处理事项')).toBeVisible();
+  await page.route('**/v1/catalog/skills?*', (route) =>
+    route.fulfill({ json: { items: [], next_cursor: null } }),
+  );
+  await page.goto('/skills');
+  await expect(main.getByRole('heading', { name: '暂无技能' })).toBeVisible();
+  await expect(
+    main.locator('.empty-state').getByRole('button', { name: '登记技能版本' }),
+  ).toBeVisible();
+});
+
+test('mobile primary actions keep the Forge icons and have 44px touch targets', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto('/');
+  for (const control of [
+    page.getByRole('combobox', { name: '选择工作项目' }),
+    page.getByRole('button', { name: '接入项目', exact: true }),
+    page.getByRole('button', { name: '发送消息' }),
+    page.getByRole('button', { name: /搜索任务与页面/ }),
+  ]) {
+    const size = await control.boundingBox();
+    expect(size?.height).toBeGreaterThanOrEqual(44);
+    expect(size?.width).toBeGreaterThanOrEqual(44);
+  }
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
+  ).toBeTruthy();
+});

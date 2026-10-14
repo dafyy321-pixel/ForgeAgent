@@ -5,12 +5,21 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class NextAction(BaseModel):
+    label: str
+    href: str
+
+
 class RunView(BaseModel):
     model_config = ConfigDict(extra="allow")
     id: str
     title: str
     status: Literal["QUEUED", "ACTIVE", "WAITING", "PAUSED", "CANCELLING", "SUCCEEDED", "FAILED", "CANCELLED"]
     phase: str
+    reason_code: str | None
+    reason_detail: str
+    user_message: str
+    next_action: NextAction | None
     stateVersion: int = Field(ge=1)
     cost: float = Field(ge=0)
     reserved: float = Field(ge=0)

@@ -4,7 +4,7 @@ import { api } from './api';
 export function useCatalog<T extends { id: string }>(path: string) {
   const [items, setItems] = useState<T[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const generation = useRef(0);
   const request = useRef<AbortController | null>(null);
