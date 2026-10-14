@@ -127,7 +127,15 @@ def authorization(s, run, capability=None):
     return current
 
 
-def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_id=None, admin=False):
+def lock_request_key(s, tenant, actor, key):
+    if not key or len(key) > 200:
+        raise Fault("IDEMPOTENCY_REQUIRED", "A bounded Idempotency-Key is required", 422)
+    hashed = digest({"actor": actor, "key": key})
+    s.execute(db.text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": tenant + ":" + hashed})
+    return hashed
+
+
+def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_id=None, admin=False, request_context="create"):
     from . import knowledge
 
     if spec.task.mode == "discuss" and (not set(spec.capabilities) <= {"repo.read", "reference.read"} or spec.model == "fixture"):
@@ -138,12 +146,19 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
         raise Fault("FORBIDDEN", "Project create permission is required", 403)
     payload = spec.model_dump(mode="json")
     request_digest = digest(payload)
-    key = digest({"actor": actor, "key": key})
     # Serialize equal keys before checking their unique index (also for concurrent clients).
-    s.execute(db.text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": tenant + ":" + key})
+    key = lock_request_key(s, tenant, actor, key)
     existing = s.scalar(select(db.Run).where(db.Run.tenant_id == tenant, db.Run.request_key == key))
     if existing:
-        if existing.request_digest != request_digest:
+        prior_context = existing.state.get("creation_context")
+        if not prior_context:
+            # Infer the operation of runs admitted before explicit context binding.
+            prior_context = next((f"{operation}:{existing.state[field]}" for operation, field in [
+                ("execute", "source_discussion_id"), ("followup", "source_run_id"), ("fork", "forked_from")
+            ] if existing.state.get(field)), "create")
+        if (existing.request_digest != request_digest or prior_context != request_context
+            or existing.parent_id != (parent.id if parent else None)
+            or existing.state.get("evaluation_id") != evaluation_id):
             raise Fault("IDEMPOTENCY_CONFLICT", "This key was used with different parameters")
         return existing
     project = db.get(s, db.Project, tenant, spec.project_id)
@@ -253,6 +268,7 @@ def create_run(s, tenant, actor, spec: CreateRun, key, parent=None, evaluation_i
         cancel_requested=False,
         pause_requested=False,
         state={
+            "creation_context": request_context,
             "title": spec.title or spec.task.goal[:120],
             "task": spec.task.model_dump(),
             "budget": spec.budget.model_dump(),

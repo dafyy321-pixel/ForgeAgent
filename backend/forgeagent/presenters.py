@@ -78,7 +78,8 @@ def run_view(s, r, cache=None):
         "snapshot": {
             "model": semantic["model_id"] or "尚未配置",
             "skills": st["skills"],
-            "memories": st["memories"],
+            "memories": [{**m, **{key: m.get(key, "") for key in ("title", "content", "kind", "source")}}
+                         for m in st["memories"]],
             "time": int(r.created_at.timestamp() * 1000),
         },
         "checkpoint": {

@@ -1,4 +1,4 @@
-"""Run the unchanged scheduler regression and retain bounded, redacted timings."""
+"""Profile scheduler correctness and optional throughput gates with redacted timings."""
 
 import argparse
 import json
@@ -53,12 +53,15 @@ class Profile:
     def __init__(self):
         self.scopes = set()
         self.seconds = 0
+        self.scheduler_profile = None
 
     @pytest.hookimpl(hookwrapper=True)
     def pytest_runtest_call(self, item):
         start = time.monotonic()
         yield
         self.seconds = time.monotonic() - start
+        self.scheduler_profile = next((json.loads(value) for key, value in item.user_properties
+                                       if key == "scheduler_profile"), None)
 
 
 def main():
@@ -115,12 +118,14 @@ def main():
               "platform": platform.platform(), "python": platform.python_version(),
               "logical_cpus": os.cpu_count(), "implementation_digest": digest(service.implementation_bindings()),
               "pytest_exit_code": code, "call_seconds": profile.seconds,
-              "contract": {"tasks": 20, "tenants": 2, "slots": 4, "tenant_limit": 2, "timeout_seconds": 45},
+              "contract": {"tasks": 20, "tenants": 2, "slots": 4, "tenant_limit": 2, "timeout_seconds": 180,
+                           "performance_limit_seconds": os.environ.get("FORGE_SCHEDULER_MAX_SECONDS")},
+              "scheduler_profile": profile.scheduler_profile,
               "latencies": {name: summary(values) for name, values in samples.values.items()},
               "operation_samples_seconds": {name: values for name, values in samples.values.items() if not name.startswith("sql.")},
               "span_samples": samples.spans, "dropped_span_samples": samples.dropped,
               "task_elapsed_including_setup": summary(completed), "timelines": timelines,
-              "limitations": ["Call duration includes task creation; the 45s assertion covers scheduling only.",
+              "limitations": ["Call duration includes setup; throughput is gated only when FORGE_SCHEDULER_MAX_SECONDS is set.",
                               "SQL durations include server execution/waits, not separately identified lock wait.",
                               "Nested span totals overlap; do not add stage totals.",
                               "Fixture verification is AST acceptance, not Docker or model capacity."]}

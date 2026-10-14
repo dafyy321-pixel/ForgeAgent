@@ -1,3 +1,4 @@
+import type { components } from './generated/api-schema';
 import type { Run, Approval, Artifact, Skill, Memory, AppController } from './types';
 
 export type WaitReason =
@@ -12,55 +13,7 @@ export interface RunEvent {
   title: string;
   detail: string;
 }
-export interface Execution extends Run {
-  user_message?: string;
-  reason_code?: string | null;
-  reason_detail?: string;
-  next_action?: { label: string; href: string } | null;
-  mode?: 'execute' | 'discuss';
-  planReady?: boolean;
-  executionId?: string | null;
-  sourceDiscussionId?: string | null;
-  sourceRunId?: string | null;
-  stateVersion?: number;
-  inputRequired?: boolean;
-  reserved?: number;
-  budget_unknown?: boolean;
-  progress_kind?: string;
-  updatedAt: number;
-  waitReason: WaitReason;
-  scope: string;
-  criteria: string[];
-  milestones: { label: string; done: boolean }[];
-  snapshot: {
-    model: string;
-    skills: { name: string; version: string }[];
-    memories: Memory[];
-    time: number;
-  };
-  checkpoint: {
-    id: string;
-    workspace: boolean;
-    compatible: boolean;
-    permission: boolean;
-    environment: boolean;
-    environment_status?: string;
-  };
-  unknownEffect: boolean;
-  cancelRequested: boolean;
-  version: number;
-  deadline: number | null;
-  recoveryPending?: boolean;
-  verification: {
-    status: 'not_run' | 'running' | 'passed' | 'failed' | 'inconclusive';
-    version: number;
-    checks: {
-      name: string;
-      status: 'passed' | 'failed' | 'not_run' | 'not_applicable';
-      evidence: string;
-    }[];
-  };
-}
+export type Execution = components['schemas']['RunView'] & { recoveryPending?: boolean };
 export interface Decision extends Approval {
   expiresAt: number;
   version: number;

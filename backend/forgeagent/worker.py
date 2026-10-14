@@ -3,8 +3,6 @@ import json
 import logging
 import shlex
 import signal
-import time
-from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import cast
@@ -20,7 +18,7 @@ from .domain import TERMINAL, Fault, canonical, digest, uid
 from .sandbox import files, sandbox
 from .state_types import ModelReceipt, RunState
 from .storage import objects
-from .telemetry import observed, operation, run_operation
+from .telemetry import observed, operation, queue_wait, run_operation
 from .verification import verify
 from .workspace import clear_tree, write_tree
 
@@ -94,11 +92,13 @@ class Worker:
                     ),
                 )
                 .order_by(db.Run.available_at, db.Run.created_at)
-                .with_for_update(of=db.Run, skip_locked=True)
+                .with_for_update(of=db.Run, skip_locked=True, key_share=True)
                 .limit(1)
             )
             if not r:
                 return None
+            ready_at = max(r.available_at, r.lease_until) if r.lease_until else r.available_at
+            queue_wait.observe(max(0, (time - ready_at).total_seconds()))
             if r.epoch:
                 from .reducer import rebuild
 
@@ -1120,46 +1120,9 @@ class Worker:
                 break
 
     async def run(self):
-        # Blocking effect work and lease renewals need distinct spare execution capacity.
-        # The pool remains bounded even at the supported maximum number of run slots.
-        asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(
-            max_workers=settings.worker_slots * 3 + 8, thread_name_prefix="forge-io",
-        ))
-        active, cursor, idle_until = {}, 0, {}
-        try:
-            while not self.stopping:
-                tenants = await asyncio.to_thread(self.tenants)
-                completed = [task for task in active if task.done()]
-                worked = False
-                for task in completed:
-                    try:
-                        result = task.result()
-                        worked = result or worked
-                        idle_until[active[task]] = 0 if result else time.monotonic() + 0.1
-                    except Exception as exc:
-                        log.error("Worker quantum failed: %s", type(exc).__name__)
-                for task in completed:
-                    del active[task]
-                # Reserve each tenant's fair share, even when its fast quanta finish before
-                # another tenant's slow model call. Occupancy, not admission order, is bounded.
-                share = max(1, settings.worker_slots // max(1, len(tenants)))
-                for _ in range(len(tenants)):
-                    if len(active) >= settings.worker_slots:
-                        break
-                    if not tenants:
-                        break
-                    tenant = tenants[cursor % len(tenants)]
-                    cursor += 1
-                    if (idle_until.get(tenant, 0) <= time.monotonic()
-                        and sum(t == tenant for t in active.values()) < share):
-                        active[asyncio.create_task(self.once(tenant))] = tenant
-                if active:
-                    await asyncio.wait(active, timeout=1 if worked else 0.1, return_when=asyncio.FIRST_COMPLETED)
-                if not worked and not any(not task.done() for task in active):
-                    await asyncio.sleep(0.1)
-        finally:
-            # Stop admitting new work and let existing quanta reach their durable boundary.
-            await asyncio.gather(*active, return_exceptions=True)
+        from .scheduling import run_scheduler
+
+        await run_scheduler(self)
 
 
 def main():

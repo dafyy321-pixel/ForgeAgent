@@ -16,13 +16,15 @@ def test_confirmation_binds_reviewed_plan_even_with_current_version(tenant, make
     with db.transaction(tenant) as s:
         run = db.get(s, db.Run, tenant, run_id)
         run.status = "PAUSED"
-        run.state = {**run.state, "plan_ready": True, "dialogue": [{"role": "assistant", "content": "Plan A"}]}
+        run.state = {**run.state, "plan_ready": True}
+        service.append_message(s, run, "assistant", "Plan A")
         db.emit(s, run, "PLAN_A", "ready")
     reviewed = client.get(f"/v1/runs/{run_id}/conversation").json()
     assert reviewed.get("plan_digest"), "Confirmation requires a digest of the displayed plan"
     with db.transaction(tenant) as s:
         run = db.get(s, db.Run, tenant, run_id)
-        run.state = {**run.state, "dialogue": [{"role": "assistant", "content": "Plan B"}]}
+        run.state = {**run.state, "dialogue": []}
+        service.append_message(s, run, "assistant", "Plan B")
         db.emit(s, run, "PLAN_B", "updated")
         current = run.version
     body = {"expected_version": current, "plan_digest": reviewed["plan_digest"],
@@ -108,3 +110,42 @@ def test_user_status_does_not_mix_failure_reason_with_machine_phase(tenant, make
         run = db.get(s, db.Run, tenant, run_id)
         run.status, run.phase = "SUCCEEDED", "VERIFYING"
     assert client.get(f"/v1/runs/{run_id}").json()["user_message"] == "验收已通过"
+
+
+def test_create_key_cannot_attach_an_unrelated_task_to_a_plan(tenant, make_run, client):
+    run_id = make_run(model="configured", capabilities=["repo.read"], task=Task(mode="discuss", goal="Review"))
+    with db.transaction(tenant) as s:
+        run = db.get(s, db.Run, tenant, run_id)
+        run.status = "PAUSED"
+        run.state = {**run.state, "plan_ready": True}
+        db.emit(s, run, "TEST_PLAN", "ready")
+    plan = client.get(f"/v1/runs/{run_id}/conversation").json()
+    spec = {"project_id": "runtime-lab", "model": "fixture", "task": {"goal": "Execute"}}
+    headers = {"Idempotency-Key": uid()}
+    assert client.post('/v1/runs', json=spec, headers=headers).status_code == 202
+    response = client.post(f"/v1/runs/{run_id}/execute", json={"expected_version": plan["version"],
+        "plan_digest": plan["plan_digest"], "spec": spec}, headers=headers)
+    assert response.status_code == 409 and response.json()["code"] == "IDEMPOTENCY_CONFLICT"
+
+
+def test_create_and_fork_with_same_key_finish_without_advisory_deadlock(tenant, make_run, client):
+    source = make_run()
+    version = client.get(f"/v1/runs/{source}").json()["stateVersion"]
+    for _ in range(3):
+        start = threading.Barrier(2)
+        headers = {"Idempotency-Key": uid()}
+
+        def ordinary():
+            start.wait(timeout=5)
+            return client.post('/v1/runs', json={"project_id": "runtime-lab", "model": "fixture",
+                "task": {"goal": "Concurrent create"}}, headers=headers)
+
+        def fork():
+            start.wait(timeout=5)
+            return client.post(f'/v1/runs/{source}/fork', json={"expected_version": version}, headers=headers)
+
+        with ThreadPoolExecutor(2) as pool:
+            a, b = pool.submit(ordinary), pool.submit(fork)
+            results = [a.result(timeout=15), b.result(timeout=15)]
+        assert sorted(r.status_code for r in results) == [202, 409]
+        assert next(r for r in results if r.status_code == 409).json()["code"] == "IDEMPOTENCY_CONFLICT"

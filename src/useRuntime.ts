@@ -377,7 +377,7 @@ export function useRuntime() {
   }
   async function fork(id: string) {
     try {
-      const next = await api(`/runs/${id}/fork`, 'POST', {
+      const next = await api<components['schemas']['RunView']>(`/runs/${id}/fork`, 'POST', {
         expected_version: version(id),
         reason: '基于既有工作区创建新尝试',
       });
@@ -504,7 +504,7 @@ export function useRuntime() {
   }
   async function scenario(_kind: Scenario = 'active') {
     try {
-      const r = await api('/examples/smoke', 'POST', undefined);
+      const r = await api<components['schemas']['RunView']>('/examples/smoke', 'POST', undefined);
       await refresh();
       openRun(r.id);
     } catch (e) {

@@ -4,6 +4,91 @@
  */
 
 export interface paths {
+    "/v1/runs/{id}/input": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** User Input */
+        post: operations["user_input_v1_runs__id__input_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{id}/conversation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Conversation */
+        get: operations["conversation_v1_runs__id__conversation_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Conversation Message */
+        post: operations["conversation_message_v1_runs__id__messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{id}/followup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Followup Discussion */
+        post: operations["followup_discussion_v1_runs__id__followup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{id}/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Execute Plan */
+        post: operations["execute_plan_v1_runs__id__execute_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/reference-targets": {
         parameters: {
             query?: never;
@@ -646,91 +731,6 @@ export interface paths {
         get: operations["context_v1_runs__id__context__turn__get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/runs/{id}/input": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** User Input */
-        post: operations["user_input_v1_runs__id__input_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/runs/{id}/conversation": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Conversation */
-        get: operations["conversation_v1_runs__id__conversation_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/runs/{id}/messages": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Conversation Message */
-        post: operations["conversation_message_v1_runs__id__messages_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/runs/{id}/followup": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Followup Discussion */
-        post: operations["followup_discussion_v1_runs__id__followup_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/runs/{id}/execute": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Execute Plan */
-        post: operations["execute_plan_v1_runs__id__execute_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1499,6 +1499,22 @@ export interface components {
             /** Effect Digest */
             effect_digest: string;
         };
+        /** AuthConfig */
+        AuthConfig: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "local" | "oidc";
+            /** Authority */
+            authority?: string | null;
+            /** Client Id */
+            client_id?: string | null;
+            /** Scope */
+            scope?: string | null;
+            /** Audience */
+            audience?: string | null;
+        };
         /** Budget */
         Budget: {
             /**
@@ -1677,6 +1693,24 @@ export interface components {
             /** Next Cursor */
             next_cursor: string | null;
         };
+        /** CheckpointView */
+        CheckpointView: {
+            /** Id */
+            id: string;
+            /** Workspace */
+            workspace: boolean;
+            /** Compatible */
+            compatible: boolean;
+            /** Permission */
+            permission: boolean;
+            /** Environment */
+            environment: boolean;
+            /**
+             * Environment Status
+             * @enum {string}
+             */
+            environment_status: "ready" | "unavailable" | "unknown";
+        };
         /** ChildContract */
         ChildContract: {
             /**
@@ -1774,6 +1808,40 @@ export interface components {
              */
             executor?: "current" | "archived";
         };
+        /** ConversationMessage */
+        ConversationMessage: {
+            /** Id */
+            id: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+            /** Content */
+            content: string;
+            /** Time */
+            time: string;
+        };
+        /** ConversationView */
+        ConversationView: {
+            /** Initial */
+            initial: string;
+            /** Messages */
+            messages: components["schemas"]["ConversationMessage"][];
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "execute" | "discuss";
+            /** Plan Ready */
+            plan_ready: boolean;
+            /** Execution Id */
+            execution_id: string | null;
+            /** Version */
+            version: number;
+            /** Plan Digest */
+            plan_digest: string;
+        };
         /** CostAssumptions */
         CostAssumptions: {
             /** Cpu Usd Per Second */
@@ -1852,6 +1920,17 @@ export interface components {
              * @default 42
              */
             seed?: number;
+        };
+        /** ExecutionSnapshot */
+        ExecutionSnapshot: {
+            /** Model */
+            model: string;
+            /** Skills */
+            skills: components["schemas"]["SkillSnapshot"][];
+            /** Memories */
+            memories: components["schemas"]["MemorySnapshot"][];
+            /** Time */
+            time: number;
         };
         /** ExperimentInput */
         ExperimentInput: {
@@ -2061,6 +2140,28 @@ export interface components {
              */
             erase_derived_runs: true;
         };
+        /** MemorySnapshot */
+        MemorySnapshot: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Content */
+            content: string;
+            /** Kind */
+            kind: string;
+            /** Source */
+            source: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** Milestone */
+        Milestone: {
+            /** Label */
+            label: string;
+            /** Done */
+            done: boolean;
+        };
         /** NextAction */
         NextAction: {
             /** Label */
@@ -2238,6 +2339,54 @@ export interface components {
             id: string;
             /** Title */
             title: string;
+            /** Description */
+            description: string;
+            /** Project */
+            project: string;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "execute" | "discuss";
+            /** Planready */
+            planReady: boolean;
+            /** Executionid */
+            executionId: string | null;
+            /** Sourcediscussionid */
+            sourceDiscussionId: string | null;
+            /** Sourcerunid */
+            sourceRunId: string | null;
+            /** Updatedat */
+            updatedAt: number;
+            /** Waitreason */
+            waitReason: ("APPROVAL" | "TOOL" | "CHILD_RUN" | "RETRY_TIMER" | "RECONCILIATION") | null;
+            /** Scope */
+            scope: string;
+            /** Criteria */
+            criteria: string[];
+            /** Milestones */
+            milestones: components["schemas"]["Milestone"][];
+            snapshot: components["schemas"]["ExecutionSnapshot"];
+            checkpoint: components["schemas"]["CheckpointView"];
+            verification: components["schemas"]["VerificationView"];
+            /** Unknowneffect */
+            unknownEffect: boolean;
+            /** Cancelrequested */
+            cancelRequested: boolean;
+            /** Version */
+            version: number;
+            /** Inputrequired */
+            inputRequired: boolean;
+            /** Progress */
+            progress: number;
+            /** Model */
+            model: string;
+            /** Started */
+            started: string;
+            /** Duration */
+            duration: string;
+            /** Steps */
+            steps: number;
             /**
              * Status
              * @enum {string}
@@ -2332,6 +2481,15 @@ export interface components {
             /** Review */
             review: string;
         };
+        /** SkillSnapshot */
+        SkillSnapshot: {
+            /** Name */
+            name: string;
+            /** Version */
+            version: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** Task */
         Task: {
             /**
@@ -2395,6 +2553,30 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** VerificationCheck */
+        VerificationCheck: {
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "passed" | "failed" | "not_run" | "not_applicable";
+            /** Evidence */
+            evidence: string;
+        };
+        /** VerificationView */
+        VerificationView: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "not_run" | "running" | "passed" | "failed" | "inconclusive";
+            /** Version */
+            version: number;
+            /** Checks */
+            checks: components["schemas"]["VerificationCheck"][];
         };
         /** WorkspaceIndex */
         WorkspaceIndex: {
@@ -2489,6 +2671,408 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    user_input_v1_runs__id__input_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Structured API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+        };
+    };
+    conversation_v1_runs__id__conversation_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationView"];
+                };
+            };
+            /** @description Structured API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+        };
+    };
+    conversation_message_v1_runs__id__messages_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "idempotency-key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunView"];
+                };
+            };
+            /** @description Structured API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+        };
+    };
+    followup_discussion_v1_runs__id__followup_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "idempotency-key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowupDiscussion"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunView"];
+                };
+            };
+            /** @description Structured API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+        };
+    };
+    execute_plan_v1_runs__id__execute_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "idempotency-key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmExecution"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunView"];
+                };
+            };
+            /** @description Structured API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+        };
+    };
     reference_targets_v1_reference_targets_get: {
         parameters: {
             query: {
@@ -2961,7 +3545,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AuthConfig"];
                 };
             };
             /** @description Structured API error */
@@ -3987,7 +4571,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RunView"];
                 };
             };
             /** @description Structured API error */
@@ -5554,408 +6138,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
-                };
-            };
-            /** @description Structured API error */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-        };
-    };
-    user_input_v1_runs__id__input_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UserInput"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Structured API error */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-        };
-    };
-    conversation_v1_runs__id__conversation_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Structured API error */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-        };
-    };
-    conversation_message_v1_runs__id__messages_post: {
-        parameters: {
-            query?: never;
-            header: {
-                "idempotency-key": string;
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UserInput"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Structured API error */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-        };
-    };
-    followup_discussion_v1_runs__id__followup_post: {
-        parameters: {
-            query?: never;
-            header: {
-                "idempotency-key": string;
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FollowupDiscussion"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RunView"];
-                };
-            };
-            /** @description Structured API error */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-            /** @description Structured API error */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FaultResponse"];
-                };
-            };
-        };
-    };
-    execute_plan_v1_runs__id__execute_post: {
-        parameters: {
-            query?: never;
-            header: {
-                "idempotency-key": string;
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ConfirmExecution"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RunView"];
                 };
             };
             /** @description Structured API error */
@@ -8136,7 +8318,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RunView"];
                 };
             };
             /** @description Structured API error */

@@ -6,8 +6,8 @@ import { ExperimentComparison } from './ExperimentComparison';
 import type { AppController } from './types';
 import { Button, Dialog, Empty, Heading, Metric, Panel } from './components';
 
-export function useRemote(path: string, interval = 0) {
-  const [data, setData] = useState<any>(null);
+export function useRemote<T = any>(path: string, interval = 0) {
+  const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState('');
   const sequence = useRef(0);
   const request = useRef<AbortController | null>(null);
@@ -17,7 +17,7 @@ export function useRemote(path: string, interval = 0) {
     const controller = new AbortController();
     request.current = controller;
     try {
-      const next = await api(path, 'GET', undefined, undefined, { signal: controller.signal });
+      const next = await api<T>(path, 'GET', undefined, undefined, { signal: controller.signal });
       if (seq === sequence.current) {
         setData(next);
         setError('');

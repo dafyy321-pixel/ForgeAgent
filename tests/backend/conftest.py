@@ -1,9 +1,24 @@
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 from forgeagent import db, service
 from forgeagent.api import app
 from forgeagent.auth import Identity, identity
+from forgeagent.config import Settings, settings
 from forgeagent.domain import CreateRun, Task, uid
+
+
+@pytest.fixture(autouse=True)
+def isolate_model_configuration(monkeypatch, request):
+    # Ordinary tests must neither inherit paid credentials nor depend on a
+    # developer's streaming/token-count flags. Live release tests opt in.
+    if os.environ.get("FORGE_TEST_RELEASE") == "1" and request.module.__name__.endswith("test_release_integration"):
+        return
+    clean = Settings(_env_file=None, _env_prefix="FORGE_ISOLATED_UNIT_")
+    for field in type(settings).model_fields:
+        if field.startswith("model_") or field.endswith("_price") or field in {"context_window", "max_output"}:
+            monkeypatch.setattr(settings, field, getattr(clean, field))
 
 
 @pytest.fixture

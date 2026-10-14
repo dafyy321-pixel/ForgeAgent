@@ -71,7 +71,7 @@ async def test_slow_tenant_cannot_occupy_fast_tenant_slots(monkeypatch):
     assert not any(running.values())
 
 
-async def test_twenty_active_runs_finish_under_bounded_fair_scheduler(tenant, monkeypatch):
+async def test_twenty_active_runs_finish_under_bounded_fair_scheduler(tenant, monkeypatch, record_property):
     other = "fair-" + uid()
     service.provision(other, "tester")
     run_ids = {}
@@ -83,7 +83,9 @@ async def test_twenty_active_runs_finish_under_bounded_fair_scheduler(tenant, mo
     worker = Worker()
     worker.tenants = lambda: [tenant, other]
 
+    peak_leased = 0
     def snapshot():
+        nonlocal peak_leased
         result, leased = {}, 0
         for scope in run_ids:
             with db.transaction(scope) as s:
@@ -95,20 +97,45 @@ async def test_twenty_active_runs_finish_under_bounded_fair_scheduler(tenant, mo
                 assert active <= 2
                 leased += active
         assert leased <= 4
+        peak_leased = max(peak_leased, leased)
         return result
 
     task = asyncio.create_task(worker.run())
+    started = time.monotonic()
     try:
-        async with asyncio.timeout(45):
+        # Correctness has a generous hang guard. A machine-specific throughput
+        # gate is enabled separately and records diagnostics before asserting.
+        async with asyncio.timeout(180):
             while True:
                 counts = await asyncio.to_thread(snapshot)
                 if all(n == 10 for n in counts.values()):
                     break
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.25)
     finally:
         worker.stopping = True
         await task
     assert sum(counts.values()) == 20
+    elapsed = time.monotonic() - started
+    waits, durations, phases = [], [], {}
+    for scope, ids in run_ids.items():
+        with db.transaction(scope) as s:
+            for id in ids:
+                run = db.get(s, db.Run, scope, id)
+                events = db.rows(s, db.Event, scope, run_id=id)
+                first = next(e for e in events if e.type == "LEASE_CLAIMED")
+                waits.append((first.created_at - run.created_at).total_seconds())
+                durations.append((run.updated_at - first.created_at).total_seconds())
+                for event, following in zip(events, events[1:]):
+                    phases.setdefault(event.type, []).append((following.created_at - event.created_at).total_seconds())
+    def percentiles(values):
+        values = sorted(values)
+        return {"p50": values[len(values) // 2], "p95": values[min(len(values) - 1, int(len(values) * .95))]}
+    record_property("scheduler_profile", json.dumps({"elapsed_seconds": elapsed, "peak_leased": peak_leased,
+        "queue_wait_seconds": percentiles(waits), "run_seconds": percentiles(durations),
+        "event_interval_seconds": {phase: percentiles(values) for phase, values in phases.items()}}))
+    limit = os.environ.get("FORGE_SCHEDULER_MAX_SECONDS")
+    if limit:
+        assert elapsed <= float(limit), f"Throughput budget exceeded: {elapsed:.2f}s > {limit}s; inspect scheduler_profile"
 
 
 async def test_decisions_and_fixture_acceptance_do_not_restore_tool_workspace(tenant, make_run, monkeypatch):

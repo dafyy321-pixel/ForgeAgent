@@ -40,7 +40,7 @@ function forget(signature: string) {
   mutations.delete(signature);
   sessionStorage.removeItem(signature);
 }
-export async function api<T = any>(
+export async function api<T = unknown>(
   path: string,
   method = 'GET',
   body?: unknown,

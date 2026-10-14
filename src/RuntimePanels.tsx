@@ -93,7 +93,7 @@ export function ActionLedger({ runtime: rt, run: r }: { runtime: Runtime; run: E
       .catch((e) => setError(e.message));
   }, [r.id, r.stateVersion]);
   useEffect(() => {
-    api(`/runs/${r.id}/actions`)
+    api<typeof actions>(`/runs/${r.id}/actions`)
       .then(setActions)
       .catch((e) => setError(e.message));
   }, [r.id, r.stateVersion]);

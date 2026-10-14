@@ -8,7 +8,7 @@ from forgeagent.domain import ApprovalDecision, Budget, CreateRun, Decision, Fau
 from forgeagent.sandbox import safe_path
 from forgeagent.storage import objects
 from forgeagent.worker import Worker
-from hypothesis import given
+from hypothesis import HealthCheck, given
 from hypothesis import settings as hypothesis_settings
 from hypothesis import strategies as st
 from sqlalchemy import select, text
@@ -370,7 +370,9 @@ def initialized_tokenizer():
 
 
 @given(values=st.lists(st.text(min_size=0, max_size=200), max_size=50))
-@hypothesis_settings(max_examples=100)
+# This is a functional budget invariant over general Unicode. Generation and
+# per-example wall time depend on host load; throughput has separate gates.
+@hypothesis_settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 def test_context_budget_invariant(initialized_tokenizer, values):
     _, m = compile_context({"goal": "required"}, {}, [{"output": v} for v in values], [], [], 8000, 1000)
     assert m["estimated_tokens_upper_bound"] <= m["input_budget"]

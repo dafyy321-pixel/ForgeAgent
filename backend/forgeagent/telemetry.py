@@ -16,6 +16,10 @@ from prometheus_client import Counter, Histogram
 calls = Counter("forge_operations_total", "Completed runtime operations", ["operation", "outcome"])
 latency = Histogram("forge_operation_seconds", "Runtime operation latency", ["operation"],
                     buckets=(.01, .1, .5, 1, 5, 15, 30, 60, 120, 300))
+queue_wait = Histogram("forge_queue_wait_seconds", "Time ready work waits before each lease claim",
+                       buckets=(.01, .1, .5, 1, 5, 15, 30, 60, 120, 300))
+slot_utilization = Histogram("forge_worker_slot_utilization_ratio", "Scheduler occupancy samples including claim probes",
+                             buckets=(0, .25, .5, .75, 1))
 correlation: ContextVar[dict] = ContextVar("forge_correlation", default={})
 FIELDS = {"forge.run_id", "forge.root_id", "forge.lease_epoch", "forge.call_id", "forge.action_id",
           "forge.event_seq", "forge.reserved_micros", "forge.charged_micros", "forge.cost_known"}

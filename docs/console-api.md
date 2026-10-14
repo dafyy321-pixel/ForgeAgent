@@ -1,6 +1,6 @@
 # API 与控制台
 
-升级前执行 `uv run alembic upgrade head`，当前迁移为 0008。新增 tenant、run、project、status 的 keyset 查询索引；历史迁移保持冻结。
+升级前执行 `uv run alembic upgrade head`，当前迁移为 0010。0008 加入 tenant、run、project、status 的 keyset 查询索引；历史迁移保持冻结。
 
 ## 有界读取
 
@@ -10,13 +10,17 @@
 
 共享部署必须配置不少于 32 字符的 `FORGE_CURSOR_SECRET`；轮换后旧游标失效，需要从第一页重读。本地模式自动生成持久本地随机密钥。不要在客户端记录或生成签名密钥。
 
-控制台初次、路由变化和写入成功后读取 workspace，平时通过轻量 revision 检查变化，隐藏标签降低频率。焦点任务使用 SSE；任务列表提供加载更多，焦点记录提供加载更早记录。后端变化会重新读取最近窗口，以刷新权限、状态和事实。事件元数据排除内部恢复投影与隐藏测试正文。
+控制台初次、路由变化和写入成功后读取 workspace，平时通过轻量 revision 检查变化，隐藏标签降低频率。焦点任务使用 SSE；任务列表提供加载更多，焦点记录提供加载更早记录。后端变化后按已加载深度用新游标重读，保留历史页，同时移除已失去访问权限的记录；路由或筛选变化才重置深度。事件元数据排除内部恢复投影与隐藏测试正文。
+
+任务响应的 phase 始终为机器阶段；reason_code、reason_detail、user_message 和 next_action 分别承载结构化原因、诊断详情、用户说明和下一步链接。控制台使用生成的 RunView 和 ConversationView 类型。GET conversation 返回同一快照的 version、plan_digest 与消息；POST execute 必须同时提交 expected_version、plan_digest 和 spec。成功后重试仍可返回同一个执行任务，但不能更换已确认的方案或参数。幂等键还绑定创建操作及来源任务，跨 create/fork/followup/execute 重用返回冲突。
 
 ## 身份与流
 
-配置 `FORGE_AUTH_MODE=oidc`、HTTPS `FORGE_OIDC_ISSUER`、JWKS、audience、client_id 与 scope。IdP 中登记公共浏览器客户端、授权码 + PKCE、精确回调 `<console-origin>/auth/callback` 和允许的退出后地址。访问令牌需包含 exp、sub、iss、aud、tenant_id；管理员 roles 必须是包含 forge-admin 的数组。数据库 Authorization 必须已登记且 active；管理员声明不绕过已撤销的工作空间身份。
+配置 `FORGE_AUTH_MODE=oidc`、HTTPS `FORGE_OIDC_ISSUER`、JWKS、audience、client_id 与 scope。IdP 中登记公共浏览器客户端、授权码 + PKCE、精确回调 `<console-origin>/auth/callback`、静默回调 `<console-origin>/auth/silent-callback` 和允许的退出后地址。访问令牌需包含 exp、sub、iss、aud、tenant_id；管理员 roles 必须是包含 forge-admin 的数组。数据库 Authorization 必须已登记且 active；管理员声明不绕过已撤销的工作空间身份。
 
 `/v1/auth/config` 公开浏览器所需配置，不返回密钥。浏览器使用 oidc-client-ts 管理 state/nonce、PKCE、续期与 callback，令牌仅存 sessionStorage；禁止将 client secret 放入浏览器。前端退出清理本地身份与令牌，IdP 的组织会话由 IdP 自行管理。真实 IdP 需部署后另行验证；本地协议 fixture 不是组织联调证据。
+
+静默 iframe 回调只完成父窗口握手，不挂载工作空间。首页、高级创建和消息草稿按 issuer/sub/tenant 分区；退出删除当前账号的草稿，不清除其他账号数据，也不导入旧共享键中的内容。授权撤销阻止 Worker/远端路径后续新调用；已发出的外部效果继续通过回执、对账和取消机制结算，不承诺撤销已发生的效果。
 
 `GET /v1/runs/{id}/events` 使用 Last-Event-ID 续传；服务端每批重查授权，原令牌到期发 auth_expired，权限撤回发 authorization_error，终态发 end，连接最长 300 秒。SDK 与浏览器解析完整帧、去重并有界重连（最多连续 8 次失败），认证错误停止；SDK token 可传同步或异步 callable。浏览器 45 秒未收到字节主动重连，另保留 revision 同步。
 

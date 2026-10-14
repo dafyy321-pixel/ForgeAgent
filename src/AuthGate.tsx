@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { UserManager, WebStorageStateStore } from 'oidc-client-ts';
 import { clearAccountDrafts, setDraftPrincipal } from './drafts';
+import type { components } from './generated/api-schema';
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<'loading' | 'ready' | 'login' | 'error'>('loading');
@@ -12,7 +13,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     const ready = async () => {
       const response = await fetch('/v1/auth/config', { signal: AbortSignal.timeout(15000) });
       if (!response.ok) throw new Error('登录配置暂时不可用');
-      const config = await response.json();
+      const config: components['schemas']['AuthConfig'] = await response.json();
       if (!alive) return;
       if (config.mode === 'local') {
         sessionStorage.removeItem('forge-access-token');
@@ -20,10 +21,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
         setState('ready');
         return;
       }
+      const authority = config.authority;
+      if (!authority || !config.client_id)
+        throw new Error('身份服务配置缺少 authority 或 client_id');
       current = new UserManager({
-        authority: config.authority,
+        authority,
         client_id: config.client_id,
-        scope: config.scope,
+        scope: config.scope || 'openid profile',
         response_type: 'code',
         redirect_uri: location.origin + '/auth/callback',
         silent_redirect_uri: location.origin + '/auth/silent-callback',
@@ -40,12 +44,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       }
       setManager(current);
       current.events.addUserLoaded((user) => {
-        setDraftPrincipal(
-          config.authority,
-          user.profile.sub,
-          user.profile.tenant_id,
-          user.access_token,
-        );
+        setDraftPrincipal(authority, user.profile.sub, user.profile.tenant_id, user.access_token);
         sessionStorage.setItem('forge-access-token', user.access_token);
         if (alive) setState('ready');
       });
@@ -72,12 +71,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       } else user = await current.getUser();
       if (!alive) return;
       if (user && !user.expired) {
-        setDraftPrincipal(
-          config.authority,
-          user.profile.sub,
-          user.profile.tenant_id,
-          user.access_token,
-        );
+        setDraftPrincipal(authority, user.profile.sub, user.profile.tenant_id, user.access_token);
         sessionStorage.setItem('forge-access-token', user.access_token);
         setState('ready');
       } else {

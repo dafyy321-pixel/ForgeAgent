@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, ApiError } from './api';
 import { draftKey } from './drafts';
+import type { components } from './generated/api-schema';
 import { Button } from './components';
 import { useCatalog } from './useCatalog';
 import { useRemote } from './BackendViews';
@@ -26,15 +27,7 @@ import {
 import type { Runtime } from './useRuntime';
 import { runMessage, type Execution } from './runtime';
 
-type Message = { id: string; role: 'user' | 'assistant'; content: string; time: string };
-type Conversation = {
-  version: number;
-  plan_digest: string;
-  initial: string;
-  messages: Message[];
-  plan_ready: boolean;
-  execution_id: string | null;
-};
+type Conversation = components['schemas']['ConversationView'];
 
 function phaseLabel(run: Execution) {
   if (run.user_message || ['SUCCEEDED', 'FAILED', 'CANCELLED', 'PAUSED'].includes(run.status))
@@ -393,8 +386,8 @@ function MessageText({ text }: { text: string }) {
 }
 
 export function ConversationPanel({ runtime: rt, run: r }: { runtime: Runtime; run: Execution }) {
-  const remote = useRemote(`/runs/${r.id}/conversation`, 2500);
-  const history = remote.data as Conversation | null;
+  const remote = useRemote<Conversation>(`/runs/${r.id}/conversation`, 2500);
+  const history = remote.data;
   const storageKey = draftKey(`reply-${r.id}`);
   const [text, setText] = useState(() => {
     try {
