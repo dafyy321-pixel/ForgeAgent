@@ -113,3 +113,52 @@ def test_message_history_is_bounded(tenant, make_run):
         run.state = {**run.state, "dialogue": [{"content": "x" * 60000}]}
         with pytest.raises(Fault, match="Conversation is full"):
             service.append_message(s, run, "user", "one more")
+
+
+async def test_followup_preserves_workspace_through_plan_confirmation(tenant, make_run, client):
+    from forgeagent.storage import objects
+
+    source = make_run()
+    for _ in range(12):
+        await Worker(target_run=source).once(tenant)
+    view = client.get(f"/v1/runs/{source}").json()
+    assert view["status"] == "SUCCEEDED"
+    spec = {"project_id": "runtime-lab", "model": "configured", "capabilities": ["repo.read"],
+            "task": {"mode": "discuss", "goal": "Keep the fix and discuss documentation"}}
+    payload = {"expected_version": view["stateVersion"], "spec": spec}
+    response = client.post(f"/v1/runs/{source}/followup", json=payload, headers={"Idempotency-Key": "followup"})
+    assert response.status_code == 202, response.text
+    followup = response.json()
+    assert followup["sourceRunId"] == source and followup["mode"] == "discuss"
+    assert client.post(f"/v1/runs/{source}/followup", json=payload,
+                       headers={"Idempotency-Key": "followup"}).json()["id"] == followup["id"]
+
+    async def model(*args):
+        return json.dumps({"kind": "propose_completion", "summary": "Preserve the fixed addition."}), {
+            "input_tokens": 1, "output_tokens": 1}, {}, "local-test"
+
+    await Worker(model=model, target_run=followup["id"]).once(tenant)
+    plan = client.get(f"/v1/runs/{followup['id']}").json()
+    execution = client.post(f"/v1/runs/{followup['id']}/execute", json={
+        "expected_version": plan["stateVersion"],
+        "spec": {"project_id": "runtime-lab", "model": "fixture", "task": {"goal": "Keep fixed addition"}},
+    }, headers={"Idempotency-Key": "followup-execution"})
+    assert execution.status_code == 202, execution.text
+    with db.transaction(tenant) as s:
+        old = db.get(s, db.Run, tenant, source)
+        resumed = db.get(s, db.Run, tenant, execution.json()["id"])
+        assert objects.get(tenant, resumed.state["workspace_ref"]) == objects.get(tenant, old.state["workspace_ref"])
+        assert objects.get(tenant, resumed.state["workspace_ref"]) != objects.get(tenant, resumed.state["baseline_ref"])
+
+
+def test_followup_rejects_live_tasks_and_write_scope(tenant, make_run, client):
+    source = make_run()
+    view = client.get(f"/v1/runs/{source}").json()
+    spec = {"project_id": "runtime-lab", "model": "configured", "capabilities": ["repo.read"],
+            "task": {"mode": "discuss", "goal": "Discuss"}}
+    payload = {"expected_version": view["stateVersion"], "spec": spec}
+    assert client.post(f"/v1/runs/{source}/followup", json=payload,
+                       headers={"Idempotency-Key": uid()}).status_code == 409
+    spec["capabilities"].append("workspace.write")
+    assert client.post(f"/v1/runs/{source}/followup", json=payload,
+                       headers={"Idempotency-Key": uid()}).status_code == 422

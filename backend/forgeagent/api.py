@@ -800,9 +800,41 @@ class ConfirmExecution(Control):
     spec: CreateRun
 
 
+@app.post("/v1/runs/{id}/followup", status_code=202, response_model=RunView)
+def followup_discussion(id: str, body: ConfirmExecution, actor: Actor, idempotency_key: Annotated[str, Header()]):
+    from .knowledge import lock
+    from .resources import put_reviewed
+
+    with db.transaction(actor.tenant) as s:
+        lock(s, actor.tenant)
+        old = db.get(s, db.Run, actor.tenant, id, True)
+        if old.state.get("knowledge_erased"):
+            raise Fault("KNOWLEDGE_ERASED", "Erased history cannot be restored")
+        if body.spec.project_id != old.project_id or body.spec.task.mode != "discuss":
+            raise Fault("DISCUSSION_SCOPE", "Follow-up must discuss the same project in read-only mode", 422)
+        r = service.create_run(s, actor.tenant, actor.actor, body.spec, idempotency_key, admin=actor.admin)
+        if r.state.get("source_run_id") == id:
+            require_run_access(s, actor, r)
+            return presenters.run_view(s, r)
+        if r.state.get("source_run_id") or r.status != "QUEUED":
+            raise Fault("IDEMPOTENCY_CONFLICT", "This key belongs to another conversation")
+        if old.version != body.expected_version or old.status not in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+            raise Fault("FOLLOWUP_CONFLICT", "Follow-up requires the current finished task")
+        service.require_finalizable(s, old)
+        content = json.loads(objects.get(actor.tenant, old.state["workspace_ref"]))
+        r.state = {**r.state, "source_run_id": id, "workspace_ref": put_reviewed(s, r, content),
+                   "workspace_digest": digest(content)}
+        db.emit(s, r, "FOLLOWUP_CREATED", "基于已保留的工作区继续只读讨论", source_run_id=id)
+        service.checkpoint(s, r)
+        return presenters.run_view(s, r)
+
+
 @app.post("/v1/runs/{id}/execute", status_code=202, response_model=RunView)
 def execute_plan(id: str, body: ConfirmExecution, actor: Actor, idempotency_key: Annotated[str, Header()]):
+    from .knowledge import lock
+
     with db.transaction(actor.tenant) as s:
+        lock(s, actor.tenant)
         r = db.get(s, db.Run, actor.tenant, id, True)
         requested = digest(body.spec.model_dump(mode="json"))
         if r.state.get("execution_id"):
@@ -818,6 +850,14 @@ def execute_plan(id: str, body: ConfirmExecution, actor: Actor, idempotency_key:
             raise Fault("PLAN_SCOPE", "Execution must use the discussed project", 422)
         service.require_finalizable(s, r)
         execution = service.create_run(s, actor.tenant, actor.actor, body.spec, idempotency_key, admin=actor.admin)
+        if execution.state.get("source_discussion_id") not in {None, id} or execution.status != "QUEUED":
+            raise Fault("IDEMPOTENCY_CONFLICT", "This key belongs to another task")
+        if r.state.get("source_run_id"):
+            from .resources import put_reviewed
+
+            content = json.loads(objects.get(actor.tenant, r.state["workspace_ref"]))
+            execution.state = {**execution.state, "workspace_ref": put_reviewed(s, execution, content),
+                               "workspace_digest": digest(content)}
         # The confirmed history is frozen into the new run; the discussion never gains write authority.
         execution.state = {**execution.state, "source_discussion_id": id, "dialogue": r.state.get("dialogue", [])}
         db.emit(s, execution, "PLAN_CONFIRMED", "用户确认方案，创建独立执行任务", discussion_id=id)

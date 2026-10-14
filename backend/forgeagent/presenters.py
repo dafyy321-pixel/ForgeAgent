@@ -116,6 +116,7 @@ def run_view(s, r, cache=None):
         "planReady": bool(st.get("plan_ready")),
         "executionId": st.get("execution_id"),
         "sourceDiscussionId": st.get("source_discussion_id"),
+        "sourceRunId": st.get("source_run_id"),
     }
 
 
