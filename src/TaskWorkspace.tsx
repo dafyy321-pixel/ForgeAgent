@@ -170,7 +170,7 @@ function RunWorkspace({ runtime: rt, run: r }: { runtime: Runtime; run: Executio
           </div>
         </div>
       </div>
-      {!(r.mode === 'discuss' && r.inputRequired) &&
+      {!(r.mode === 'discuss' && (r.inputRequired || r.executionId)) &&
         (r.waitReason ||
           r.cancelRequested ||
           ['PAUSED', 'FAILED', 'QUEUED'].includes(r.status)) && (

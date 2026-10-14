@@ -61,12 +61,15 @@ test('plan confirmation UI waits for explicit confirmation and then opens the ex
   request,
 }, testInfo) => {
   const id = await pausedDiscussion(request);
+  let executionId: string | null = null;
   // Only the plan-ready presentation is simulated; the independent backend test covers model-to-plan transitions.
   await page.route('**/v1/workspace?*', async (route) => {
     const response = await route.fetch();
     const body = await response.json();
     body.runs = body.runs.map((run: { id: string }) =>
-      run.id === id ? { ...run, planReady: true, inputRequired: true } : run,
+      run.id === id
+        ? { ...run, planReady: !executionId, inputRequired: !executionId, executionId }
+        : run,
     );
     await route.fulfill({ response, json: body });
   });
@@ -95,7 +98,9 @@ test('plan confirmation UI waits for explicit confirmation and then opens the ex
     const execution = await request.post('http://127.0.0.1:8000/v1/examples/smoke', {
       headers: { 'Idempotency-Key': crypto.randomUUID() },
     });
-    await route.fulfill({ status: 202, json: await execution.json() });
+    const result = await execution.json();
+    executionId = result.id;
+    await route.fulfill({ status: 202, json: result });
   });
   await page.goto(`/tasks/${id}`);
   await expect(page.getByLabel('任务对话')).toContainText('保留小数');
@@ -123,6 +128,9 @@ test('plan confirmation UI waits for explicit confirmation and then opens the ex
       fullPage: true,
     });
   }
+  await page.goto(`/tasks/${id}`);
+  await expect(page.getByRole('button', { name: '查看执行任务', exact: true })).toBeVisible();
+  await expect(page.locator('.state-banner')).toHaveCount(0);
   await page.unrouteAll({ behavior: 'wait' });
 });
 
