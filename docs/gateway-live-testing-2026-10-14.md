@@ -11,6 +11,11 @@ The gateway returns SSE even with `stream:false`. Use
 accept the exact model and the terminal response echoes `high`.
 Provider token counting is unavailable for this test profile, so
 `FORGE_MODEL_TOKEN_COUNT=false` uses the existing conservative UTF-8 bound.
+For the REA recovery scenario, `FORGE_CONTEXT_WINDOW=65536` admits the full
+request including native tool schemas. The default 32768 conservatively rejects
+this larger catalog before dispatch. The [model documentation](https://developers.openai.com/api/docs/models/gpt-6-luna)
+lists a 1,050,000-token window; the local test limit remains well below that and
+below the 272K long-context pricing threshold.
 
 [OpenAI's public price table](https://developers.openai.com/api/docs/pricing)
 lists these Standard short-context USD rates per million tokens:
@@ -61,6 +66,26 @@ reserved balance, and $0.002668 charged to the local pinned-rate task ledger.
 The runtime-lab verifier checks the repair structurally with AST; this result
 does not by itself establish container isolation or the complete production
 release gates.
+
+The subsequent backend regression passed **373 tests, with 7 opt-in/platform
+skips**, in 444.66 seconds, including the real Docker isolation, timeout and
+protected-acceptance tests and the installed REA CLI integration. Browser tests
+passed **20/20** in Edge after starting the API and a worker limited to the
+`local` test tenant. The first browser attempt ran before those services were
+ready and failed; no test timeouts or assertions were relaxed. ESLint, Prettier,
+OpenAPI type consistency, the frontend build, Ruff and backend type checks passed.
+
+A first expanded live REA recovery run demonstrated a safe stop rather than
+successful repair: the model repeated analysis of an unchanged reference, and
+Windows reported a temporary-directory sharing violation during cleanup. The
+failed run and its unknown-root-cause diagnosis remain in the local audit.
+Windows analyzer jobs now explicitly terminate their process family and confirm
+that its active-process count reaches zero before returning to directory cleanup.
+A regression check covers normal parent exit with surviving descendants and
+immediate directory removal, alongside the existing timeout/cancellation checks.
+After this change the REA suite passed 7 tests with one platform skip.
+The expanded live task also explicitly tells the model to consume successful
+analysis/read receipts and proceed to writing, rather than repeat unchanged work.
 
 Local sanitized evidence is in `.forge/live-model/`. Account-wide usage and
 downloaded frontend assets remain ignored and are not release artifacts.

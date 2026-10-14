@@ -22,6 +22,9 @@ class WindowsJob:
         kernel.CreateJobObjectW.restype = wintypes.HANDLE
         kernel.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
         kernel.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        kernel.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        kernel.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p,
+                                                    wintypes.DWORD, ctypes.c_void_p]
         kernel.CloseHandle.argtypes = [wintypes.HANDLE]
         self.kernel, self.handle = kernel, kernel.CreateJobObjectW(None, None)
         if not self.handle:
@@ -56,8 +59,28 @@ class WindowsJob:
 
     def close(self):
         if self.handle:
-            self.kernel.CloseHandle(self.handle)
-            self.handle = None
+            from ctypes import wintypes
+
+            class Accounting(ctypes.Structure):
+                _fields_ = [("times", ctypes.c_int64 * 4), ("faults", wintypes.DWORD),
+                            ("total", wintypes.DWORD), ("active", wintypes.DWORD), ("terminated", wintypes.DWORD)]
+
+            try:
+                if not self.kernel.TerminateJobObject(self.handle, 1):
+                    raise Fault("REA_SUPERVISION", "Cannot terminate owned analyzer family")
+                deadline = time.monotonic() + 5
+                info = Accounting()
+                while True:
+                    if not self.kernel.QueryInformationJobObject(self.handle, 1, ctypes.byref(info), ctypes.sizeof(info), None):
+                        raise Fault("REA_SUPERVISION", "Cannot confirm analyzer family exit")
+                    if info.active == 0:
+                        break
+                    if time.monotonic() >= deadline:
+                        raise Fault("REA_SUPERVISION", "Analyzer family did not exit before cleanup deadline")
+                    time.sleep(.01)
+            finally:
+                self.kernel.CloseHandle(self.handle)
+                self.handle = None
 
 
 def run(argv, directory: Path, timeout, maximum, cancelled, env):

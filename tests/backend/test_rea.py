@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -19,6 +20,20 @@ from forgeagent.storage import objects
 from forgeagent.worker import Worker
 
 RUNTIME = Path(__file__).resolve().parents[2] / ".forge/rea"
+
+
+def test_normal_analyzer_exit_reaps_descendants_before_directory_cleanup(tmp_path):
+    marker = tmp_path / "orphan-marker"
+    child = "import time,pathlib;time.sleep(.5);pathlib.Path(" + repr(str(marker)) + ").write_text('orphan')"
+    parent = ("import subprocess,sys;subprocess.Popen([sys.executable,'-c'," + repr(child)
+              + "],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);print('complete')")
+    for _ in range(3):
+        with tempfile.TemporaryDirectory(prefix="forge-rea-exit-") as temporary:
+            assert processes.run([sys.executable, "-c", parent], Path(temporary), 5, 1024,
+                                 threading.Event(), os.environ.copy()).strip() == b"complete"
+        assert not Path(temporary).exists()
+    threading.Event().wait(.6)
+    assert not marker.exists()
 
 
 @pytest.fixture
