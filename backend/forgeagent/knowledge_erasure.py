@@ -64,7 +64,8 @@ def prepare(s, tenant, memory_id, actor, run_id=None):
         db.get(s, db.TaskSpec, tenant, run.task_id).data = {"erased": True}
         s.flush()
         for cls in [db.Event, db.Checkpoint, db.ContextManifest, db.SemanticManifest, db.Turn, db.VerificationResult,
-                    db.WorkspaceSnapshot, db.SandboxRecord, db.Artifact, db.Attempt, db.EvaluationResult]:
+                    db.WorkspaceSnapshot, db.SandboxRecord, db.Artifact, db.Attempt, db.EvaluationResult,
+                    db.RecoveryAttempt, db.Diagnosis, db.EvidenceRecord]:
             for row in db.rows(s, cls, tenant, run_id=run.id):
                 s.delete(row)
         for action in db.rows(s, db.Action, tenant, run_id=run.id):

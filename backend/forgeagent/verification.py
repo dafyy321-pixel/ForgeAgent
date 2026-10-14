@@ -52,6 +52,7 @@ async def verify(tenant, run_id, epoch, baseline, current, contract, allowed_pat
     before = digest(current)
     result: ActionReceipt | None = None
     verdict = "INCONCLUSIVE"
+    inconclusive_reason = "not_run"
     build_result = None
     if not scope_ok or not protected_ok:
         verdict = "FAIL"
@@ -106,6 +107,8 @@ async def verify(tenant, run_id, epoch, baseline, current, contract, allowed_pat
         successes, failures = contract.get("success_exit_codes", [0]), contract.get("failure_exit_codes", [1])
         if result.get("timed_out") or result.get("truncated") or result["exit_code"] not in successes + failures:
             verdict = "INCONCLUSIVE"
+            inconclusive_reason = ("timed_out" if result.get("timed_out") else "truncated" if result.get("truncated")
+                                   else "tool_error" if result.get("error_code") else "unregistered_exit")
         else:
             verdict = "PASS" if result["exit_code"] in successes and scope_ok and protected_ok else "FAIL"
         for condition in contract.get("conditions", []):
@@ -147,6 +150,7 @@ async def verify(tenant, run_id, epoch, baseline, current, contract, allowed_pat
         "failure_class": "hard_constraint" if not scope_ok or not protected_ok else
                          "environment" if verdict == "INCONCLUSIVE" else
                          "acceptance" if verdict == "FAIL" else None,
+        "inconclusive_reason": inconclusive_reason if verdict == "INCONCLUSIVE" else None,
         "checks": checks,
         "workspace_digest": before,
         "acceptance_digest": digest({k: v for k, v in contract.items() if k != "protected_tests"}

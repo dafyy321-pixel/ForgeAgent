@@ -125,7 +125,7 @@ def auth_config():
 def ready():
     with db.engine.connect() as c:
         c.execute(text("SELECT 1"))
-        if c.scalar(text("SELECT version_num FROM alembic_version")) != "0009":
+        if c.scalar(text("SELECT version_num FROM alembic_version")) != "0010":
             raise Fault("SCHEMA_VERSION", "Database migration is not ready for this runtime", 503)
     return {"status": "ready", "database": "postgresql"}
 
@@ -629,6 +629,20 @@ def artifacts(id: str, actor: Actor):
         ]
 
 
+@app.get("/v1/runs/{id}/recovery", response_model=CatalogPage)
+def recovery_records(id: str, actor: Actor, kind: Literal["diagnoses", "evidence", "attempts"] = "diagnoses",
+                     cursor: str | None = None, limit: int = Query(20, ge=1, le=100)):
+    from .pagination import records
+
+    cls = {"diagnoses": db.Diagnosis, "evidence": db.EvidenceRecord, "attempts": db.RecoveryAttempt}[kind]
+    with db.transaction(actor.tenant) as s:
+        db.get(s, db.Run, actor.tenant, id)
+        values, next_cursor = records(s, actor, cls, select(cls).where(cls.tenant_id == actor.tenant, cls.run_id == id),
+                                      [id, kind], cursor, limit)
+        return {"items": [{"id": row.id, "status": row.status, "created_at": row.created_at,
+                           "data": service.public_payload(row.data)} for row in values], "next_cursor": next_cursor}
+
+
 @app.get("/v1/artifacts/{artifact_id}/download")
 def download(artifact_id: str, actor: Actor):
     with db.transaction(actor.tenant) as s:
@@ -673,6 +687,9 @@ def user_input(id: str, body: UserInput, actor: Actor):
             raise Fault("INPUT_CONFLICT", "Input requires the current paused task version")
         if r.cancel_requested:
             raise Fault("INPUT_CONFLICT", "A cancelling task cannot accept new input")
+        from .recovery import invalidate
+
+        invalidate(s, r)
         r.state = {**r.state, "input": body.content, "input_required": False, "completion": None,
                    "verification": None, "input_revision": r.state.get("input_revision", 0) + 1,
                    "artifact_version": r.state["artifact_version"] + 1}

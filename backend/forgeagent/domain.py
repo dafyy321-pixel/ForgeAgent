@@ -45,6 +45,8 @@ class Budget(Strict):
     max_tool_calls: int = Field(300, ge=1, le=3000)
     max_tokens: int = Field(500000, ge=1, le=10000000)
     max_repair_attempts: int = Field(2, ge=0, le=10)
+    max_diagnoses: int = Field(6, ge=0, le=30)
+    max_recovery_attempts: int = Field(2, ge=0, le=10)
     max_no_progress_turns: int = Field(12, ge=3, le=100)
     max_concurrent_runs: int = Field(2, ge=1, le=32)
     max_cpu_seconds: int = Field(3600, ge=1, le=86400)
@@ -139,6 +141,7 @@ class Task(Strict):
 
 
 class Harness(Strict):
+    evidence_recovery: bool = False
     context_policy: Literal["elide", "full"] = "elide"
     code_retrieval: Literal["off", "lexical", "structure"] = "off"
     memory: bool = True

@@ -36,7 +36,7 @@ import {
 } from './runtime';
 import type { Runtime } from './useRuntime';
 import { EventStream, RunBadge, useFollowing } from './TaskViews';
-import { ActionLedger, RealContext } from './RuntimePanels';
+import { ActionLedger, RealContext, RecoveryHistory } from './RuntimePanels';
 import { CaseReplay } from './CaseReplay';
 
 export function TaskWorkspace({ runtime: rt }: { runtime: Runtime }) {
@@ -504,6 +504,7 @@ function RecoveryPanel({ runtime: rt, run: r }: { runtime: Runtime; run: Executi
           {checks.filter((c) => c.ok).length} / {checks.length} 条件满足
         </span>
       </div>
+      <RecoveryHistory run={r} />
       <p className="muted">
         恢复 {r.checkpoint.id}，复用已经确认的动作；原始记录和固定执行配置始终保留。
       </p>

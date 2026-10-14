@@ -83,7 +83,9 @@ def snapshot(s, run, assumptions=None):
                 pickup.append(max(0, (event.created_at - datetime.fromisoformat(event.expired_at)).total_seconds()))
         elif event.run_id in pending and event.type in {"ACTION_RESULT", "DECISION_APPLIED", "VERIFICATION_COMPLETED", "RUN_CANCELLED"}:
             recovery.append(max(0, (event.created_at - pending.pop(event.run_id)).total_seconds()))
-    failure = (run.state.get("last_failure") or {}).get("category") or run.state.get("reason", "").split(":", 1)[0] or run.status
+    failure = (run.state.get("last_failure") or {}).get("class") or run.state.get("reason", "").split(":", 1)[0] or run.status
+    diagnoses = [row for member in family for row in db.rows(s, db.Diagnosis, run.tenant_id, run_id=member.id)]
+    attempts = [row for member in family for row in db.rows(s, db.RecoveryAttempt, run.tenant_id, run_id=member.id)]
     return {"version": 1, "run_id": run.id, "assumptions_digest": digest(rates.model_dump(mode="json")),
         "components": components, "model_usage_settled": not unknown,
         "known_cost_usd": sum(value for value in components.values() if value is not None),
@@ -93,6 +95,11 @@ def snapshot(s, run, assumptions=None):
         "wall_seconds": seconds, "failure_category": failure, "recovery_to_progress_seconds": recovery,
         "recovery_pickup_seconds": pickup, "legacy_ambiguous_recoveries": legacy,
         "pending_recoveries": len(pending), "manual_decisions": manual,
+        "evidence_recovery": {"diagnoses": len(diagnoses),
+            "root_classes": dict(Counter(row.data.get("root_class", "unknown") for row in diagnoses)),
+            "conclusions": dict(Counter(row.data.get("conclusion", "unknown") for row in diagnoses)),
+            "strategies": dict(Counter(row.data["strategy"] for row in attempts)),
+            "outcomes": dict(Counter(row.status for row in attempts))},
         "limitations": ["Storage byte-hours use the charged byte peak over task wall time; CPU uses conservative sandbox charges.",
             "Infrastructure, external tool and human tariffs are declared assumptions, not provider invoices.",
             "Model ledger includes all family calls; unknown usage keeps the total incomplete."]}

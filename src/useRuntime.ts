@@ -21,6 +21,7 @@ export type TaskDraft = {
   allowExternalRead?: boolean;
   connections?: string[];
   allowDelegation?: boolean;
+  evidenceRecovery?: boolean;
 };
 export type Scenario =
   | 'active'
@@ -377,6 +378,7 @@ export function useRuntime() {
           .filter(Boolean),
       },
       budget: { max_cost_usd: String(d.budget) },
+      harness: { evidence_recovery: !!d.evidenceRecovery },
       model: d.model === 'fixture' ? 'fixture' : 'configured',
       skills: d.skills,
       connections: d.connections || [],

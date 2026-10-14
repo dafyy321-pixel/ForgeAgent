@@ -5,6 +5,80 @@ import type { Execution } from './runtime';
 import type { Runtime } from './useRuntime';
 import { JsonForm } from './BackendViews';
 
+type RecoveryRecord = { id: string; status: string; created_at: string; data: Record<string, any> };
+type RecoveryPage = { items: RecoveryRecord[]; next_cursor?: string | null };
+
+export function RecoveryHistory({ run: r }: { run: Execution }) {
+  const [kind, setKind] = useState('diagnoses');
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [result, setResult] = useState<RecoveryPage>({ items: [] });
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const controller = new AbortController();
+    setError('');
+    api<RecoveryPage>(
+      `/runs/${r.id}/recovery?kind=${kind}&limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+      'GET',
+      undefined,
+      undefined,
+      { signal: controller.signal },
+    )
+      .then(setResult)
+      .catch((e) => {
+        if (!controller.signal.aborted) setError(e.message);
+      });
+    return () => controller.abort();
+  }, [r.id, r.stateVersion, kind, cursor]);
+  return (
+    <Panel title="证据与恢复记录">
+      <p className="muted">记录保留候选原因与未知项；最终完成仍以独立验收为准。</p>
+      <div className="button-row">
+        {Object.entries({ diagnoses: '诊断', evidence: '证据', attempts: '恢复动作' }).map(
+          ([value, label]) => (
+            <Button
+              key={value}
+              onClick={() => {
+                setKind(value);
+                setCursor(null);
+              }}
+              disabled={kind === value}
+            >
+              {label}
+            </Button>
+          ),
+        )}
+      </div>
+      {error && <p role="alert">{error}</p>}
+      {!result.items.length && (
+        <p className="muted">暂无记录。创建任务时可在高级配置中启用证据驱动恢复。</p>
+      )}
+      {result.items.map((row) => (
+        <details key={row.id}>
+          <summary>
+            {row.data.reason || row.data.strategy || row.data.source || row.id} ·{' '}
+            {row.data.conclusion || row.status}
+          </summary>
+          <p className="small-note">
+            {row.created_at} · {row.id}
+          </p>
+          <pre>{JSON.stringify(row.data, null, 2)}</pre>
+        </details>
+      ))}
+      <div className="button-row">
+        <Button disabled={!cursor} onClick={() => setCursor(null)}>
+          首页
+        </Button>
+        <Button
+          disabled={!result.next_cursor}
+          onClick={() => setCursor(result.next_cursor || null)}
+        >
+          下一页
+        </Button>
+      </div>
+    </Panel>
+  );
+}
+
 export function ActionLedger({ runtime: rt, run: r }: { runtime: Runtime; run: Execution }) {
   const [actions, setActions] = useState<any[]>([]);
   const [error, setError] = useState('');

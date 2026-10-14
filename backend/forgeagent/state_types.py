@@ -11,6 +11,8 @@ class RunState(TypedDict, total=False):
     format_errors: int
     repeats: int
     repair_attempts: int
+    recoveries_used: int
+    active_recovery: str | None
     integrated_children: list[str]
 
 

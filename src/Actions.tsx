@@ -287,6 +287,14 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
               />
               允许委派受限子任务
             </label>
+            <label className="selection-item">
+              <input
+                type="checkbox"
+                checked={!!draft.evidenceRecovery}
+                onChange={(e) => field('evidenceRecovery', e.target.checked)}
+              />
+              启用证据驱动恢复（先诊断再修复，未知原因可暂停）
+            </label>
           </div>
         )}
         {advanced && (

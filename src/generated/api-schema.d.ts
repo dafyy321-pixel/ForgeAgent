@@ -515,6 +515,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/runs/{id}/recovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recovery Records */
+        get: operations["recovery_records_v1_runs__id__recovery_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/artifacts/{artifact_id}/download": {
         parameters: {
             query?: never;
@@ -1378,6 +1395,16 @@ export interface components {
              */
             max_repair_attempts?: number;
             /**
+             * Max Diagnoses
+             * @default 6
+             */
+            max_diagnoses?: number;
+            /**
+             * Max Recovery Attempts
+             * @default 2
+             */
+            max_recovery_attempts?: number;
+            /**
              * Max No Progress Turns
              * @default 12
              */
@@ -1737,6 +1764,11 @@ export interface components {
         };
         /** Harness */
         Harness: {
+            /**
+             * Evidence Recovery
+             * @default false
+             */
+            evidence_recovery?: boolean;
             /**
              * Context Policy
              * @default elide
@@ -4618,6 +4650,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Structured API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+        };
+    };
+    recovery_records_v1_runs__id__recovery_get: {
+        parameters: {
+            query?: {
+                kind?: "diagnoses" | "evidence" | "attempts";
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogPage"];
                 };
             };
             /** @description Structured API error */

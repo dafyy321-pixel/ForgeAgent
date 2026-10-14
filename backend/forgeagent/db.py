@@ -175,10 +175,10 @@ class Artifact(RunRow, Base):
 
 
 # Versioned domain records have an immutable JSON payload; lifecycle status is separate.
-def record(name, table, run_bound=False):
+def record(name, table, run_bound=False, required_run=False):
     fields = {"__tablename__": table, "__module__": __name__}
     if run_bound:
-        fields["run_id"] = mapped_column(String(100), index=True)
+        fields["run_id"] = mapped_column(String(100), index=True, nullable=not required_run)
         fields["__table_args__"] = (ForeignKeyConstraint(["tenant_id", "run_id"], ["runs.tenant_id", "runs.id"]),)
     return type(name, (Document,), fields)
 
@@ -199,6 +199,9 @@ Memory = record("Memory", "memories")
 PolicyVersion = record("PolicyVersion", "policy_versions")
 Authorization = record("Authorization", "authorization_epochs")
 VerificationResult = record("VerificationResult", "verification_results", True)
+EvidenceRecord = record("EvidenceRecord", "evidence_records", True, True)
+Diagnosis = record("Diagnosis", "diagnoses", True, True)
+RecoveryAttempt = record("RecoveryAttempt", "recovery_attempts", True, True)
 Outbox = record("Outbox", "outbox")
 Inbox = record("Inbox", "inbox")
 Evaluation = record("Evaluation", "evaluation_runs")

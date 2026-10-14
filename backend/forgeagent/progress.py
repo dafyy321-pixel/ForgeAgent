@@ -5,6 +5,10 @@ from .domain import digest
 
 
 def failure_class(code):
+    if code == "VERIFICATION_FAIL":
+        return "acceptance"
+    if code == "VERIFICATION_INCONCLUSIVE":
+        return "unknown"
     if code in {"UNKNOWN_USAGE", "UNSETTLED_BUDGET", "UNRESOLVED_EFFECT", "MODEL_CALL_FAILED"}:
         return "reconciliation"
     if code in {"SANDBOX_UNAVAILABLE", "MODEL_NOT_CONFIGURED", "MODEL_BINDING_CHANGED", "SEMANTIC_DRIFT"}:

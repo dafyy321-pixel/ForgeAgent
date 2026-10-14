@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import aliased
 
-from . import billing, db, models, observation, progress, resources, service
+from . import billing, db, diagnosis, models, observation, progress, recovery, resources, service
 from .config import settings
 from .context import compile_context
 from .domain import TERMINAL, Fault, canonical, digest, uid
@@ -352,11 +352,20 @@ class Worker:
         if received:
             await self.consume_response(tenant, id, epoch, received)
             return
+        if state.get("diagnosis_pending"):
+            def diagnose():
+                with db.transaction(tenant) as s:
+                    r = db.fence(s, tenant, id, self.owner, epoch)
+                    recovery.advance(s, r)
+                    service.checkpoint(s, r)
+            await asyncio.to_thread(diagnose)
+            return
         if ready:
             content = json.loads(await asyncio.to_thread(objects.get, tenant, state["workspace_ref"]))
             root = await asyncio.to_thread(sandbox.restore, tenant, id, epoch, content, state.get("repository"))
             for action_id in ready:
-                await self.dispatch(tenant, id, epoch, action_id, root)
+                if await self.dispatch(tenant, id, epoch, action_id, root):
+                    break
             return
         if state.get("completion"):
             await self.complete(tenant, id, epoch)
@@ -705,6 +714,7 @@ class Worker:
             if r.cancel_requested or r.pause_requested:
                 return
             if not progress.decided(s, r):
+                diagnosis.queue(s, r, "progress", None, {"error_code": "NO_PROGRESS"})
                 return
             if decision.kind == "tool_calls":
                 if len(actions) + len(decision.calls) > state["budget"]["max_tool_calls"]:
@@ -767,6 +777,8 @@ class Worker:
                 a = db.get(s, db.Action, tenant, action_id, True)
                 if a.status != "READY" or r.cancel_requested or r.pause_requested:
                     return
+                if a.effect_class == "workspace_write" and (r.state.get("recovery_guard") or {}).get("requires_probe"):
+                    raise Fault("RECOVERY_PROBE_REQUIRED", "Inspect public failure evidence before dispatching writes")
                 spec = service.TOOLS.get(a.tool)
                 if spec is None:
                     # Remote dispatch has its own bound approval check and persisted attempt.
@@ -933,8 +945,15 @@ class Worker:
                         cast(RunState, r.state).get("integrated_children", []) + [receipt["child_id"]]
                     ))}
                 progress.observed(s, r, tool, receipt, action_status)
+                recovery.observed(s, r, a, receipt)
                 db.emit(s, r, "ACTION_RESULT", f"{tool}: {action_status}", action_id=a.id, observation=a.receipt)
+                if action_status == "FAILED":
+                    diagnosis.queue(s, r, "tool", receipt_ref, {
+                        "tool": tool, "exit_code": receipt.get("exit_code"), "error_code": receipt.get("error_code"),
+                        "output_digest": digest(receipt.get("output", receipt.get("error", ""))),
+                        "timed_out": bool(receipt.get("timed_out")), "truncated": bool(receipt.get("truncated"))}, a.id)
         await asyncio.to_thread(commit_dispatch)
+        return diagnosis.enabled(state) and action_status == "FAILED"
 
     @observed("runtime.complete")
     async def complete(self, tenant, id, epoch):
@@ -1031,11 +1050,12 @@ class Worker:
                     progress.failed(s, r, "VERIFICATION_" + report["verdict"], report.get("failure_class") or "verification")
                 repair_count = cast(RunState, r.state).get("repair_attempts", 0)
                 can_repair = (report["verdict"] == "FAIL"
+                              and not diagnosis.enabled(state)
                               and report.get("failure_class") == "acceptance"
                               and repair_count < state["budget"].get("max_repair_attempts", 2)
                               and state["turn"] < state["budget"]["max_turns"]
                               and (db.clock(s) - r.created_at).total_seconds() < state["budget"]["max_wall_seconds"])
-                r.status = "SUCCEEDED" if passed else "ACTIVE" if can_repair else "FAILED" if report["verdict"] == "FAIL" else "PAUSED"
+                r.status = "SUCCEEDED" if passed else "ACTIVE" if can_repair or diagnosis.enabled(state) else "FAILED" if report["verdict"] == "FAIL" else "PAUSED"
                 if can_repair:
                     r.phase = "REPAIRING"
                     r.state = {**r.state, "completion": None, "repair_attempts": repair_count + 1,
@@ -1044,6 +1064,21 @@ class Worker:
                     db.schedule(s, r)
                     db.emit(s, r, "VERIFICATION_REPAIR_REQUESTED", "Acceptance failed; bounded repair remains")
                 db.emit(s, r, "VERIFICATION_COMPLETED", r.state["reason"], evidence_ref=report_ref)
+                if diagnosis.enabled(r.state):
+                    active = r.state.get("active_recovery")
+                    if passed and active:
+                        db.get(s, db.RecoveryAttempt, tenant, active).status = "SUCCEEDED"
+                        r.state = {**r.state, "active_recovery": None, "recovery_guard": None}
+                        db.emit(s, r, "RECOVERY_VERIFIED", "Independent acceptance passed", recovery_id=active)
+                    elif not passed:
+                        # Undo legacy feedback scheduling; the durable diagnosis chooses the next action.
+                        r.state = {**r.state, "repair_attempts": repair_count, "completion": state.get("completion")}
+                        diagnosis.queue(s, r, "verification", report_ref, {
+                            "verdict": report["verdict"], "failure_class": report.get("failure_class"),
+                            "inconclusive_reason": report.get("inconclusive_reason"),
+                            "error_code": (report.get("result") or {}).get("error_code"),
+                            "output_digest": digest((report.get("result") or {}).get("output", "")),
+                            "exit_code": (report.get("result") or {}).get("exit_code")})
                 service.checkpoint(s, r)
         await asyncio.to_thread(commit_verification)
 

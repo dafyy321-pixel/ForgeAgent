@@ -71,7 +71,7 @@ def compile_context(task, state, observations, skills, memories, window, output,
         {"type": "constraints", "content": system, "trust": "system"},
         {"type": "task", "content": task, "trust": "user"},
         {"type": "runtime", "content": {k: state.get(k) for k in (
-            "turn", "input", "input_revision", "unresolved", "verification_feedback"
+            "turn", "input", "input_revision", "unresolved", "verification_feedback", "diagnosis_summary", "recovery_guard"
         )}, "trust": "runtime"},
     ]
     mandatory.append({"type": "facts", "trust": "runtime", "content": {k: state.get(k) for k in (

@@ -573,10 +573,14 @@ def migrate(s, tenant, id, body):
         artifact.verified = False
     segment = {"from": digest(old), "to": digest(new), "at": db.clock(s).isoformat(),
                "reason": body.reason, "input_revision": run.state.get("input_revision", 0)}
+    if run.state.get("active_recovery"):
+        db.get(s, db.RecoveryAttempt, tenant, run.state["active_recovery"]).status = "SUPERSEDED"
     run.state = {**run.state, "semantic": new, "executor_ref": store_archive(tenant),
                  "executor_digest": digest(new["implementation"]), "budget": Budget(**run.state["budget"]).model_dump(),
                  "semantic_segments": [*run.state.get("semantic_segments", []), segment],
                  "completion": None, "verification": None, "verification_feedback": None,
+                 "diagnosis_pending": None, "active_recovery": None, "recovery_guard": None,
+                 "recovery_completion": None, "diagnosis_summary": None,
                  "input_revision": run.state.get("input_revision", 0) + 1,
                  "artifact_version": run.state["artifact_version"] + 1, "reason": body.reason}
     s.add(db.SemanticManifest(tenant_id=tenant, run_id=id, data={"bindings": new, "digest": digest(new),
@@ -611,6 +615,8 @@ def prepare_action(s, run, call, logical_key):
             raise Fault("TOOL_UNAVAILABLE", "Tool is not in the pinned tool catalog", 422)
         TOOL_INPUTS[call.tool].model_validate(call.args)
         authorization(s, run, tool["capability"])
+        if tool["effect"] == "workspace_write" and (run.state.get("recovery_guard") or {}).get("requires_probe"):
+            raise Fault("RECOVERY_PROBE_REQUIRED", "Inspect public failure evidence or relevant source before editing")
     except (Fault, ValidationError) as exc:
         error = str(exc)[:2000]
     a = db.Action(
