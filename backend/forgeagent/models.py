@@ -26,8 +26,13 @@ def anthropic_client():
 async def count_request(request):
     if not settings.model_token_count:
         from .domain import canonical
+        from .tokenization import count
 
-        return len(canonical(request["payload"])) + 2048, "utf8_upper_bound"
+        payload = canonical(request["payload"]).decode("utf-8")
+        try:
+            return count(payload) + 2048, "local_tokenizer_with_framing_reserve"
+        except Exception:
+            return len(payload.encode("utf-8")) + 2048, "utf8_upper_bound_fallback"
     try:
         if request["provider"] == "anthropic":
             async with anthropic_client() as client:
@@ -41,7 +46,11 @@ async def count_request(request):
         else:
             from .domain import canonical
 
-            return len(canonical(request["payload"])) + 2048, "chat_utf8_upper_bound"
+            payload = canonical(request["payload"]).decode("utf-8")
+            try:
+                return count(payload) + 2048, "local_tokenizer_with_framing_reserve"
+            except Exception:
+                return len(payload.encode("utf-8")) + 2048, "chat_utf8_upper_bound_fallback"
         count = response.input_tokens
         if type(count) is not int or count < 0:
             raise ValueError("invalid token count")
