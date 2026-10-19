@@ -68,7 +68,13 @@ def compile_context(task, state, observations, skills, memories, window, output,
     harness = state.get("semantic", {}).get("harness", {})
     if not harness.get("memory", True):
         memories = []
-    budget = window - output - 2048
+    # The provider request adds tool schemas and protocol framing after this
+    # manifest is compiled. Reserve a fixed envelope so a valid multi-turn
+    # continuation is not rejected only after its tools are attached.
+    context_reserve = min(8192, max(2048, window // 8))
+    budget = window - output - context_reserve
+    if budget <= 0:
+        raise Fault("CONTEXT_OVERFLOW", "Mandatory task constraints exceed the context window after output/provider reserves")
     system = SYSTEM + "\nJSON decision schema:\n" + canonical(decision_schema(state)).decode()
     discussing = task.get("mode") == "discuss"
     if discussing:
@@ -185,6 +191,7 @@ def compile_context(task, state, observations, skills, memories, window, output,
         "omitted": omitted,
         "estimated_tokens_upper_bound": used,
         "input_budget": budget,
+        "provider_envelope_reserve": context_reserve,
         "output_reserve": output,
         "tokenizer": "tiktoken:" + settings.model_tokenizer,
         "count_kind": "local_estimate_with_framing_reserve",

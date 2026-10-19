@@ -353,6 +353,7 @@ def test_context_keeps_constraints_and_deduplicates():
     )
     assert "do not change tests" in messages[1]["content"]
     assert manifest["omitted"] and manifest["estimated_tokens_upper_bound"] <= manifest["input_budget"]
+    assert manifest["provider_envelope_reserve"] >= 2048
 
 
 def test_core_context_overflow_stops():
