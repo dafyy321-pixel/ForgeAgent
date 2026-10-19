@@ -65,9 +65,25 @@ def test_delete_move_and_write_require_current_preimages(workspace):
         ("repo.move", {"path": "src/empty", "destination": "src/main.py", "expected_digest": digest(b"")}),
         ("repo.write", {"path": "src/main.py", "content": "changed", "expected_digest": "absent"}),
     ]:
-        with pytest.raises(Fault, match="digest changed"):
+        with pytest.raises(Fault, match="digest changed") as failure:
             repo_tools.execute(root, tool, args, state)
+        message = str(failure.value)
+        assert "expected_digest=" in message and "current_digest=" in message
+        assert "workspace_digest=" in message and "input_revision=0" in message
         assert files(root) == content
+
+
+def test_precondition_diagnostic_identifies_stale_model_receipt(workspace):
+    root, content, state = workspace
+    state = {**state, "input_revision": 3}
+    stale = digest(b"model-read-a-different-file")
+    with pytest.raises(Fault, match="path=src/main.py") as failure:
+        repo_tools.execute(root, "repo.write", {
+            "path": "src/main.py", "content": "changed", "expected_digest": stale,
+        }, state)
+    assert f"expected_digest={stale}" in str(failure.value)
+    assert f"current_digest={digest(content['src/main.py'].encode())}" in str(failure.value)
+    assert "input_revision=3" in str(failure.value)
 
 
 def test_attributes_cannot_normalize_away_snapshot_bytes():

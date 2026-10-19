@@ -25,6 +25,15 @@ def publish(root, before, after, state):
     return {"exit_code": 0, "changed_paths": changed, "workspace_digest": digest(after)}, files(root)
 
 
+def precondition_fault(message, *, expected, current, before, state, path):
+    """Keep CAS enforcement strict while making stale model receipts diagnosable."""
+    return Fault(
+        "PRECONDITION_FAILED",
+        f"{message}: path={path}; expected_digest={expected}; current_digest={current}; "
+        f"workspace_digest={digest(before)}; input_revision={state.get('input_revision', 0)}",
+    )
+
+
 def execute(root, tool, args, state):
     if tool == "repo.read":
         path = safe_path(root, args["path"])
@@ -111,18 +120,27 @@ def execute(root, tool, args, state):
             selected_mode = args.get("mode") or (mode(before[name]) if name in before else "100644")
             value = entry(data, selected_mode)
             if current != args["expected_digest"] and before.get(name) != value:
-                raise Fault("PRECONDITION_FAILED", "File digest changed")
+                raise precondition_fault(
+                    "File digest changed", expected=args["expected_digest"], current=current,
+                    before=before, state=state, path=name,
+                )
             after[name] = value
         elif tool in {"repo.delete", "repo.move"}:
             if current != args["expected_digest"]:
-                raise Fault("PRECONDITION_FAILED", "Source digest changed")
+                raise precondition_fault(
+                    "Source digest changed", expected=args["expected_digest"], current=current,
+                    before=before, state=state, path=name,
+                )
             value = after.pop(name)
             if tool == "repo.move":
                 destination = args["destination"].replace("\\", "/")
                 safe_path(root, destination, allow_leaf_link=True)
                 target = digest(body(before[destination])) if destination in before else "absent"
                 if target != args.get("expected_target_digest", "absent"):
-                    raise Fault("PRECONDITION_FAILED", "Destination digest changed")
+                    raise precondition_fault(
+                        "Destination digest changed", expected=args.get("expected_target_digest", "absent"),
+                        current=target, before=before, state=state, path=destination,
+                    )
                 after[destination] = value
         else:
             raise Fault("TOOL_UNAVAILABLE", "Unknown repository operation")
