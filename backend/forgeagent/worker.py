@@ -608,7 +608,7 @@ class Worker:
                 with db.transaction(tenant) as s:
                     r = db.fence(s, tenant, id, self.owner, epoch)
                     call = db.get(s, db.ModelCall, tenant, call_id)
-                    from .model_retry import classify
+                    from .model_retry import classify, error_type, request_id
 
                     count = r.state.get("model_errors", 0) + 1
                     retry = classify(exc, db.clock(s), count)
@@ -616,7 +616,14 @@ class Worker:
                     known_unbilled = retry["known_unbilled"]
                     call.status = "FAILED" if known_unbilled else "UNKNOWN"
                     call.data = {**call.data, "error_type": type(exc).__name__, "retry": retry,
-                                 "provider_request_id": getattr(exc, "request_id", None)}
+                                 "error_category": error_type(exc),
+                                 "failure_phase": "provider_dispatch",
+                                 "dispatch_disposition": (
+                                     "provider_rejected_before_billable_dispatch"
+                                     if known_unbilled else "uncertain_after_dispatch"
+                                 ),
+                                 "status_code": code,
+                                 "provider_request_id": request_id(exc)}
                     service.settle(s, r, call_id, 0 if known_unbilled else None, 0 if known_unbilled else None)
                     r.state = {**r.state, "model_errors": count}
                     progress.failed(s, r, "MODEL_RATE_LIMIT" if code == 429 else "UNKNOWN_USAGE", "provider")

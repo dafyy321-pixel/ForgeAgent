@@ -8,6 +8,29 @@ from .domain import Fault
 PREFLIGHT = {"MODEL_NOT_CONFIGURED", "PRICING_REQUIRED", "MODEL_PROVIDER", "MODEL_CAPABILITY", "MODEL_SCHEMA_UNSUPPORTED"}
 
 
+def request_id(exc):
+    """Extract only the provider's opaque request identifier, never its body."""
+    value = getattr(exc, "request_id", None)
+    if value:
+        return str(value)[:200]
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", {}) or {}
+    return str(headers.get("x-request-id") or headers.get("request-id") or "")[:200] or None
+
+
+def error_type(exc):
+    name = type(exc).__name__.lower()
+    if "timeout" in name:
+        return "timeout"
+    if "connection" in name or "network" in name:
+        return "connection"
+    if "ratelimit" in name or getattr(exc, "status_code", None) == 429:
+        return "rate_limit"
+    if getattr(exc, "status_code", None) in {400, 401, 403, 404, 422}:
+        return "provider_rejected"
+    return "provider_error"
+
+
 def classify(exc, time, attempt):
     status = getattr(exc, "status_code", None)
     known = status in {400, 401, 403, 404, 422, 429} or (isinstance(exc, Fault) and exc.code in PREFLIGHT)

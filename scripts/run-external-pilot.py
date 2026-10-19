@@ -60,7 +60,8 @@ def export(destination):
                 "run_id": run.id, "status": run.status, "reason": run.state.get("reason"),
                 "patches": patches,
                 "calls": [{"id": c.id, "status": c.status, **{key: c.data.get(key) for key in
-                    ["ordinal", "model_id", "usage", "receipt_state"]},
+                    ["ordinal", "model_id", "usage", "receipt_state", "error_category",
+                     "failure_phase", "dispatch_disposition", "status_code", "provider_request_id"]},
                     "prices": {key: value for key, value in c.data.get("rate_card", {}).items()
                                if "price" in key}} for c in calls],
                 "actions": [{"tool": a.tool, "status": a.status, "attempt": a.attempt} for a in actions],

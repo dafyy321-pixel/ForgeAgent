@@ -207,6 +207,18 @@ def test_retry_only_known_rejection_and_honor_retry_after():
         assert result["requires_query"] and not result["known_unbilled"] and not result["retryable"]
 
 
+def test_provider_failure_evidence_is_sanitized_and_phase_bound():
+    from forgeagent.model_retry import error_type, request_id
+
+    exc = SimpleNamespace(
+        status_code=None,
+        request_id=None,
+        response=SimpleNamespace(headers={"x-request-id": "req-opaque-123"}),
+    )
+    assert error_type(exc) == "provider_error"
+    assert request_id(exc) == "req-opaque-123"
+
+
 def test_cache_economics_do_not_claim_estimates_as_real_savings(monkeypatch):
     from forgeagent.context_cost import report
     configured(monkeypatch)
