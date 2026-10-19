@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import subprocess
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from forgeagent import db, evaluations, service
@@ -80,8 +81,14 @@ async def run(args):
         raise SystemExit("Commit tracked changes before paid execution")
     if not (args.execute_paid or args.validate_only) or not args.image or not args.repositories:
         raise SystemExit("Requires --execute-paid, --image sha256:..., --repositories path")
-    if not args.image.startswith("sha256:") or args.total_cap_usd != "4.00":
-        raise SystemExit("This reviewed pilot reserves four $1 runs; set --total-cap-usd 4.00")
+    if not args.image.startswith("sha256:"):
+        raise SystemExit("--image must be the pinned sha256 sandbox image")
+    try:
+        total_cap = Decimal(args.total_cap_usd)
+    except InvalidOperation as exc:
+        raise SystemExit("--total-cap-usd must be a positive decimal amount") from exc
+    if total_cap <= 0:
+        raise SystemExit("--total-cap-usd must be a positive decimal amount")
     args.output.mkdir(parents=True)
     settings.sandbox_image = args.image
     tenant = "external-pilot-" + uid()
@@ -132,14 +139,14 @@ async def run(args):
 
             authorization.data = {**authorization.data, "project_permissions": {
                 **authorization.data["project_permissions"], project.id: sorted(PROJECT_OPERATIONS)}}
-        cases.append({**prepared["case"], "budget": {"max_cost_usd": "1.00", "max_turns": 32,
-                     "max_wall_seconds": 900, "max_tool_calls": 100}})
+        cases.append({**prepared["case"], "budget": {"max_cost_usd": "5.00", "max_turns": 48,
+                     "max_wall_seconds": 1800, "max_tool_calls": 160}})
     if args.validate_only:
         return
     dataset = evaluations.DatasetInput(id="external-historical@1", cases=cases,
         source="Two public historical defects. Development only; assistant saw upstream patches while authoring acceptance. No gold patch in model workspace. No blind or generalization claim.")
     spec = evaluations.ExperimentInput(dataset_id=dataset.id, repetitions=1, seed=42,
-        max_total_cost_usd=args.total_cap_usd,
+        max_total_cost_usd=str(total_cap),
         configurations=[{"name": "recovery-off", "harness": {"evidence_recovery": False}},
                         {"name": "recovery-on", "harness": {"evidence_recovery": True}}])
     with db.transaction(tenant) as session:
@@ -147,7 +154,7 @@ async def run(args):
         experiment = evaluations.start(session, tenant, actor, spec)
     save(args.output / "manifest.json", {"source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "source_state": "clean-tracked-tree", "tenant": tenant, "experiment_id": experiment["id"],
-        "image": args.image, "model": settings.model_id, "max_total_cost_usd": "4.00",
+        "image": args.image, "model": settings.model_id, "max_total_cost_usd": str(total_cap),
         "variable": "evidence_recovery", "dataset": dataset.model_dump(mode="json"),
         "experiment": spec.model_dump(mode="json"), "model_requests_exported": False})
     try:
@@ -178,7 +185,7 @@ def main():
     parser.add_argument("--image")
     parser.add_argument("--execute-paid", action="store_true")
     parser.add_argument("--validate-only", action="store_true")
-    parser.add_argument("--total-cap-usd", default="4.00")
+    parser.add_argument("--total-cap-usd", default="20.00")
     parser.add_argument("--export", action="store_true")
     args = parser.parse_args()
     if args.export:
