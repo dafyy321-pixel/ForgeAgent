@@ -2,6 +2,8 @@
 
 本页记录两个公开历史缺陷的受控外部 pilot。h11 和 trace-mapping 已在固定 Linux sandbox 中验证：各自的基线 commit 使独立验收失败，上游参考修复 commit 通过。这个校验证明验收和环境绑定有效，不等于模型已修复；真实模型的每次 patch、usage、费用、失败和人工介入会写入脱敏 evidence bundle。案例来自公开历史开发记录，模型结果不能称为盲测或普遍修复能力。
 
+本轮结果见 [脱敏证据报告](../benchmarks/reports/external-repair-evidence-2026-10-19.json) 及校验文件。四次 paid pilot 均暂停，没有可接受 patch；一次 live recovery 也因相同失败证据暂停。已知模型费用约 0.01228 美元，未结算项仍保留为 incomplete。
+
 ## 两个案例的准备
 
 先各选一个外部 Python 与 TypeScript 多文件缺陷。`scripts/benchmark.py import-external <JSONL> <新输出> --split development` 接受经人工审阅的 issue record：`instance_id`、`repo`（owner/name）、完整 `base_commit`、`problem_statement`、独立 `test_patch`、`language`、`problem_family`。排除金标准 `patch`，保留 source_digest。SWE-bench 导入入口继续保留；没有自动下载、不在宿主执行外部测试。
