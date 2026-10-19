@@ -1,10 +1,11 @@
 import { test, expect } from '@playwright/test';
+import { apiURL } from './api-url';
 
 test('revision refresh preserves loaded task and event depth using fresh permissions', async ({
   page,
   request,
 }) => {
-  const response = await request.post('http://127.0.0.1:8000/v1/examples/smoke', {
+  const response = await request.post(`${apiURL}/v1/examples/smoke`, {
     headers: { 'Idempotency-Key': crypto.randomUUID() },
   });
   expect(response.status()).toBe(202);

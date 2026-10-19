@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { apiURL } from './api-url';
 
 test('task creation pins evidence recovery and renders recovery history', async ({ page }) => {
   await page.goto('/');
@@ -30,7 +31,7 @@ test('failed independent acceptance displays persisted uncertain diagnosis and e
   page,
   request,
 }) => {
-  const created = await request.post('http://127.0.0.1:8000/v1/runs', {
+  const created = await request.post(`${apiURL}/v1/runs`, {
     headers: { 'Idempotency-Key': crypto.randomUUID() },
     data: {
       project_id: 'runtime-lab',
@@ -42,17 +43,16 @@ test('failed independent acceptance displays persisted uncertain diagnosis and e
   expect(created.status()).toBe(202);
   const { id } = await created.json();
   await expect
-    .poll(
-      async () => (await (await request.get(`http://127.0.0.1:8000/v1/runs/${id}`)).json()).status,
-      { timeout: 20000 },
-    )
+    .poll(async () => (await (await request.get(`${apiURL}/v1/runs/${id}`)).json()).status, {
+      timeout: 20000,
+    })
     .toBe('PAUSED');
   await expect
     .poll(
       async () => {
-        const run = await (await request.get(`http://127.0.0.1:8000/v1/runs/${id}`)).json();
+        const run = await (await request.get(`${apiURL}/v1/runs/${id}`)).json();
         return (
-          await request.post(`http://127.0.0.1:8000/v1/runs/${id}/verify`, {
+          await request.post(`${apiURL}/v1/runs/${id}/verify`, {
             data: { expected_version: run.stateVersion },
           })
         ).status();
@@ -63,8 +63,7 @@ test('failed independent acceptance displays persisted uncertain diagnosis and e
   await expect
     .poll(
       async () =>
-        (await (await request.get(`http://127.0.0.1:8000/v1/runs/${id}/recovery`)).json()).items
-          .length,
+        (await (await request.get(`${apiURL}/v1/runs/${id}/recovery`)).json()).items.length,
       { timeout: 20000 },
     )
     .toBeGreaterThan(0);

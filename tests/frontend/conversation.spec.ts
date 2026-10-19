@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { apiURL } from './api-url';
 
 test('homepage explains the workflow, preserves the draft and starts a read-only conversation', async ({
   page,
@@ -36,7 +37,7 @@ test('homepage explains the workflow, preserves the draft and starts a read-only
 });
 
 async function pausedDiscussion(request: import('@playwright/test').APIRequestContext) {
-  const response = await request.post('http://127.0.0.1:8000/v1/runs', {
+  const response = await request.post(`${apiURL}/v1/runs`, {
     headers: { 'Idempotency-Key': crypto.randomUUID() },
     data: {
       project_id: 'runtime-lab',
@@ -48,10 +49,9 @@ async function pausedDiscussion(request: import('@playwright/test').APIRequestCo
   expect(response.status()).toBe(202);
   const { id } = await response.json();
   await expect
-    .poll(
-      async () => (await (await request.get(`http://127.0.0.1:8000/v1/runs/${id}`)).json()).status,
-      { timeout: 20000 },
-    )
+    .poll(async () => (await (await request.get(`${apiURL}/v1/runs/${id}`)).json()).status, {
+      timeout: 20000,
+    })
     .toBe('PAUSED');
   return id as string;
 }
@@ -62,7 +62,7 @@ test('plan confirmation UI waits for explicit confirmation and then opens the ex
 }, testInfo) => {
   const id = await pausedDiscussion(request);
   let executionId: string | null = null;
-  const current = await (await request.get(`http://127.0.0.1:8000/v1/runs/${id}`)).json();
+  const current = await (await request.get(`${apiURL}/v1/runs/${id}`)).json();
   // Only the plan-ready presentation is simulated; the independent backend test covers model-to-plan transitions.
   await page.route('**/v1/workspace?*', async (route) => {
     const response = await route.fetch();
@@ -100,7 +100,7 @@ test('plan confirmation UI waits for explicit confirmation and then opens the ex
     expect(body.spec.task.mode).toBe('execute');
     expect(body.expected_version).toBe(current.stateVersion);
     expect(body.plan_digest).toBe('reviewed-plan');
-    const execution = await request.post('http://127.0.0.1:8000/v1/examples/smoke', {
+    const execution = await request.post(`${apiURL}/v1/examples/smoke`, {
       headers: { 'Idempotency-Key': crypto.randomUUID() },
     });
     const result = await execution.json();
@@ -169,7 +169,7 @@ test('an uncertain message retries the same payload and key after a reload', asy
 
 test('a plan changed in another tab disables its old confirmation', async ({ page, request }) => {
   const id = await pausedDiscussion(request);
-  const run = await (await request.get(`http://127.0.0.1:8000/v1/runs/${id}`)).json();
+  const run = await (await request.get(`${apiURL}/v1/runs/${id}`)).json();
   let version = run.stateVersion;
   await page.route('**/v1/workspace/revision', (route) =>
     route.fulfill({ json: { revision: String(version) } }),
