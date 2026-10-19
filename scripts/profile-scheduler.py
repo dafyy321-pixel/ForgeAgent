@@ -54,20 +54,37 @@ class Profile:
         self.scopes = set()
         self.seconds = 0
         self.scheduler_profile = None
+        self.takeover_profile = None
 
     @pytest.hookimpl(hookwrapper=True)
     def pytest_runtest_call(self, item):
         start = time.monotonic()
         yield
-        self.seconds = time.monotonic() - start
-        self.scheduler_profile = next((json.loads(value) for key, value in item.user_properties
-                                       if key == "scheduler_profile"), None)
+        self.seconds += time.monotonic() - start
+        for key, value in item.user_properties:
+            if key == "scheduler_profile":
+                self.scheduler_profile = json.loads(value)
+            elif key == "takeover_profile":
+                self.takeover_profile = json.loads(value)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--environment-id", default="uncontrolled-local")
+    parser.add_argument("--max-seconds", type=float)
+    parser.add_argument("--require-clean", action="store_true")
     args = parser.parse_args()
+    if args.output.exists():
+        parser.error("Choose a new output path; previous measurements are immutable")
+    dirty = bool(subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], text=True))
+    if args.require_clean and dirty:
+        parser.error("Commit tracked changes before measuring a clean source revision")
+    if args.max_seconds is not None:
+        if args.max_seconds <= 0:
+            parser.error("Performance limit must be positive")
+        os.environ["FORGE_SCHEDULER_MAX_SECONDS"] = str(args.max_seconds)
+    os.environ["FORGE_TEST_PERFORMANCE"] = "1"
     url = db.engine.url
     try:
         with psycopg.connect(host=url.host, port=url.port, dbname=url.database, user=url.username,
@@ -104,7 +121,8 @@ def main():
         stage = "sql.lock" if "pg_advisory" in statement else "sql." + statement.split()[0].lower()
         samples.values[stage].append(time.perf_counter() - context.profile_started)
 
-    code = pytest.main(["tests/backend/test_runtime_upgrades.py::test_twenty_active_runs_finish_under_bounded_fair_scheduler", "-q"], plugins=[profile])
+    code = pytest.main(["tests/backend/test_runtime_upgrades.py::test_twenty_active_runs_finish_under_bounded_fair_scheduler",
+                        "tests/backend/test_scheduler_performance.py", "-q"], plugins=[profile])
     timelines = []
     for scope in sorted(profile.scopes):
         with db.transaction(scope) as session:
@@ -115,12 +133,14 @@ def main():
                     for e in events]})
     completed = [entry["events"][-1]["seconds"] for entry in timelines if entry["status"] == "SUCCEEDED"]
     report = {"commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "tracked_changes": dirty, "environment_id": args.environment_id,
               "platform": platform.platform(), "python": platform.python_version(),
               "logical_cpus": os.cpu_count(), "implementation_digest": digest(service.implementation_bindings()),
               "pytest_exit_code": code, "call_seconds": profile.seconds,
               "contract": {"tasks": 20, "tenants": 2, "slots": 4, "tenant_limit": 2, "timeout_seconds": 180,
                            "performance_limit_seconds": os.environ.get("FORGE_SCHEDULER_MAX_SECONDS")},
               "scheduler_profile": profile.scheduler_profile,
+              "takeover_profile": profile.takeover_profile,
               "latencies": {name: summary(values) for name, values in samples.values.items()},
               "operation_samples_seconds": {name: values for name, values in samples.values.items() if not name.startswith("sql.")},
               "span_samples": samples.spans, "dropped_span_samples": samples.dropped,
@@ -128,7 +148,9 @@ def main():
               "limitations": ["Call duration includes setup; throughput is gated only when FORGE_SCHEDULER_MAX_SECONDS is set.",
                               "SQL durations include server execution/waits, not separately identified lock wait.",
                               "Nested span totals overlap; do not add stage totals.",
-                              "Fixture verification is AST acceptance, not Docker or model capacity."]}
+                              "Fixture verification is AST acceptance, not Docker or model capacity.",
+                              "Environment IDs label a dedicated runner; shared local measurements do not establish a regression.",
+                              "Takeover is an abandoned lease sample, not production crash or external duplicate-effect evidence."]}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     return code

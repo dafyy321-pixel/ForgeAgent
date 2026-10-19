@@ -1,12 +1,14 @@
 # 测试配置与平台边界
 
-普通后端测试通过 autouse fixture 重置模型协议、流式开关、计数开关、上下文窗口、费用和凭证，不读取开发者 `.env` 中的模型配置。数据库、存储与 Docker 测试仍使用明确配置的测试基础设施。运行 `uv run pytest tests/backend -q` 即可，不需要手动清空模型变量。真实模型仅在显式设置 `FORGE_TEST_RELEASE=1` 的 release integration 模块启用。
+普通后端测试通过 autouse fixture 重置模型协议、流式开关、计数开关、上下文窗口、费用和凭证，不读取开发者 `.env` 中的模型配置。数据库、存储与 Docker 测试仍使用明确配置的测试基础设施。运行 `uv run pytest tests/backend -q` 即可，不需要手动清空模型变量。真实模型分别由 release integration 的 `FORGE_TEST_RELEASE=1` 和 live recovery 的 `FORGE_TEST_LIVE_RECOVERY=1` 启用；开关只豁免对应模块，不能使普通测试继承凭证。
 
 前端集成测试必须连接无真实模型凭证的独立 API/Worker，或使用完整请求拦截。不要将普通 Playwright 测试指向配置了付费模型的工作空间。正式 release gate 保留单独的凭证与基础设施要求。
 
 浏览器集成可用 `FORGE_TEST_API_URL` 指定独立 API（例如 `http://127.0.0.1:8019`）。Vite 的 `/v1`、`/health` 代理和测试中的直接 API 请求使用同一地址；未设置时仍使用 8000 端口。设置此变量时 Playwright 不复用已有前端服务，避免旧代理仍连接开发 API，因此运行前须腾出 5173 端口。该变量仅选择地址，不会清理目标服务的模型凭证；测试 API/Worker 仍须明确禁用真实模型，并使用独立租户及对象/工作目录。
 
 20 任务调度用例验证全部完成、租户及根任务限流。180 秒是检测挂起的上限，不是性能承诺。JUnit 的 scheduler_profile 属性记录总耗时、排队等待及执行耗时 P50/P95、事件间隔和最大有效租约数。设置 `FORGE_SCHEDULER_MAX_SECONDS` 可单独启用指定机器上的吞吐门槛。阶段间隔包含排队等待，不能当作纯 CPU 或模型延迟。
+
+独立性能作业的环境要求、运行命令与报告边界见 [独立性能测量](scheduler-performance.md)。普通 CI 通过与独立性能门槛通过分别报告。
 
 运行指标还提供 `forge_queue_wait_seconds` 和 `forge_worker_slot_utilization_ratio`；后者包含任务探测的占用采样，不能直接等同于有效工具利用率。结合有效租约峰值、阶段 Histogram 与队列时间一起分析。禁止将租户名、提示词或凭证放入指标标签。
 
