@@ -1,6 +1,6 @@
 # 外部修复案例与配对检索 pilot
 
-目前没有真实模型 API 或 Linux 沙箱环境。本轮完成离线准备与校验入口；没有新增两份真实模型修复结果，也没有 20–30 任务的真实修复率或费用收益数据。自编案例与 metadata 单元测试不作为真实仓库效果证据。
+本页记录两个公开历史缺陷的受控外部 pilot。h11 和 trace-mapping 已在固定 Linux sandbox 中验证：各自的基线 commit 使独立验收失败，上游参考修复 commit 通过。这个校验证明验收和环境绑定有效，不等于模型已修复；真实模型的每次 patch、usage、费用、失败和人工介入会写入脱敏 evidence bundle。案例来自公开历史开发记录，模型结果不能称为盲测或普遍修复能力。
 
 ## 两个案例的准备
 
@@ -8,13 +8,21 @@
 
 随后用现有 `prepare` 子命令指定本地仓库与审阅的环境 JSON（image digest、argv、allowed_paths、acceptance_paths），生成绑定固定 commit 的项目与模型任务。隐藏测试在项目保护验收通道；任务输入只有问题、修改范围和来源标识。项目/任务/image 绑定及补丁实际应用由现有注册与验收约束检查。
 
-真实执行仍需固定模型配置、可用的依赖镜像与独立沙箱。使用现有实验启动、案例回放、artifact 下载、费用账本及新 trace 取证入口，保留所有尝试、UNKNOWN 对账、人工输入与恢复事件。不得把人工参考补丁写成 model_patch。分别记录模型配置、原始 usage 与账单、实际交付 patch、独立验收、失败和人工耗时；未执行标为 not_run。
+真实执行使用固定模型配置、内容寻址的离线 Node/Python 镜像与独立 Docker 验收。`scripts/run-external-pilot.py --execute-paid` 固定两个案例、recovery off/on 两组、每组一次，硬上限为 4 美元；任务按串行顺序运行，保留失败尝试和未知 usage。参考修复只用于独立验证，绝不进入模型工作区。证据导出只包含 patch、摘要 usage/价格、验收结果、状态和人工事件计数，不导出模型请求正文、凭证或私有日志。
+
+运行前先做不计费验收：
+
+```powershell
+uv run python scripts/run-external-pilot.py --validate-only --repositories .forge/external-20261019 --image sha256:... --output .forge/external-20261019/preflight-new
+```
+
+付费执行需要在当前干净 tracked commit 上运行，并把输出目录作为待审 evidence；提交后再复制脱敏摘要到 `benchmarks/reports/`。总预算还要为 live recovery 的 0.25 美元保留余量，不能用本地重试突破 5 美元上限。
 
 ## 单变量 pilot：先冒烟，再扩展
 
 `scripts/prepare-retrieval-pilot.py <prepared JSONL> <新计划 JSON> --dataset-id external-pilot@1 --task-budget-usd <单任务硬额度>` 默认三次重复。只生成计划，不注册项目、不启动任务或调用模型。预算上界等于所有任务硬额度 × 两配置 × 重复次数。
 
-20–30 个来源 issue、多仓库与 Python/TS 覆盖是建议起点，不是入口限制或统计充分性保证。可先用 2 项冒烟、31 项扩展或单语言专项；通用数据集大小仍为 1–120 项。计划将样本量和覆盖不足写入 advisories，重复来源、commit/镜像/验收绑定与预算仍严格校验。
+20–30 个来源 issue、多仓库与 Python/TS 覆盖只是后续建议。当前先做 2 项冒烟；可以扩展到 31 项或单语言专项。通用数据集大小为 1–120 项，计划会把样本量和覆盖不足写入 advisories，重复来源、commit/镜像/验收绑定与预算仍严格校验。
 
 默认比较 code_retrieval off/structure；传入 `--variable evidence_recovery` 改为恢复 off/on。基线关闭 memory、planning、summarization、delegation、action fusion；候选只改变所选变量。两组模型、任务、预算、验收与其他 harness 均相同。先研究一个变量，随后用新协议研究检索或 REA 相比普通源码读取的定位轮数、修复率与成本。默认产品检索仍 off，pilot 不代表应启用。
 
