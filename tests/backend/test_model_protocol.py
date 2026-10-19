@@ -77,6 +77,23 @@ def test_wire_tool_catalog_is_capability_scoped_and_strict(monkeypatch):
         assert set(schema["required"]) == set(schema["properties"])
 
 
+def test_request_size_breakdown_separates_tools_and_continuation(monkeypatch):
+    configured(monkeypatch)
+    request = model_protocol.build_request(
+        [{"role": "system", "content": "JSON"}, {"role": "user", "content": "read"}],
+        state(["repo.read", "workspace.write"]),
+        service.TOOLS,
+    )
+    request["payload"]["input"].extend([
+        {"type": "function_call", "call_id": "call-1", "name": "forge_read", "arguments": "{}"},
+        {"type": "function_call_output", "call_id": "call-1", "output": "bounded receipt"},
+    ])
+    breakdown = model_protocol.request_size_breakdown(request)
+    assert breakdown["tools_bytes"] > 0
+    assert breakdown["continuation_items"] == 2
+    assert breakdown["payload_bytes"] >= breakdown["tools_bytes"]
+
+
 @pytest.mark.parametrize("status", ["incomplete", "failed", "cancelled", "queued"])
 def test_unfinished_response_never_becomes_a_decision(monkeypatch, status):
     configured(monkeypatch)

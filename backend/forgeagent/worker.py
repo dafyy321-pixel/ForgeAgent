@@ -472,6 +472,7 @@ class Worker:
             from .remote_contracts import catalog
 
             request = await asyncio.to_thread(build_request, messages, state, catalog(state))
+            base_request = request
             request["client_request_id"] = call_id
             if request["provider"] == "openai":
                 request["payload"]["prompt_cache_key"] = digest({"tenant": tenant, "run": id,
@@ -497,7 +498,34 @@ class Worker:
                 request = attach_continuation(request, metadata, results)
             input_bound, count_source = await models.count_request(request)
             if input_bound + settings.max_output > settings.context_window:
-                raise Fault("CONTEXT_OVERFLOW", "Actual provider request including tools exceeds the context window")
+                from .model_protocol import request_size_breakdown
+
+                breakdown = request_size_breakdown(request)
+                original_bound = input_bound
+                compacted = False
+                if exchange:
+                    # The durable observations already contain bounded receipts and
+                    # source references. Rebuild from them instead of replaying the
+                    # full native continuation when that continuation exhausts the
+                    # provider window.
+                    compact_bound, compact_source = await models.count_request(base_request)
+                    if compact_bound + settings.max_output <= settings.context_window:
+                        request = base_request
+                        input_bound, count_source = compact_bound, compact_source
+                        compacted = True
+                        manifest = {
+                            **manifest,
+                            "continuation_compacted": True,
+                            "continuation_original_input_tokens": original_bound,
+                            "continuation_compaction_reason": "provider_context_budget",
+                        }
+                if not compacted:
+                    raise Fault(
+                        "CONTEXT_OVERFLOW",
+                        "Actual provider request including tools exceeds the context window; "
+                        f"input_bound={input_bound}; context_window={settings.context_window}; "
+                        f"max_output={settings.max_output}; breakdown={breakdown}",
+                    )
             manifest = {**manifest, "provider_input_tokens": input_bound, "provider_count_source": count_source}
             prefix = request["payload"].get("system") or request["payload"].get("input", request["payload"].get("messages"))[0]
             manifest["stable_prefix_digest"] = digest([prefix, request["payload"].get("tools", [])])

@@ -5,7 +5,7 @@ import json
 
 from .config import settings
 from .context import decision_schema
-from .domain import TOOL_INPUTS, CreateRun, Decision, Fault, digest
+from .domain import TOOL_INPUTS, CreateRun, Decision, Fault, canonical, digest
 
 
 def strict_schema(value):
@@ -191,6 +191,28 @@ def build_request(messages, state, catalog):
     return {"provider": provider, "protocol": protocol, "mode": mode, "names": names, "payload": payload,
             "schemas": {name: d["input_schema"] for name, d in catalog.items() if "input_schema" in d},
             "rate_card": state.get("semantic", {}).get("model_profile")}
+
+
+def request_size_breakdown(request):
+    """Expose bounded, non-sensitive size accounting for context failures."""
+    payload = request.get("payload", {})
+    values = {
+        "system": payload.get("system"),
+        "input": payload.get("input"),
+        "messages": payload.get("messages"),
+        "tools": payload.get("tools", []),
+    }
+    result = {
+        name + "_bytes": len(canonical(value)) if value is not None else 0
+        for name, value in values.items()
+    }
+    continuation = payload.get("input", []) if request.get("protocol") == "responses" else []
+    result["continuation_items"] = sum(
+        item.get("type") in {"function_call", "function_call_output", "reasoning"}
+        for item in continuation if isinstance(item, dict)
+    )
+    result["payload_bytes"] = len(canonical(payload))
+    return result
 
 
 def normalize_response(raw, request):
