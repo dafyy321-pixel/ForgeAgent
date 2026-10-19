@@ -116,7 +116,10 @@ async def run(args):
         # Use the full clone for bundle creation. Linked worktrees are useful for
         # baseline/reference acceptance, but their alternates can race a bare
         # clone while Git is packing objects.
-        prepared = prepare(args.repositories / repo_name, reviewed, args.image,
+        source_repository = args.repositories / (repo_name + "-full")
+        if not source_repository.exists():
+            source_repository = args.repositories / repo_name
+        prepared = prepare(source_repository, reviewed, args.image,
                            ["python", "-m", "hidden_tests.acceptance"], definition["allowed_paths"], ["hidden_tests"])
         project = ProjectInput.model_validate(prepared["project"])
         data = prepare_project(project, Identity(tenant, actor, True))
