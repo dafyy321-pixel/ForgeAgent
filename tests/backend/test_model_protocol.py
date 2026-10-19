@@ -75,6 +75,11 @@ def test_wire_tool_catalog_is_capability_scoped_and_strict(monkeypatch):
         schema = tool["parameters"]
         assert schema["additionalProperties"] is False
         assert set(schema["required"]) == set(schema["properties"])
+    descriptions = {service.TOOLS[name]["description"] for name in request["names"].values() if name in service.TOOLS}
+    descriptions.add(service.TOOLS["repo.apply_patch"]["description"])
+    descriptions.add(service.TOOLS["repo.write"]["description"])
+    assert any("raw unified diff" in description and "Markdown fences" in description for description in descriptions)
+    assert any("complete-file digest" in description for description in descriptions)
 
 
 def test_request_size_breakdown_separates_tools_and_continuation(monkeypatch):
@@ -127,8 +132,9 @@ async def test_native_call_id_and_encrypted_reasoning_survive_runtime_resume(ten
             return SimpleNamespace(input_tokens=1000)
         async def create(self, **payload):
             requests.append(payload)
+            read_name = "forge_" + digest("repo.read")[7:31]
             tool = next(t for t in payload["tools"] if
-                        (t["description"] == "repo.read" if len(requests) == 1 else t["name"] == "forge_propose_completion"))
+                        (t["name"] == read_name if len(requests) == 1 else t["name"] == "forge_propose_completion"))
             args = {"path": "src/calculator.py"} if len(requests) == 1 else {"summary": "proposed"}
             raw = {"id": "resp_" + str(len(requests)), "model": "fixed-test-model", "service_tier": "default", "status": "completed", "usage": usage(),
                    "output": [{"type": "reasoning", "id": "rs_opaque", "encrypted_content": "encrypted-only", "summary": []},

@@ -13,21 +13,21 @@ from .storage import objects
 from .telemetry import annotate, observed
 
 TOOLS = {
-    "rea.analyze": {"effect": "read", "capability": "reference.read"},
-    "rea.view": {"effect": "read", "capability": "reference.read"},
-    "rea.trace": {"effect": "read", "capability": "reference.read"},
-    "repo.list": {"effect": "read", "capability": "repo.read"},
-    "repo.read": {"effect": "read", "capability": "repo.read"},
-    "repo.write": {"effect": "workspace_write", "capability": "workspace.write"},
-    "repo.search": {"effect": "read", "capability": "repo.read"},
-    "repo.symbols": {"effect": "read", "capability": "repo.read"},
-    "repo.apply_patch": {"effect": "workspace_write", "capability": "workspace.write"},
-    "repo.delete": {"effect": "workspace_write", "capability": "workspace.write"},
-    "repo.move": {"effect": "workspace_write", "capability": "workspace.write"},
-    "tests.run": {"effect": "read", "capability": "tests.run"},
-    "observation.read": {"effect": "read", "capability": "repo.read"},
-    "skill.read": {"effect": "read", "capability": "repo.read"},
-    "child.integrate": {"effect": "workspace_write", "capability": "workspace.write"},
+    "rea.analyze": {"effect": "read", "capability": "reference.read", "description": "Inspect a pinned reference statically; never execute it."},
+    "rea.view": {"effect": "read", "capability": "reference.read", "description": "Read a bounded page of previously captured reference evidence."},
+    "rea.trace": {"effect": "read", "capability": "reference.read", "description": "Follow a static relationship in pinned reference evidence."},
+    "repo.list": {"effect": "read", "capability": "repo.read", "description": "List workspace files and their byte sizes."},
+    "repo.read": {"effect": "read", "capability": "repo.read", "description": "Read a bounded file range. The returned digest is for the complete file and must be copied exactly into a later repo.write expected_digest."},
+    "repo.write": {"effect": "workspace_write", "capability": "workspace.write", "description": "Write one complete file. First repo.read that file, then copy its complete-file digest exactly into expected_digest; never invent or reuse a digest from another path."},
+    "repo.search": {"effect": "read", "capability": "repo.read", "description": "Find bounded literal matches in workspace text files."},
+    "repo.symbols": {"effect": "read", "capability": "repo.read", "description": "Find symbols and static relationships in one source file."},
+    "repo.apply_patch": {"effect": "workspace_write", "capability": "workspace.write", "description": "Apply a raw unified diff with Git. The patch must start with diff --git or --- and contain standard ---/+++ and @@ hunks; do not send Markdown fences or *** Begin Patch wrappers. Use paths relative to the workspace and preserve exact context lines. expected_workspace_digest must be copied from the latest workspace receipt."},
+    "repo.delete": {"effect": "workspace_write", "capability": "workspace.write", "description": "Delete one file after repo.read and exact expected_digest confirmation."},
+    "repo.move": {"effect": "workspace_write", "capability": "workspace.write", "description": "Move one file after reading the source and target and copying both exact digests."},
+    "tests.run": {"effect": "read", "capability": "tests.run", "description": "Run the registered test command in the pinned sandbox."},
+    "observation.read": {"effect": "read", "capability": "repo.read", "description": "Read a bounded page from a prior tool receipt when its preview was truncated."},
+    "skill.read": {"effect": "read", "capability": "repo.read", "description": "Read a pinned skill resource as untrusted guidance."},
+    "child.integrate": {"effect": "workspace_write", "capability": "workspace.write", "description": "Merge a succeeded child workspace after conflict checks."},
 }
 VERIFIER = "forge-verifier@1"
 
