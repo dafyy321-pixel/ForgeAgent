@@ -113,7 +113,10 @@ async def run(args):
         patch = "--- /dev/null\n+++ b/hidden_tests/acceptance.py\n@@ -0,0 +1," + str(len(acceptance.splitlines())) + " @@\n"
         patch += "".join("+" + line + "\n" for line in acceptance.splitlines())
         reviewed = normalize_external({**definition, "test_patch": patch}, "development")
-        prepared = prepare(args.repositories / (repo_name + "-base"), reviewed, args.image,
+        # Use the full clone for bundle creation. Linked worktrees are useful for
+        # baseline/reference acceptance, but their alternates can race a bare
+        # clone while Git is packing objects.
+        prepared = prepare(args.repositories / repo_name, reviewed, args.image,
                            ["python", "-m", "hidden_tests.acceptance"], definition["allowed_paths"], ["hidden_tests"])
         project = ProjectInput.model_validate(prepared["project"])
         data = prepare_project(project, Identity(tenant, actor, True))
