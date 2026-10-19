@@ -41,8 +41,39 @@ def test_pilot_is_single_variable_bounded_and_never_launches():
     values[1]["case"]["provenance"]["task_id"] = "issue-0"
     with pytest.raises(Fault, match="unique issues"):
         prepare_plan(values, "pilot@1", "development", {"max_cost_usd": "0.1"})
-    with pytest.raises(Fault, match="20–30"):
-        prepare_plan(values[:2], "pilot@1", "development", {"max_cost_usd": "0.1"}, repetitions=10)
+
+
+@pytest.mark.parametrize("count", [1, 2, 31, 120])
+def test_pilot_accepts_smoke_extended_and_single_language_studies(count):
+    template = prepared_cases()[0]
+    values = []
+    for index in range(count):
+        item = deepcopy(template)
+        item["case"]["id"] = f"case-{index}"
+        item["case"]["provenance"] = source(index)
+        values.append(item)
+    plan = prepare_plan(values, "smoke@1", "development", {"max_cost_usd": "0.1"}, repetitions=1)
+    assert plan["independent_tasks"] == count and plan["advisories"]
+    assert not plan["launch_authorized"]
+
+
+def test_pilot_keeps_dataset_size_and_binding_guards():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        prepare_plan([], "empty@1", "development", {"max_cost_usd": "0.1"})
+    values = prepared_cases()
+    values[0]["project"]["repository"]["commit"] = "b" * 40
+    with pytest.raises(Fault, match="bound"):
+        prepare_plan(values, "broken@1", "development", {"max_cost_usd": "0.1"})
+
+
+def test_recovery_comparison_changes_only_recovery():
+    plan = prepare_plan(prepared_cases(), "recovery@1", "development", {"max_cost_usd": "0.1"}, variable="evidence_recovery")
+    left, right = [value["harness"] for value in plan["experiment"]["configurations"]]
+    assert {key for key in left if left[key] != right[key]} == {"evidence_recovery"}
+    assert not left["evidence_recovery"] and right["evidence_recovery"]
+    assert plan["comparison_variable"] == "evidence_recovery"
 
 
 def test_external_ts_normalization_excludes_gold_and_preserves_issue_binding():
