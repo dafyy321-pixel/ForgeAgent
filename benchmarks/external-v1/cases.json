@@ -1,0 +1,26 @@
+[
+  {
+    "instance_id": "h11-early-invalid-http-122",
+    "repo": "python-hyper/h11",
+    "base_commit": "889a56446f8ffd2e915d75f761bdb61a9102f4ba",
+    "reference_commit": "88d7bd1ecdfa100404e15d6a2182100ca01852ed",
+    "issue": "https://github.com/python-hyper/h11/pull/122",
+    "language": "python",
+    "problem_family": "incremental-http-invalid-prefix",
+    "acceptance_file": "h11-acceptance.py",
+    "allowed_paths": ["h11/_readers.py", "h11/_receivebuffer.py"],
+    "problem_statement": "Fix early detection of obviously invalid HTTP data in h11. While waiting for a full request/status line and headers, server and client currently retain data whose first byte already proves it cannot be HTTP (NULL, leading space, TLS handshake bytes). next_event should raise RemoteProtocolError immediately for those prefixes without requiring CRLF. Empty input and valid fragmented GET requests / HTTP responses must still return NEED_DATA until complete. Inspect the incremental buffer and both readers; share prefix validation through the buffer rather than duplicating checks. Change only h11/_readers.py and h11/_receivebuffer.py. Use the standard library; do not change tests. Run available checks if useful, then propose_completion for protected independent acceptance."
+  },
+  {
+    "instance_id": "trace-mapping-source-root-36",
+    "repo": "jridgewell/trace-mapping",
+    "base_commit": "f8a42ebfcb57c1f2769ae784ef7135532447d1c0",
+    "reference_commit": "99b6a471b8ceeb9e5afda30cb40437b21f5621a4",
+    "issue": "https://github.com/jridgewell/trace-mapping/pull/36",
+    "language": "typescript",
+    "problem_family": "sourcemap-source-root-resolution",
+    "acceptance_file": "trace-mapping-acceptance.py",
+    "allowed_paths": ["src/resolve.ts", "src/trace-mapping.ts", "src/types.ts"],
+    "problem_statement": "Fix source path resolution in TraceMap to match source-map and Chrome. When sourceRoot is specified, prefix each source with sourceRoot before resolving relative to the map URL. Currently a leading slash in a source bypasses sourceRoot: mapUrl foo/script.js.map, sourceRoot bar, source /input.js incorrectly resolves to /input.js instead of foo/bar/input.js. Without sourceRoot, absolute sources must remain absolute. Preserve URL roots, relative sources, parent traversal, original sources, mapping lookups and source content lookups. Refactor the shared resolve helper and constructor integration coherently; limit edits to src/resolve.ts, src/trace-mapping.ts, src/types.ts. Dependencies and TypeScript 5.7.3 are preinstalled at /opt/node_modules in the offline sandbox, NODE_PATH is set. To compile without npm: node /opt/node_modules/typescript/lib/tsc.js --module commonjs --target es2020 --moduleResolution node --esModuleInterop --strict --skipLibCheck --baseUrl /opt/node_modules --outDir /scratch/compiled src/trace-mapping.ts . Use Node built-in assertions for checks if useful. Do not change tests; propose_completion for protected independent acceptance."
+  }
+]

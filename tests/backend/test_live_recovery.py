@@ -4,12 +4,14 @@ import asyncio
 import hashlib
 import json
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
 from forgeagent import db, rea, service
 from forgeagent.config import settings
 from forgeagent.domain import Budget, CreateRun, Harness, Task, uid
+from forgeagent.storage import objects
 from forgeagent.worker import Worker
 
 pytestmark = pytest.mark.skipif(os.environ.get("FORGE_TEST_LIVE_RECOVERY") != "1",
@@ -77,6 +79,13 @@ class SearchAcceptance(unittest.TestCase):
         # Seed a premature completion to exercise a real failing protected command
         # before any model call. Subsequent observations and repairs are live.
         run.state = {**run.state, "completion": "Verify unchanged baseline before repair"}
+    destination = Path(os.environ["FORGE_RELEASE_FACTS_DIR"])
+    destination.mkdir(parents=True, exist_ok=True)
+    source_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    assert source_commit == os.environ["GITHUB_SHA"]
+    dirty = bool(subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"]))
+    (destination / "run.json").write_text(json.dumps({"tenant": tenant, "run_id": run_id,
+        "source_commit": source_commit, "tracked_changes": dirty}), encoding="utf8")
     await Worker(target_run=run_id).once(tenant)
     with db.transaction(tenant) as s:
         run = db.get(s, db.Run, tenant, run_id)
@@ -103,19 +112,28 @@ class SearchAcceptance(unittest.TestCase):
                     assert all(e.status == "settled" for e in db.rows(s, db.BudgetEntry, tenant, account_id=run_id))
                     reports = db.rows(s, db.VerificationResult, tenant, run_id=run_id)
                     assert {r.data["verdict"] for r in reports} == {"FAIL", "PASS"}
-                    evidence = {"source_commit": os.environ["GITHUB_SHA"], "run_id": run_id,
-                        "source_state": "working-tree-with-file-digests",
+                    patches = []
+                    for artifact in db.rows(s, db.Artifact, tenant, run_id=run_id):
+                        if artifact.kind == "patch":
+                            name = f"attempt-{artifact.version}.patch"
+                            (destination / name).write_bytes(objects.get(tenant, artifact.ref))
+                            patches.append({"file": name, "verified": artifact.verified, "digest": artifact.ref["digest"]})
+                    evidence = {"source_commit": source_commit, "run_id": run_id,
+                        "source_state": "working-tree-with-file-digests" if dirty else "clean-tracked-tree",
                         "source_files": {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in [
                             "backend/forgeagent/model_protocol.py", "backend/forgeagent/diagnosis.py",
                             "backend/forgeagent/processes.py", "tests/backend/test_live_recovery.py"]},
                         "profile": run.state["semantic"]["model_profile"], "calls": len(calls),
                         "cost_micros": account.spent, "reserved_micros": account.reserved,
+                        "patches": patches,
+                        "model_calls": [{"status": c.status, "usage": c.data.get("usage"),
+                            "receipt_state": c.data.get("receipt_state"),
+                            "prices": {key: value for key, value in c.data.get("rate_card", {}).items() if "price" in key}}
+                            for c in calls],
                         "diagnoses": [d.data for d in diagnoses], "attempts": [a.status for a in attempts],
                         "actions": [{"tool": a.tool, "status": a.status} for a in actions],
                         "verdicts": [r.data["verdict"] for r in reports], "image_digest": run.state["image_digest"],
                         "limitations": "Seeded baseline failure; one real model task; static REA; local Docker runc, not production gVisor."}
-                    destination = Path(os.environ["FORGE_RELEASE_FACTS_DIR"])
-                    destination.mkdir(parents=True, exist_ok=True)
                     (destination / "live-recovery.json").write_text(json.dumps(evidence, indent=2), encoding="utf8")
                     return
                 assert run.status not in {"FAILED", "PAUSED", "CANCELLED"}, f"{run.status}: {run.state.get('reason')} (run {run_id})"
