@@ -1,14 +1,24 @@
 {
-  "schema": "external-repair-evidence@1",
-  "generated_from_clean_commit": "2e5bc244c17664b1c7b483e4c5ea0403c72f2ccf",
-  "scope": "Two public historical multi-file defects; one paired paid run per case and configuration; development evidence only",
+  "schema": "external-repair-evidence@2",
+  "generated_from_clean_commit": "34f7929e2c13ac2e6d6027ef2400be183bb80e89",
+  "scope": "Two public historical multi-file defects; paid development pilot evidence only. Raw prompts, responses, credentials and private traces are excluded.",
   "budget": {
-    "authorized_usd": 5.0,
-    "pilot_hard_cap_usd": 4.0,
-    "pilot_known_model_usd": 0.011993,
-    "live_recovery_known_model_usd": 0.000287,
-    "known_total_usd": 0.012280000000000001,
-    "unknown_or_unsettled": true
+    "user_authorization": "unbounded until task completion",
+    "batch_caps_usd": {
+      "paid-v8": 20.0,
+      "paid-v9": 20.0,
+      "paid-v10": 20.0
+    },
+    "known_model_usd": 0.147036,
+    "reserved_unknown_usd": 0.033027,
+    "model_usage_settled_across_batches": false,
+    "full_cost_complete": false,
+    "missing_cost_components": [
+      "environment_usd",
+      "storage_usd",
+      "tool_tariffs",
+      "unsettled_model_usage_in_paid-v8_and_paid-v9"
+    ]
   },
   "preflight": {
     "h11": {
@@ -23,104 +33,293 @@
       "base_acceptance": "FAIL (3 path combinations)",
       "reference_acceptance": "PASS (9 combinations)"
     },
-    "image": "sha256:3e6ce1d62dbc057eb0e9e1e1f7bc159c354cbbab8253c163"
+    "image": "sha256:3e6ce1d62dbc057b8af86583379fc7e0ce11f7bc159c3540cd4cbbab8253c163"
   },
+  "cases": [
+    {
+      "case_id": "benchmark-6e5826f0c4118d0534f0115f",
+      "repository": "python-hyper/h11",
+      "language": "python",
+      "task_id": "h11-early-invalid-http-122",
+      "base_commit": "889a56446f8ffd2e915d75f761bdb61a9102f4ba",
+      "reference_commit": "88d7bd1ecdfa100404e15d6a2182100ca01852ed"
+    },
+    {
+      "case_id": "benchmark-1314f300dc50ebefb419413f",
+      "repository": "jridgewell/trace-mapping",
+      "language": "typescript",
+      "task_id": "trace-mapping-source-root-36",
+      "base_commit": "f8a42ebfcb57c1f2769ae784ef7135532447d1c0",
+      "reference_commit": "99b6a471b8ceeb9e5afda30cb40437b21f5621a4"
+    }
+  ],
   "paid_pilot": {
-    "source_commit": "2e5bc244c17664b1c7b483e4c5ea0403c72f2ccf",
-    "model": "gpt-6-luna",
-    "variable": "evidence_recovery",
-    "cases": 2,
-    "configurations": [
-      "recovery-off",
-      "recovery-on"
-    ],
-    "repetitions": 1,
-    "outcomes": {
-      "recovery-off": {
-        "known_cost_usd": 0.0069770000000000006,
-        "status_counts": {
-          "reconciliation": 1,
-          "resource": 1
-        },
-        "repair_rate": 0,
-        "all_attempts_cost_usd": 0.0069770000000000006,
-        "full_cost_complete": false,
-        "missing_cost_components": [
-          "environment_usd",
-          "storage_usd",
-          "tool:repo.list",
-          "tool:repo.read",
-          "tool:repo.write",
-          "unsettled_model_usage"
-        ]
+    "batches": [
+      {
+        "batch": "paid-v8",
+        "source_commit": "581061fcddb47fc260c91477abf6a1be4b6e9243",
+        "image": "sha256:3e6ce1d62dbc057b8af86583379fc7e0ce11f7bc159c3540cd4cbbab8253c163",
+        "model": "gpt-6-luna",
+        "variable": "evidence_recovery",
+        "rows": [
+          {
+            "case_id": "benchmark-1314f300dc50ebefb419413f",
+            "config": "recovery-off",
+            "status": "PAUSED",
+            "reason": "TOKEN_BUDGET_LIMIT: Root token budget has insufficient unreserved capacity",
+            "verdict": "FAIL",
+            "known_model_usd": 0.049049,
+            "reserved_unknown_usd": 0.0,
+            "model_calls": 24,
+            "model_usage_settled": true,
+            "failure_category": "resource",
+            "manual_interventions": 0,
+            "patch_accepted": false
+          },
+          {
+            "case_id": "benchmark-6e5826f0c4118d0534f0115f",
+            "config": "recovery-on",
+            "status": "PAUSED",
+            "reason": "MODEL_CALL_FAILED: Model request failed; unknown usage stays reserved",
+            "verdict": null,
+            "known_model_usd": 0.0,
+            "reserved_unknown_usd": 0.004245,
+            "model_calls": 1,
+            "model_usage_settled": false,
+            "failure_category": "reconciliation",
+            "manual_interventions": 0,
+            "patch_accepted": false
+          },
+          {
+            "case_id": "benchmark-1314f300dc50ebefb419413f",
+            "config": "recovery-on",
+            "status": "PAUSED",
+            "reason": "MODEL_CALL_FAILED: Model request failed; unknown usage stays reserved",
+            "verdict": null,
+            "known_model_usd": 0.000221,
+            "reserved_unknown_usd": 0.006809,
+            "model_calls": 2,
+            "model_usage_settled": false,
+            "failure_category": "reconciliation",
+            "manual_interventions": 0,
+            "patch_accepted": false
+          },
+          {
+            "case_id": "benchmark-6e5826f0c4118d0534f0115f",
+            "config": "recovery-off",
+            "status": "PAUSED",
+            "reason": "MODEL_CALL_FAILED: Model request failed; unknown usage stays reserved",
+            "verdict": null,
+            "known_model_usd": 0.0,
+            "reserved_unknown_usd": 0.004244,
+            "model_calls": 1,
+            "model_usage_settled": false,
+            "failure_category": "reconciliation",
+            "manual_interventions": 0,
+            "patch_accepted": false
+          }
+        ],
+        "successes": 0,
+        "total": 4
       },
-      "recovery-on": {
-        "known_cost_usd": 0.005016,
-        "status_counts": {
-          "reconciliation": 1,
-          "conflict": 1
-        },
-        "repair_rate": 0,
-        "all_attempts_cost_usd": 0.005016,
-        "full_cost_complete": false,
-        "missing_cost_components": [
-          "environment_usd",
-          "storage_usd",
-          "tool:observation.read",
-          "tool:repo.list",
-          "tool:repo.read",
-          "tool:repo.write",
-          "unsettled_model_usage"
-        ]
+      {
+        "batch": "paid-v9",
+        "source_commit": "918b1ff2760de87a8a2a343db8dd57370143e2ea",
+        "image": "sha256:3e6ce1d62dbc057b8af86583379fc7e0ce11f7bc159c3540cd4cbbab8253c163",
+        "model": "gpt-6-luna",
+        "variable": "evidence_recovery",
+        "rows": [
+          {
+            "case_id": "benchmark-1314f300dc50ebefb419413f",
+            "config": "recovery-off",
+            "status": "PAUSED",
+            "reason": "MODEL_CALL_FAILED: Model request failed; unknown usage stays reserved",
+            "verdict": null,
+            "known_model_usd": 0.000218,
+            "reserved_unknown_usd": 0.006767,
+            "model_calls": 2,
+            "model_usage_settled": false,
+            "failure_category": "reconciliation",
+            "manual_interventions": 0,
+            "patch_accepted": false
+          },
+          {
+            "case_id": "benchmark-6e5826f0c4118d0534f0115f",
+            "config": "recovery-on",
+            "status": "PAUSED",
+            "reason": "MODEL_CALL_FAILED: Model request failed; unknown usage stays reserved",
+            "verdict": null,
+            "known_model_usd": 0.0,
+            "reserved_unknown_usd": 0.004248,
+            "model_calls": 1,
+            "model_usage_settled": false,
+            "failure_category": "reconciliation",
+            "manual_interventions": 0,
+            "patch_accepted": false
+          },
+          {
+            "case_id": "benchmark-1314f300dc50ebefb419413f",
+            "config": "recovery-on",
+            "status": "PAUSED",
+            "reason": "MODEL_CALL_FAILED: Model request failed; unknown usage stays reserved",
+            "verdict": null,
+            "known_model_usd": 0.000213,
+            "reserved_unknown_usd": 0.006714,
+            "model_calls": 2,
+            "model_usage_settled": false,
+            "failure_category": "reconciliation",
+            "manual_interventions": 0,
+            "patch_accepted": false
+          },
+          {
+            "case_id": "benchmark-6e5826f0c4118d0534f0115f",
+            "config": "recovery-off",
+            "status": "PAUSED",
+            "reason": "No new successful evidence within the configured decision budget",
+            "verdict": null,
+            "known_model_usd": 0.034289,
+            "reserved_unknown_usd": 0.0,
+            "model_calls": 18,
+            "model_usage_settled": true,
+            "failure_category": "resource",
+            "manual_interventions": 0,
+            "patch_accepted": false
+          }
+        ],
+        "successes": 0,
+        "total": 4
+      },
+      {
+        "batch": "paid-v10",
+        "source_commit": "34f7929e2c13ac2e6d6027ef2400be183bb80e89",
+        "image": "sha256:3e6ce1d62dbc057b8af86583379fc7e0ce11f7bc159c3540cd4cbbab8253c163",
+        "model": "gpt-6-luna",
+        "variable": "evidence_recovery",
+        "rows": [
+          {
+            "case_id": "benchmark-1314f300dc50ebefb419413f",
+            "config": "recovery-off",
+            "status": "SUCCEEDED",
+            "reason": "Verification PASS",
+            "verdict": "PASS",
+            "known_model_usd": 0.023505,
+            "reserved_unknown_usd": 0.0,
+            "model_calls": 16,
+            "model_usage_settled": true,
+            "failure_category": "execution",
+            "manual_interventions": 0,
+            "patch_accepted": true
+          },
+          {
+            "case_id": "benchmark-6e5826f0c4118d0534f0115f",
+            "config": "recovery-on",
+            "status": "PAUSED",
+            "reason": "No supported recovery is established by the available evidence",
+            "verdict": null,
+            "known_model_usd": 0.006139,
+            "reserved_unknown_usd": 0.0,
+            "model_calls": 6,
+            "model_usage_settled": true,
+            "failure_category": "execution",
+            "manual_interventions": 0,
+            "patch_accepted": false
+          },
+          {
+            "case_id": "benchmark-1314f300dc50ebefb419413f",
+            "config": "recovery-on",
+            "status": "PAUSED",
+            "reason": "No supported recovery is established by the available evidence",
+            "verdict": null,
+            "known_model_usd": 0.013205,
+            "reserved_unknown_usd": 0.0,
+            "model_calls": 11,
+            "model_usage_settled": true,
+            "failure_category": "execution",
+            "manual_interventions": 0,
+            "patch_accepted": false
+          },
+          {
+            "case_id": "benchmark-6e5826f0c4118d0534f0115f",
+            "config": "recovery-off",
+            "status": "SUCCEEDED",
+            "reason": "Verification PASS",
+            "verdict": "PASS",
+            "known_model_usd": 0.020197,
+            "reserved_unknown_usd": 0.0,
+            "model_calls": 12,
+            "model_usage_settled": true,
+            "failure_category": "execution",
+            "manual_interventions": 0,
+            "patch_accepted": true
+          }
+        ],
+        "successes": 2,
+        "total": 4
       }
-    },
-    "paired_comparison": {
-      "baseline": "recovery-off",
-      "paired_difference": 0,
-      "cluster_95_ci": [
-        0,
-        0
-      ],
-      "cost_ratio": 0.7189336390998996,
-      "noninferiority_supported": true,
-      "paired_repair_difference": 0,
-      "repair_cluster_95_ci": [
-        0,
-        0
-      ],
-      "negative_transfer_cases": [],
-      "per_project_repair_difference": {
-        "benchmark-1314f300dc50ebefb419413f": 0,
-        "benchmark-6e5826f0c4118d0534f0115f": 0
+    ],
+    "accepted_repairs": [
+      {
+        "batch": "paid-v10",
+        "case_id": "benchmark-1314f300dc50ebefb419413f",
+        "language": "typescript",
+        "config": "recovery-off",
+        "status": "SUCCEEDED",
+        "independent_acceptance": "PASS",
+        "known_model_usd": 0.023505,
+        "model_calls": 16,
+        "model_usage_settled": true,
+        "manual_interventions": 0,
+        "patch": "attempt-3.patch",
+        "patch_sha256": "410d261b77c5ca30ced3422504e5b482a3e8a55acdf85eca255a7fa749b978f2"
+      },
+      {
+        "batch": "paid-v10",
+        "case_id": "benchmark-6e5826f0c4118d0534f0115f",
+        "language": "python",
+        "config": "recovery-off",
+        "status": "SUCCEEDED",
+        "independent_acceptance": "PASS",
+        "known_model_usd": 0.020197,
+        "model_calls": 12,
+        "model_usage_settled": true,
+        "manual_interventions": 0,
+        "patch": "attempt-4.patch",
+        "patch_sha256": "bdd2a950e9487925e5d4d10bfa0fe6e7604552fdace20cec078ee3326ae3546f"
       }
+    ],
+    "recovery_on": {
+      "status_by_case": "PAUSED",
+      "accepted_repairs": 0,
+      "known_model_usd": 0.019344,
+      "model_usage_settled": true,
+      "failure_category": "execution",
+      "reason": "No supported recovery is established by the available evidence",
+      "interpretation": "Safety pause is a negative result; efficacy is not established."
     },
-    "attempts": [
-      "paid-v1: harness setup failed before model calls",
-      "paid-v2: partial clone bundle failed before model calls",
-      "paid-v3: four model runs; all paused, no accepted patch"
-    ]
+    "historical_failures": [
+      {
+        "batch": "paid-v8",
+        "categories": [
+          "resource",
+          "reconciliation"
+        ],
+        "known_model_usd": 0.04927,
+        "reserved_unknown_usd": 0.015298,
+        "accepted_repairs": 0
+      },
+      {
+        "batch": "paid-v9",
+        "categories": [
+          "resource",
+          "reconciliation"
+        ],
+        "known_model_usd": 0.03472,
+        "reserved_unknown_usd": 0.017729,
+        "accepted_repairs": 0
+      }
+    ],
+    "manual_interventions": "0 during all serial automatic runs; task selection, acceptance authoring and environment preparation were human setup."
   },
-  "live_recovery": {
-    "source_commit": "2e5bc244c17664b1c7b483e4c5ea0403c72f2ccf",
-    "run_id": "64a4447a-885f-4be0-afc6-65a509403f31",
-    "status": "PAUSED",
-    "reason": "Same failure recurred without changed evidence or workspace",
-    "known_cost_usd": 0.000287,
-    "reserved_usd": 0,
-    "model_calls": 1,
-    "recovery_attempts": [
-      "FAILED",
-      "FAILED"
-    ],
-    "rea_actions": [
-      "FAILED",
-      "FAILED"
-    ],
-    "verdicts": [
-      "FAIL"
-    ],
-    "source_state": "clean-tracked-tree"
-  },
-  "interpretation": "No external repair passed. The off/on difference is not an efficacy result: n=2 source tasks, one repetition, both configurations paused, full cost incomplete, and the model request context/reconciliation failures are part of the result.",
-  "artifacts": "Raw run records remain in ignored .forge evidence for local audit; this tracked file excludes prompts, responses, credentials, private tenant IDs and raw traces. Acceptance source and runner are in benchmarks/external-v1/."
+  "interpretation": "The two recovery-off tasks are the first externally sourced Python/TypeScript cases with model-generated patches and independent PASS acceptance. Recovery-on paused on both cases, so no recovery efficacy, cost reduction, or generalization claim is made. The full economic total remains incomplete because tool, environment and storage tariffs are not declared and paid-v8/v9 contain unsettled usage.",
+  "artifacts": "Raw run records remain in ignored .forge evidence for local audit. This tracked report is intentionally redacted."
 }
