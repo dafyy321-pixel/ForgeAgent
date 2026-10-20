@@ -165,8 +165,8 @@ async def run(args):
 
             authorization.data = {**authorization.data, "project_permissions": {
                 **authorization.data["project_permissions"], project.id: sorted(PROJECT_OPERATIONS)}}
-        cases.append({**prepared["case"], "budget": {"max_cost_usd": "5.00", "max_turns": 48,
-                     "max_wall_seconds": 1800, "max_tool_calls": 160}})
+        cases.append({**prepared["case"], "budget": {"max_cost_usd": "5.00", "max_tokens": 2000000,
+                     "max_turns": 48, "max_wall_seconds": 1800, "max_tool_calls": 160}})
     if args.validate_only:
         save(args.output / "acceptance-validation.json", validation)
         return
