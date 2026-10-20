@@ -115,7 +115,7 @@ class SearchAcceptance(unittest.TestCase):
                     patches = []
                     for artifact in db.rows(s, db.Artifact, tenant, run_id=run_id):
                         if artifact.kind == "patch":
-                            name = f"attempt-{artifact.version}.patch"
+                            name = f"attempt-{artifact.version:03d}-{artifact.id[:12]}.patch"
                             (destination / name).write_bytes(objects.get(tenant, artifact.ref))
                             patches.append({"file": name, "verified": artifact.verified, "digest": artifact.ref["digest"]})
                     evidence = {"source_commit": source_commit, "run_id": run_id,

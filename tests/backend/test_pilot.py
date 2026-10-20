@@ -1,10 +1,21 @@
 from copy import deepcopy
+import importlib.util
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from forgeagent import db, evaluations
 from forgeagent.benchmarks import normalize_external
 from forgeagent.domain import Fault, digest
 from forgeagent.pilot import prepare_plan
+
+
+def external_pilot_module():
+    path = Path(__file__).parents[2] / "scripts/run-external-pilot.py"
+    spec = importlib.util.spec_from_file_location("run_external_pilot", path)
+    value = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(value)
+    return value
 
 
 def source(index=0, repo="external/python"):
@@ -83,6 +94,17 @@ def test_external_ts_normalization_excludes_gold_and_preserves_issue_binding():
     result = normalize_external(record, "development")
     assert "PRIVATE_GOLD_PATCH" not in str(result)
     assert result["case_source"]["task_id"] == record["instance_id"] and result["case_source"]["language"] == "typescript"
+
+
+def test_external_evidence_patch_filenames_are_unique_and_stable():
+    exporter = external_pilot_module()
+    first = SimpleNamespace(id="artifact-111111111111", version=3)
+    second = SimpleNamespace(id="artifact-222222222222", version=3)
+    assert exporter.patch_filename(first, 1) == "attempt-003-artifact-111.patch"
+    assert exporter.patch_filename(second, 2) == "attempt-003-artifact-222.patch"
+    assert exporter.patch_filename(first, 99) == exporter.patch_filename(first, 1)
+    with pytest.raises(ValueError, match="require an id"):
+        exporter.patch_filename(SimpleNamespace(version=1), 1)
 
 
 def test_external_identity_and_holdout_partition_cannot_be_reworded(client, tenant):

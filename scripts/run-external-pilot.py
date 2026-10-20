@@ -22,6 +22,19 @@ from forgeagent.workspace import write_tree
 CASES = Path("benchmarks/external-v1")
 
 
+def patch_filename(artifact, ordinal):
+    """Return a stable, collision-free evidence filename for a patch artifact.
+
+    Artifact versions are run-local and can repeat when multiple patches are
+    emitted from one state transition. The immutable artifact id disambiguates
+    those files while keeping exports deterministic across repeated exports.
+    """
+    artifact_id = str(getattr(artifact, "id", ""))
+    if not artifact_id:
+        raise ValueError("Patch artifacts require an id for evidence export")
+    return f"attempt-{int(getattr(artifact, 'version', ordinal)):03d}-{artifact_id[:12]}.patch"
+
+
 def save(path, value):
     data = json.dumps(value, indent=2, ensure_ascii=False).encode()
     # Credentials never belong in the public evidence, even in generated text.
@@ -43,13 +56,13 @@ def export(destination):
             folder = destination / entry["case_id"] / entry["config"]
             folder.mkdir(parents=True, exist_ok=True)
             patches = []
-            for artifact in db.rows(session, db.Artifact, tenant, run_id=run.id):
+            for ordinal, artifact in enumerate(db.rows(session, db.Artifact, tenant, run_id=run.id), start=1):
                 if artifact.kind != "patch":
                     continue
                 data = objects.get(tenant, artifact.ref)
                 if settings.model_api_key and settings.model_api_key.encode() in data:
                     raise RuntimeError("Credential detected in patch")
-                name = f"attempt-{artifact.version}.patch"
+                name = patch_filename(artifact, ordinal)
                 (folder / name).write_bytes(data)
                 patches.append({"file": name, "verified": artifact.verified,
                                 "sha256": hashlib.sha256(data).hexdigest()})
