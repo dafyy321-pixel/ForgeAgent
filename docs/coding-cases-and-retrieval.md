@@ -1,6 +1,6 @@
 # 编码案例与结构检索复现
 
-2026-10-09：代码与本地验证，尚无真实模型或 Linux 容器运行证据。
+2026-10-20：本页仍描述自编案例与结构检索的本地复现；真实外部仓库 pilot 已另行完成，结果见 [外部修复证据报告](../benchmarks/reports/external-repair-evidence-2026-10-19.json)。该报告包含 Python 与 TypeScript 各一个 recovery-off PASS，但不证明检索或 recovery-on 的收益。
 
 ## 生成两个固定仓库
 
