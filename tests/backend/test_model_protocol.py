@@ -225,9 +225,11 @@ def test_provider_failure_evidence_is_sanitized_and_phase_bound():
     assert request_id(exc) == "req-opaque-123"
 
 
-async def test_request_count_uses_local_tokenizer_when_provider_count_is_disabled(monkeypatch):
+@pytest.mark.parametrize("provider_count,protocol", [(False, "responses"), (False, "chat"), (True, "chat")])
+async def test_request_count_uses_local_tokenizer_without_provider_endpoint(monkeypatch, provider_count, protocol):
     configured(monkeypatch)
-    monkeypatch.setattr(settings, "model_token_count", False)
+    monkeypatch.setattr(settings, "model_token_count", provider_count)
+    monkeypatch.setattr(settings, "model_protocol", protocol)
     request = model_protocol.build_request(
         [{"role": "system", "content": "JSON"}, {"role": "user", "content": "source " * 1000}],
         state(["repo.read"]),

@@ -45,6 +45,7 @@ async def count_request(request):
                 response = await client.responses.input_tokens.count(**payload)
         else:
             from .domain import canonical
+            from .tokenization import count
 
             payload = canonical(request["payload"]).decode("utf-8")
             try:
