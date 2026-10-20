@@ -34,6 +34,25 @@ def precondition_fault(message, *, expected, current, before, state, path):
     )
 
 
+def normalize_patch(patch):
+    """Remove common presentation wrappers before strict Git validation.
+
+    Models sometimes append a patch-markdown sentinel to an otherwise valid
+    unified diff. Only an exact wrapper at the document boundary is removed;
+    Git still validates every path, hunk and context line below.
+    """
+    value = patch.replace("\r\n", "\n")
+    if value.startswith("```diff\n") and value.endswith("\n```"):
+        value = value[len("```diff\n"):-len("\n```")]
+    if value.startswith("*** Begin Patch\n"):
+        value = value[len("*** Begin Patch\n"):]
+    for suffix in ("\n*** End Patch\n", "\n*** End Patch"):
+        if value.endswith(suffix):
+            value = value[:-len(suffix)] + "\n"
+            break
+    return value
+
+
 def execute(root, tool, args, state):
     if tool == "repo.read":
         path = safe_path(root, args["path"])
@@ -101,9 +120,10 @@ def execute(root, tool, args, state):
             git(stage, "init", "--quiet", "--object-format=" + object_format)
             write_tree(stage, before)
             raw_attributes(stage, before)
-            git(stage, "apply", "--check", "--whitespace=nowarn", "-", input=args["patch"].encode())
-            git(stage, "apply", "--whitespace=nowarn", "-", input=args["patch"].encode())
-            git(stage, "apply", "--cached", "--whitespace=nowarn", "-", input=args["patch"].encode())
+            patch = normalize_patch(args["patch"])
+            git(stage, "apply", "--check", "--whitespace=nowarn", "-", input=patch.encode())
+            git(stage, "apply", "--whitespace=nowarn", "-", input=patch.encode())
+            git(stage, "apply", "--cached", "--whitespace=nowarn", "-", input=patch.encode())
             for name in git(stage, "ls-files", "-z").split(b"\x00"):
                 if name:
                     safe_path(stage, name.decode("utf-8"), allow_leaf_link=True)

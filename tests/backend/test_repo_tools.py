@@ -58,6 +58,16 @@ def test_patch_cas_scope_and_actual_git_application(workspace):
     assert files(root) == after
 
 
+def test_patch_markdown_sentinel_is_removed_before_git_validation(workspace):
+    root, before, state = workspace
+    after = {**before, "src/main.py": "def first():\n    return 3\n\ndef second():\n    return 2\n"}
+    patch = sandbox.patch(before, after) + "\n*** End Patch\n"
+    _, changed = repo_tools.execute(root, "repo.apply_patch", {
+        "patch": patch, "expected_workspace_digest": digest(before),
+    }, state)
+    assert changed == after
+
+
 def test_delete_move_and_write_require_current_preimages(workspace):
     root, content, state = workspace
     for tool, args in [
