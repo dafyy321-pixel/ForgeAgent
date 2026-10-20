@@ -57,15 +57,40 @@ def export(destination):
                            key=lambda call: call.data.get("ordinal", 0))
             actions = db.rows(session, db.Action, tenant, run_id=run.id)
             verifications = db.rows(session, db.VerificationResult, tenant, run_id=run.id)
+            billing = {}
+            for call in calls:
+                entries = db.rows(session, db.BudgetEntry, tenant, operation_id=call.id)
+                if entries:
+                    entry = entries[0]
+                    billing[call.id] = {
+                        "status": entry.status,
+                        "reserved_micros": entry.reserved,
+                        "actual_micros": entry.actual,
+                        "tokens_reserved": entry.data.get("tokens_reserved", 0),
+                        "tokens_actual": entry.data.get("tokens_actual"),
+                    }
+            action_evidence = []
+            for action in actions:
+                receipt = {}
+                if action.receipt and action.receipt.get("ref"):
+                    raw = json.loads(objects.get(tenant, action.receipt["ref"]))
+                    receipt = {key: raw.get(key) for key in (
+                        "error_code", "error", "exit_code", "workspace_digest", "changed_paths",
+                        "path", "digest", "expected_digest", "current_digest", "input_revision",
+                    ) if raw.get(key) is not None}
+                    if isinstance(receipt.get("error"), str):
+                        receipt["error"] = receipt["error"][:1000]
+                action_evidence.append({"tool": action.tool, "status": action.status,
+                                        "attempt": action.attempt, "receipt": receipt})
             save(folder / "evidence.json", {
                 "run_id": run.id, "status": run.status, "reason": run.state.get("reason"),
                 "patches": patches,
-                "calls": [{"id": c.id, "status": c.status, **{key: c.data.get(key) for key in
+                "calls": [{"id": c.id, "status": c.status, "billing": billing.get(c.id), **{key: c.data.get(key) for key in
                     ["ordinal", "model_id", "usage", "receipt_state", "error_category",
                      "failure_phase", "dispatch_disposition", "status_code", "provider_request_id"]},
                     "prices": {key: value for key, value in c.data.get("rate_card", {}).items()
                                if "price" in key}} for c in calls],
-                "actions": [{"tool": a.tool, "status": a.status, "attempt": a.attempt} for a in actions],
+                "actions": action_evidence,
                 "verification": [{key: v.data.get(key) for key in
                     ["verdict", "failure_class", "checks", "result", "build_result", "image_digest",
                      "baseline_digest", "workspace_digest", "artifact_digest"]} for v in verifications],

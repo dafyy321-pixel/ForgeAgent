@@ -10,7 +10,7 @@
 
 随后用现有 `prepare` 子命令指定本地仓库与审阅的环境 JSON（image digest、argv、allowed_paths、acceptance_paths），生成绑定固定 commit 的项目与模型任务。隐藏测试在项目保护验收通道；任务输入只有问题、修改范围和来源标识。项目/任务/image 绑定及补丁实际应用由现有注册与验收约束检查。
 
-真实执行使用固定模型配置、内容寻址的离线 Node/Python 镜像与独立 Docker 验收。`scripts/run-external-pilot.py --execute-paid` 固定两个案例、recovery off/on 两组、每组一次，硬上限为 4 美元；任务按串行顺序运行，保留失败尝试和未知 usage。参考修复只用于独立验证，绝不进入模型工作区。证据导出只包含 patch、摘要 usage/价格、验收结果、状态和人工事件计数，不导出模型请求正文、凭证或私有日志。
+真实执行使用固定模型配置、内容寻址的离线 Node/Python 镜像与独立 Docker 验收。`scripts/run-external-pilot.py --execute-paid` 固定两个案例、recovery off/on 两组、每组一次；`--total-cap-usd` 可显式设置总预算，默认 20 美元，任务按串行顺序运行，保留失败尝试和未知 usage。参考修复只用于独立验证，绝不进入模型工作区。证据导出只包含 patch、摘要 usage/价格、逐次预算结算、工具错误类别、验收结果、状态和人工事件计数，不导出模型请求正文、凭证或私有日志。
 
 运行前先做不计费验收：
 
@@ -18,7 +18,7 @@
 uv run python scripts/run-external-pilot.py --validate-only --repositories .forge/external-20261019 --image sha256:... --output .forge/external-20261019/preflight-new
 ```
 
-付费执行需要在当前干净 tracked commit 上运行，并把输出目录作为待审 evidence；提交后再复制脱敏摘要到 `benchmarks/reports/`。总预算还要为 live recovery 的 0.25 美元保留余量，不能用本地重试突破 5 美元上限。
+付费执行需要在当前干净 tracked commit 上运行，并把输出目录作为待审 evidence；提交后再复制脱敏摘要到 `benchmarks/reports/`。每次运行都应记录实际结算、未知或保留的费用；未知 usage 不能当作 0，也不能用本地重试绕过显式总预算。
 
 ## 单变量 pilot：先冒烟，再扩展
 
