@@ -118,7 +118,6 @@ async def run(args):
     settings.sandbox_image = args.image
     tenant = "external-pilot-" + uid()
     actor = "pilot-runner"
-    service.provision(tenant, actor)
     cases, validation = [], []
     definitions = json.loads((CASES / "cases.json").read_text(encoding="utf8"))
     for definition in definitions:
@@ -167,7 +166,9 @@ async def run(args):
         cases.append({**prepared["case"], "budget": {"max_cost_usd": "5.00", "max_turns": 48,
                      "max_wall_seconds": 1800, "max_tool_calls": 160}})
     if args.validate_only:
+        save(args.output / "acceptance-validation.json", validation)
         return
+    service.provision(tenant, actor)
     dataset = evaluations.DatasetInput(id="external-historical@1", cases=cases,
         source="Two public historical defects. Development only; assistant saw upstream patches while authoring acceptance. No gold patch in model workspace. No blind or generalization claim.")
     spec = evaluations.ExperimentInput(dataset_id=dataset.id, repetitions=1, seed=42,
