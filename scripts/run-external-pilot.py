@@ -134,7 +134,7 @@ async def run(args):
             write_tree(stage, commit_files(directory, actual))
             write_tree(stage, {"hidden_tests/acceptance.py": acceptance})
             result = await sandbox.execute(stage, ["python", "-m", "hidden_tests.acceptance"], args.image,
-                                           timeout=90, readonly=True)
+                                           timeout=90, readonly=True, admit=not args.validate_only)
             validation.append({"case": definition["instance_id"], "revision": revision,
                                "commit": actual, "result": result})
             save(args.output / "acceptance-validation.json", validation)
