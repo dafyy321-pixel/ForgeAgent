@@ -36,9 +36,9 @@ def execute(fn):
         async with client() as c:
             try:
                 result = await fn(c)
-                typer.echo(json.dumps(result, indent=2, ensure_ascii=False))
+                typer.echo(json.dumps(result, indent=2))
             except ForgeError as exc:
-                typer.echo(json.dumps(exc.payload, ensure_ascii=False), err=True)
+                typer.echo(json.dumps(exc.payload), err=True)
                 raise typer.Exit(1)
 
     asyncio.run(call())
@@ -251,4 +251,4 @@ def compare_experiment_profiles(reports: list[Path]):
         result = compare_profiles([json.loads(path.read_text(encoding="utf-8")) for path in reports])
     except (Fault, KeyError, ValueError, OSError) as exc:
         raise typer.BadParameter(str(exc)) from exc
-    typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
+    typer.echo(json.dumps(result, indent=2))

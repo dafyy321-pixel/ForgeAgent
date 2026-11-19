@@ -2,7 +2,25 @@
 
 ### 跨模型复跑
 
-在两个使用不同固定模型 profile 的部署上登记相同的开发集和项目，提交同一份单变量实验 JSON。也可在同一部署先完成一组再切换 API 和 Worker 的模型配置。每次启动实验都会绑定当前 profile 摘要。通过 `forge eval report <id>` 保存各自的 JSON，在本地执行 `forge eval compare-profiles first.json second.json`。命令核对数据集摘要、代码实现、配置、种子、重复次数、费用假设和逐项运行记录，按模型及 Harness 输出独立通过数、暂停、延迟、负迁移和全部尝试摊到每次通过的成本。未知完整费用保留为空。已有单次使用的 held-out 约束仍适用，应使用开发集进行多轮调参。
+在同一租户登记一次固定开发集与项目，完成第一组实验后，切换 API 和 Worker 的模型配置，再提交同一份单变量实验 JSON。每次启动实验都会绑定当前 profile 摘要。通过 `forge eval report <id>` 保存各自的 JSON，在本地执行 `forge eval compare-profiles first.json second.json`。命令核对数据集摘要、代码实现、配置、种子、重复次数、费用假设和逐项运行记录，按模型及 Harness 输出独立通过数、暂停、延迟、负迁移和全部尝试摊到每次通过的成本。项目绑定含租户内对象引用，跨部署时也要确认报告中的 dataset_digest 相同。未知完整费用保留为空。已有单次使用的 held-out 约束仍适用，应使用开发集进行多轮调参。
+
+#### 可离线复现的合成开发集
+
+`benchmarks/profile-smoke-v1/prepare.py` 生成两个确定性 Git 仓库和四个任务。Python 项目修复库存增减汇总，TypeScript 项目修复半开区间边界；两个修复各有独立验收。另一项只读讨论需要向需求方询问保留期限，最后一项用 1 token 硬额度验证模型调用前的准入暂停。四项都进入分母。公开合成样例只用于开发回归；下文的 h11、trace-mapping 外部历史结果另行报告。
+
+准备阶段需要 Git、Python 3.12 和 Node 24，可离线执行固定的作者样例。输出包括可登记的仓库、私有验收契约、数据集、单变量实验参数以及实际执行的基线失败、参考修改通过和补丁应用记录。参考修改及私有测试均未放进待修仓库。以下 PowerShell 示例使用已构建的 `sandbox/Dockerfile.coding` 镜像，目录须为新建路径。
+
+```powershell
+$image = docker image inspect --format '{{.Id}}' forgeagent-coding:local
+$sample = ".forge/profile-smoke-v1"
+uv run python benchmarks/profile-smoke-v1/prepare.py $sample --image $image
+foreach ($project in 'fixture-stock-v1','fixture-window-v1') {
+  uv run forge project register $project "$sample/$project/repository" "$sample/$project/acceptance.json"
+}
+uv run forge eval dataset "$sample/dataset.json"
+```
+
+实际配置好模型和沙箱后，每个 profile 各运行一次 `uv run forge eval experiment "$sample/experiment.json"`。每次创建 8 个任务（四项 × recovery 关/开 × 一次），合计硬预算上限为 4 美元。等待结算后保存两个报告，再执行比较。只验证管线时，可使用测试 PostgreSQL 运行 `uv run pytest tests/backend/test_profile_smoke_cli.py -q`。它通过两个脚本化 provider profile 完成实验、保存 API 报告并调用比较 CLI；本机解释器只运行预先写定并核对内容的合成验收代码。脚本化结果不计入真实模型修复率。
 
 本页记录两个公开历史缺陷的受控外部 pilot。h11 和 trace-mapping 已在固定 Linux sandbox 中验证：各自的基线 commit 使独立验收失败，上游参考修复 commit 通过。这个校验证明验收和环境绑定有效，不等于模型已修复；真实模型的每次 patch、usage、费用、失败和人工介入会写入脱敏 evidence bundle。案例来自公开历史开发记录，模型结果不能称为盲测或普遍修复能力。
 
