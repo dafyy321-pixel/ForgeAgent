@@ -3,8 +3,10 @@
 import asyncio
 import json
 import os
+import ssl
 import time
 from pathlib import Path
+from threading import BoundedSemaphore
 from typing import Annotated
 
 import httpx
@@ -19,6 +21,12 @@ from .sandbox import sandbox
 
 app = FastAPI(title="ForgeAgent Sandbox Manager")
 active = {}
+local_slots = BoundedSemaphore(settings.sandbox_concurrency)
+
+
+def manager_client(timeout):
+    verify = ssl.create_default_context(cafile=settings.sandbox_manager_ca_file) if settings.sandbox_manager_ca_file else True
+    return httpx.AsyncClient(timeout=timeout, trust_env=False, verify=verify)
 
 
 def claim_operation(directory, payload):
@@ -72,8 +80,6 @@ async def fault_handler(request, exc):
 
 
 async def run_execution(body):
-    from .concurrency import admission
-
     root = Path(body.root)
     base = settings.data_dir.resolve() / "workspaces"
     if (not root.is_dir() or root.resolve() == base or not root.resolve().is_relative_to(base)
@@ -81,11 +87,13 @@ async def run_execution(body):
         raise Fault("PATH_DENIED", "Manager only mounts managed workspace directories", 403)
     if settings.sandbox_runtime != "runsc":
         raise Fault("GVISOR_REQUIRED", "Independent manager requires the runsc runtime", 503)
-    async with admission("sandbox", settings.sandbox_concurrency) as admitted:
-        if not admitted:
-            raise Fault("SANDBOX_BACKPRESSURE", "Manager capacity is exhausted", 503)
+    if not local_slots.acquire(blocking=False):
+        raise Fault("SANDBOX_BACKPRESSURE", "Manager capacity is exhausted", 503, retryable=True)
+    try:
         return await sandbox.execute_with_slot(root, body.argv, body.image, body.timeout, body.readonly,
                                               body.build.model_dump() if body.build else None, body.operation)
+    finally:
+        local_slots.release()
 
 
 @app.post("/execute")
@@ -139,7 +147,7 @@ async def clean_containers(tenant, apply=False):
     if not url.startswith("https://") and not (settings.auth_mode == "local" and url.startswith("http://127.0.0.1:")):
         raise Fault("MANAGER_TRANSPORT", "Shared manager transport requires HTTPS")
     payload = {"apply": apply, "scope": scope}
-    async with httpx.AsyncClient(timeout=60, trust_env=False) as client:
+    async with manager_client(60) as client:
         response = await client.post(url + "/maintenance/containers", json=payload,
             headers={"Authorization": "Bearer " + token("container_gc", payload)})
         if response.is_error:
@@ -166,7 +174,7 @@ async def remote_image(image):
     if not url.startswith("https://") and not (settings.auth_mode == "local" and url.startswith("http://127.0.0.1:")):
         raise Fault("MANAGER_TRANSPORT", "Shared manager transport requires HTTPS")
     payload = {"image": image}
-    async with httpx.AsyncClient(timeout=30, trust_env=False) as client:
+    async with manager_client(30) as client:
         response = await client.post(url + "/image", json=payload,
             headers={"Authorization": "Bearer " + token("image", payload)})
         if response.is_error:
@@ -199,7 +207,7 @@ async def remote_execute(root, argv, image, timeout, readonly, build):
         raise Fault("MANAGER_TRANSPORT", "Shared manager transport requires HTTPS")
     payload = Execution(operation=uid(), root=str(root.resolve()), argv=argv, image=image,
                         timeout=min(timeout, 300), readonly=readonly, build=build).model_dump()
-    async with httpx.AsyncClient(timeout=timeout + 30, trust_env=False) as client:
+    async with manager_client(timeout + 30) as client:
         try:
             response = await client.post(url + "/execute", json=payload,
                                          headers={"Authorization": "Bearer " + token("execute", payload)})

@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     sandbox_image: str = "forgeagent-sandbox:local"
     sandbox_runtime: str = "runc"
     sandbox_manager_url: str = ""
+    sandbox_manager_ca_file: Path | None = None
     sandbox_manager_secret: str = ""
     credential_routes: str = "{}"
     lease_seconds: int = 30

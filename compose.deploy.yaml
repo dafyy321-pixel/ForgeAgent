@@ -7,11 +7,11 @@ x-runtime: &runtime
     FORGE_DATA_DIR: ${FORGE_SHARED_DATA}
     FORGE_SANDBOX_MANAGER_URL: https://sandbox-manager:8443
     FORGE_SANDBOX_RUNTIME: runsc
-    SSL_CERT_FILE: /run/tls/ca.crt
+    FORGE_SANDBOX_MANAGER_CA_FILE: /run/tls/ca.crt
     OTEL_EXPORTER_OTLP_ENDPOINT: http://telemetry:4318
   volumes:
     - ${FORGE_SHARED_DATA:?Set absolute shared data path}:${FORGE_SHARED_DATA}
-    - ${FORGE_TLS_DIR:?Set private TLS directory}:/run/tls:ro
+    - ${FORGE_TLS_DIR:?Set private TLS directory}/ca.crt:/run/tls/ca.crt:ro
   restart: unless-stopped
   init: true
   read_only: true
@@ -75,7 +75,8 @@ services:
       # Docker bind mounts use the host path. Keep the same absolute path visible in
       # the manager and workers, or configure a dedicated mount translation host.
       - ${FORGE_SHARED_DATA}:${FORGE_SHARED_DATA}
-      - ${FORGE_TLS_DIR}:/run/tls:ro
+      - ${FORGE_TLS_DIR}/manager.crt:/run/tls/manager.crt:ro
+      - ${FORGE_TLS_DIR}/manager.key:/run/tls/manager.key:ro
     restart: unless-stopped
     read_only: true
     tmpfs: [/tmp:size=128m,mode=1777]
@@ -84,7 +85,9 @@ services:
     networks: [private]
   web:
     image: ${FORGE_WEB_IMAGE:?Set a published web image pinned by digest}
-    volumes: ["${FORGE_TLS_DIR}:/run/tls:ro"]
+    volumes:
+      - ${FORGE_TLS_DIR}/web.crt:/run/tls/web.crt:ro
+      - ${FORGE_TLS_DIR}/web.key:/run/tls/web.key:ro
     ports: ["${FORGE_BIND_IP:-127.0.0.1}:8443:443"]
     restart: unless-stopped
     depends_on:

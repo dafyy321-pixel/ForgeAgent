@@ -117,23 +117,24 @@ class Sandbox:
             raise Fault("SANDBOX_UNAVAILABLE", "Docker sandbox is unavailable")
 
     async def execute(self, root, argv, image, timeout=60, readonly=False, build=None, admit=True):
+        executor = self.execute_with_slot
         if settings.sandbox_manager_url:
             from .sandbox_manager import remote_execute
 
-            return await remote_execute(root, argv, image, timeout, readonly, build)
-        if settings.auth_mode != "local":
+            executor = remote_execute
+        elif settings.auth_mode != "local":
             raise Fault("SANDBOX_MANAGER_REQUIRED", "Shared deployments require an independent gVisor sandbox manager")
         if not admit:
             # Offline preflight runs before a tenant/database exists. It is a
             # single foreground check and therefore does not need the shared
             # database-backed concurrency lease used by worker tasks.
-            return await self.execute_with_slot(root, argv, image, timeout, readonly, build)
+            return await executor(root, argv, image, timeout, readonly, build)
         from .concurrency import admission
 
         async with admission("sandbox", settings.sandbox_concurrency) as admitted:
             if not admitted:
                 raise Fault("SANDBOX_BACKPRESSURE", "Sandbox capacity exhausted; no container was started", retryable=True)
-            return await self.execute_with_slot(root, argv, image, timeout, readonly, build)
+            return await executor(root, argv, image, timeout, readonly, build)
 
     async def execute_with_slot(self, root, argv, image, timeout=60, readonly=False, build=None, operation=None):
         if not argv or len(argv) > 100 or not all(isinstance(a, str) for a in argv):

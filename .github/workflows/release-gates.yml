@@ -29,7 +29,7 @@ jobs:
       FORGE_S3_SECRET_KEY: ${{ secrets.FORGE_S3_SECRET_KEY }}
       FORGE_DATABASE_URL: ${{ secrets.FORGE_DATABASE_URL }}
       FORGE_BACKUP_DATABASE_URL: ${{ secrets.FORGE_BACKUP_DATABASE_URL }}
-      FORGE_SANDBOX_MANAGER_URL: http://127.0.0.1:18099
+      FORGE_SANDBOX_MANAGER_URL: https://127.0.0.1:18099
       FORGE_SANDBOX_MANAGER_SECRET: ${{ secrets.FORGE_SANDBOX_MANAGER_SECRET }}
       FORGE_SANDBOX_RUNTIME: runsc
       FORGE_SANDBOX_IMAGE: forgeagent-sandbox:release-test
@@ -48,14 +48,32 @@ jobs:
           umask 077
           printf '%s' "$DESCRIPTORS" > .forge/release-connections.json
           echo "FORGE_RELEASE_FACTS_DIR=$GITHUB_WORKSPACE/.forge/release-facts-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+          state=$(mktemp -d "$RUNNER_TEMP/forge-release.XXXXXXXX")
+          mkdir "$state/data" "$state/tls"
+          echo "FORGE_DATA_DIR=$state/data" >> "$GITHUB_ENV"
+          echo "RELEASE_TLS_DIR=$state/tls" >> "$GITHUB_ENV"
+          echo "FORGE_SANDBOX_MANAGER_CA_FILE=$state/tls/ca.crt" >> "$GITHUB_ENV"
       - run: uv run python scripts/release_evidence.py
       - run: uv run alembic upgrade head
       - run: docker build -t forgeagent-sandbox:release-test sandbox
-      - name: Start this commit's independent manager
+      - name: Start the manager image with private TLS and a dedicated environment
         run: |
-          .venv/bin/python -m uvicorn forgeagent.sandbox_manager:app --host 127.0.0.1 --port 18099 > .forge/release-manager.log 2>&1 &
-          echo "RELEASE_MANAGER_PID=$!" >> "$GITHUB_ENV"
-          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:18099/openapi.json >/dev/null && exit 0; sleep 1; done
+          umask 077
+          name="forge-manager-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          docker build --target manager -t "$name" .
+          cd "$RELEASE_TLS_DIR"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=ForgeReleaseCA -keyout ca.key -out ca.crt
+          openssl req -new -newkey rsa:2048 -nodes -subj /CN=forge-manager -keyout manager.key -out manager.csr
+          printf '%s\n' 'subjectAltName=IP:127.0.0.1' 'extendedKeyUsage=serverAuth' > manager.ext
+          openssl x509 -req -in manager.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 1 -extfile manager.ext -out manager.crt
+          docker run -d --name "$name" --user "$(id -u):$(id -g)" --group-add "$(stat -c %g /var/run/docker.sock)" \
+            --read-only --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:size=128m \
+            -p 127.0.0.1:18099:8443 -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$FORGE_DATA_DIR:$FORGE_DATA_DIR" -v "$PWD/manager.key:/run/tls/manager.key:ro" \
+            -v "$PWD/manager.crt:/run/tls/manager.crt:ro" -e FORGE_DATA_DIR -e FORGE_AUTH_MODE=oidc \
+            -e FORGE_SANDBOX_RUNTIME -e FORGE_SANDBOX_MANAGER_SECRET "$name"
+          echo "RELEASE_MANAGER_NAME=$name" >> "$GITHUB_ENV"
+          for i in $(seq 1 30); do curl --cacert ca.crt -fsS "$FORGE_SANDBOX_MANAGER_URL/openapi.json" >/dev/null && exit 0; sleep 1; done
           exit 1
       - name: Exercise live integrations
         run: >-
@@ -74,5 +92,6 @@ jobs:
       - name: Remove private endpoint file
         if: always()
         run: |
-          if [ -n "$RELEASE_MANAGER_PID" ]; then kill "$RELEASE_MANAGER_PID" || true; fi
+          if [ -n "$RELEASE_MANAGER_NAME" ]; then docker rm -f "$RELEASE_MANAGER_NAME"; docker image rm "$RELEASE_MANAGER_NAME"; fi
+          if [ -n "$RELEASE_TLS_DIR" ]; then rm -f -- "$RELEASE_TLS_DIR/ca.key" "$RELEASE_TLS_DIR/manager.key"; fi
           rm -f -- .forge/release-connections.json
