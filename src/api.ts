@@ -18,7 +18,12 @@ export class ApiError extends Error {
     this.name = 'ApiError';
   }
 }
-type Options = { signal?: AbortSignal; timeoutMs?: number; format?: 'json' | 'text'; raw?: Blob };
+type Options = {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  format?: 'json' | 'text' | 'blob';
+  raw?: Blob;
+};
 const mutations = new Map<string, string>();
 async function signatureFor(value: string) {
   const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
@@ -95,11 +100,13 @@ export async function api<T = unknown>(
       throw new ApiError(payload, response.status, response.status >= 500);
     }
     const value = (
-      options.format === 'text'
-        ? await response.text()
-        : response.status === 204
-          ? null
-          : await response.json()
+      options.format === 'blob'
+        ? await response.blob()
+        : options.format === 'text'
+          ? await response.text()
+          : response.status === 204
+            ? null
+            : await response.json()
     ) as T;
     forget(signature);
     return value;

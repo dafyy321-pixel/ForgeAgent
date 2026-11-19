@@ -676,8 +676,8 @@ export function Diff({ content }: { content: string }) {
 }
 function EvidencePanel({ runtime: rt, run: r }: { runtime: Runtime; run: Execution }) {
   const items = rt.state.artifacts.filter((a) => a.runId === r.id);
-  const [selected, setSelected] = useState(items[0]?.id || '');
-  const a = items.find((a) => a.id === selected) || items[0];
+  const selected = rt.route.artifactId;
+  const a = selected ? items.find((item) => item.id === selected) : items[0];
   const [preview, setPreview] = useState('');
   const [error, setError] = useState('');
   useEffect(() => {
@@ -699,8 +699,19 @@ function EvidencePanel({ runtime: rt, run: r }: { runtime: Runtime; run: Executi
   }, [a?.id, a?.digest]);
   if (!a)
     return (
-      <Empty title="尚未生成交付物" description="执行完成后，进入独立验证生成产物与凭证。">
-        <Button onClick={() => rt.setTab('verification')}>查看验收条件</Button>
+      <Empty
+        title={selected ? '指定交付物不可用' : '尚未生成交付物'}
+        description={
+          selected
+            ? '请检查交付物链接或选择当前任务已有的产物。'
+            : '执行完成后，进入独立验证生成产物与凭证。'
+        }
+      >
+        {selected ? (
+          <Button onClick={() => rt.setTab('changes')}>查看当前任务的产物</Button>
+        ) : (
+          <Button onClick={() => rt.setTab('verification')}>查看验收条件</Button>
+        )}
       </Empty>
     );
   return (
@@ -713,8 +724,8 @@ function EvidencePanel({ runtime: rt, run: r }: { runtime: Runtime; run: Executi
         {items.map((a) => (
           <button
             key={a.id}
-            className={a.id === selected ? 'selected' : ''}
-            onClick={() => setSelected(a.id)}
+            className={a.id === (selected || items[0]?.id) ? 'selected' : ''}
+            onClick={() => rt.setTab('changes', a.id)}
           >
             <FileText size={17} />
             <span>{a.name}</span>

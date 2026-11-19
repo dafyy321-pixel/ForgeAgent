@@ -1070,6 +1070,9 @@ class Worker:
         report["logs"] = {"ref": log_ref, "digest": log_ref["digest"], "encoding": "json", "line_start": 0}
         report["deliverables"] = {kind: "present" for kind in state["task"]["deliverables"]}
         report_ref = await asyncio.to_thread(resources.put, tenant, id, report)
+        public_report = service.public_report(state["acceptance"], report)
+        public_report_ref = (report_ref if public_report == report else
+                             await asyncio.to_thread(resources.put, tenant, id, public_report))
         summary_ref = await asyncio.to_thread(resources.put, tenant, id, state["completion"].encode())
         def commit_verification():
             with db.transaction(tenant) as s:
@@ -1083,7 +1086,7 @@ class Worker:
                 passed = report["verdict"] == "PASS"
                 for name, kind, ref in [
                     ("changes.patch", "patch", patch_ref),
-                    ("verification.json", "test_report", report_ref),
+                    ("verification.json", "test_report", {**public_report_ref, "public_report_version": 1}),
                     ("summary.md", "summary", summary_ref),
                     ("verification-log.json", "log", log_ref),
                 ]:

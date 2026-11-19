@@ -6,7 +6,15 @@ import type { components } from './generated/api-schema';
 import { followEvents } from './events';
 import { useRemote } from './BackendViews';
 
-type Route = { page: Page; id: string; tab: string; project: string; q: string; filter: string };
+type Route = {
+  page: Page;
+  id: string;
+  tab: string;
+  project: string;
+  q: string;
+  filter: string;
+  artifactId?: string;
+};
 export type TaskDraft = {
   title: string;
   description: string;
@@ -71,6 +79,7 @@ function readRoute(): Route {
     page: id ? 'task' : known.includes(path[0] as Page) ? (path[0] as Page) : 'overview',
     id,
     tab: q.get('view') || 'conversation',
+    artifactId: id && q.get('view') === 'changes' ? q.get('artifact') || '' : '',
     project: q.get('project') || '所有项目',
     q: q.get('q') || '',
     filter: q.get('status') || 'all',
@@ -82,6 +91,7 @@ function url(r: Route) {
   if (r.q) q.set('q', r.q);
   if (r.filter !== 'all') q.set('status', r.filter);
   if (r.tab !== 'conversation') q.set('view', r.tab);
+  if (r.page === 'task' && r.tab === 'changes' && r.artifactId) q.set('artifact', r.artifactId);
   return `${r.page === 'task' ? `/tasks/${encodeURIComponent(r.id)}` : r.page === 'overview' ? '/' : `/${r.page}`}${q.size ? '?' + q : ''}`;
 }
 export function useRuntime() {
@@ -113,6 +123,7 @@ export function useRuntime() {
   const routeRef = useRef(route);
   routeRef.current = route;
   const revision = useRef('');
+  const [catalogRevision, setCatalogRevision] = useState('');
   const refreshAbort = useRef<AbortController | null>(null);
   const pageDepth = useRef(1);
   const eventDepth = useRef(1);
@@ -122,6 +133,8 @@ export function useRuntime() {
     if (current.project !== '所有项目') query.set('project', current.project);
     if (current.q) query.set('q', current.q);
     if (current.id) query.set('run_id', current.id);
+    if (current.id && current.tab === 'changes' && current.artifactId)
+      query.set('artifact_id', current.artifactId);
     if (['inbox', 'recovery'].includes(current.page))
       query.set('status', current.page === 'recovery' ? 'recovery' : 'attention');
     if (
@@ -185,6 +198,7 @@ export function useRuntime() {
         setState(next);
         setStorageError('');
         setLoading(false);
+        return true;
       }
     } catch (e) {
       if (seq === requestSequence.current && !controller.signal.aborted) {
@@ -192,6 +206,7 @@ export function useRuntime() {
         setLoading(false);
       }
     }
+    return false;
   }
   async function loadMore() {
     const cursor = stateRef.current.next_cursor;
@@ -252,7 +267,7 @@ export function useRuntime() {
     setState(empty);
     setLoading(true);
     void refresh();
-  }, [route.project, route.q, route.filter, route.id, route.page]);
+  }, [route.project, route.q, route.filter, route.id, route.page, route.artifactId]);
   useEffect(() => {
     if (!route.id) return;
     const controller = new AbortController();
@@ -275,11 +290,16 @@ export function useRuntime() {
       try {
         const value = await api<{ revision: string }>('/workspace/revision');
         if (alive && value.revision !== revision.current) {
-          revision.current = value.revision;
-          await refresh();
+          if ((await refresh()) && alive) {
+            revision.current = value.revision;
+            setCatalogRevision(value.revision);
+          }
         }
       } catch (e) {
-        if (alive) setStorageError((e as Error).message);
+        if (alive) {
+          revision.current = '';
+          setStorageError((e as Error).message);
+        }
       }
       if (alive) timer = setTimeout(poll, document.hidden ? 15000 : 2500);
     };
@@ -537,31 +557,29 @@ export function useRuntime() {
       reason: '用户请求对当前操作重新审查',
     });
   }
-  const download = (name: string, content: string) => {
-    const u = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' }));
+  const download = (name: string, content: string | Blob) => {
+    const u = URL.createObjectURL(
+      typeof content === 'string'
+        ? new Blob([content], { type: 'text/plain;charset=utf-8' })
+        : content,
+    );
     const a = document.createElement('a');
     a.href = u;
     a.download = name;
     a.click();
     setTimeout(() => URL.revokeObjectURL(u), 1000);
   };
-  const artifactCache = useRef(new Map<string, string>());
-  async function artifactText(artifact: { id: string; digest: string }) {
-    const saved = artifactCache.current.get(artifact.digest);
-    if (saved !== undefined) return saved;
-    const content = await api<string>(
-      `/artifacts/${artifact.id}/download`,
-      'GET',
-      undefined,
-      undefined,
-      { format: 'text' },
-    );
-    artifactCache.current.set(artifact.digest, content);
-    return content;
+  async function artifactBlob(artifact: { id: string }) {
+    return api<Blob>(`/artifacts/${artifact.id}/download`, 'GET', undefined, undefined, {
+      format: 'blob',
+    });
+  }
+  async function artifactText(artifact: { id: string }) {
+    return (await artifactBlob(artifact)).text();
   }
   async function downloadArtifact(artifact: { id: string; digest: string; name: string }) {
     try {
-      download(artifact.name, await artifactText(artifact));
+      download(artifact.name, await artifactBlob(artifact));
     } catch (e) {
       setToast((e as Error).message);
     }
@@ -656,6 +674,7 @@ export function useRuntime() {
     state,
     route,
     summary,
+    catalogRevision,
     overlay,
     createContext,
     prepareExecution,
@@ -684,10 +703,10 @@ export function useRuntime() {
     artifactText,
     downloadArtifact,
     clearFilters: () => changeRoute({ ...route, q: '', filter: 'all' }, true),
-    openTask: (id: string, tab = 'conversation') =>
-      changeRoute({ ...route, page: 'task', id, tab }),
+    openTask: (id: string, tab = 'conversation', artifactId?: string) =>
+      changeRoute({ ...route, page: 'task', id, tab, artifactId }),
     setFilter: (filter: string) => changeRoute({ ...route, filter }, true),
-    setTab: (tab: string) => changeRoute({ ...route, tab }, true),
+    setTab: (tab: string, artifactId?: string) => changeRoute({ ...route, tab, artifactId }, true),
   };
 }
 export type Runtime = ReturnType<typeof useRuntime>;

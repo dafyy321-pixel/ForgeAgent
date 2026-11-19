@@ -406,11 +406,10 @@ function TaskList({ runtime: rt, runs }: { runtime: Runtime; runs: Execution[] }
           </select>
         </label>
       </div>
-      <div className="filter-tabs" role="tablist" aria-label="任务筛选">
+      <div className="filter-tabs" role="group" aria-label="任务筛选">
         {filters.map(([id, label]) => (
           <button
-            role="tab"
-            aria-selected={rt.route.filter === id}
+            aria-pressed={rt.route.filter === id}
             key={id}
             className={rt.route.filter === id ? 'active' : ''}
             onClick={() => rt.setFilter(id)}
@@ -457,6 +456,7 @@ function InboxView({ runtime: rt, runs }: { runtime: Runtime; runs: Execution[] 
               : 'recovery',
       ) +
       (rt.route.project === '所有项目' ? '' : '&project=' + encodeURIComponent(rt.route.project)),
+    rt.catalogRevision,
   );
   const approvals = useCatalog<{
     id: string;
@@ -467,6 +467,7 @@ function InboxView({ runtime: rt, runs }: { runtime: Runtime; runs: Execution[] 
   }>(
     '/catalog/approvals?limit=50' +
       (rt.route.project === '所有项目' ? '' : '&project=' + encodeURIComponent(rt.route.project)),
+    rt.catalogRevision,
   );
   const items = query.items.filter(
     (r) =>
@@ -578,6 +579,7 @@ function Deliveries({ runtime: rt, runs }: { runtime: Runtime; runs: Execution[]
     '/catalog/artifacts?limit=50' +
       (rt.route.project === '所有项目' ? '' : '&project=' + encodeURIComponent(rt.route.project)) +
       (filter === 'all' ? '' : '&verified=' + String(filter === 'verified')),
+    rt.catalogRevision,
   );
   const items = catalog.items.map((a) => ({
     ...a,
@@ -628,7 +630,10 @@ function Deliveries({ runtime: rt, runs }: { runtime: Runtime; runs: Execution[]
               {a.type === '代码补丁' ? <Code2 size={23} /> : <FileText size={23} />}
             </span>
             <div>
-              <button className="delivery-name" onClick={() => rt.openTask(a.runId, 'changes')}>
+              <button
+                className="delivery-name"
+                onClick={() => rt.openTask(a.runId, 'changes', a.id)}
+              >
                 {a.name}
               </button>
               <p>
@@ -639,7 +644,7 @@ function Deliveries({ runtime: rt, runs }: { runtime: Runtime; runs: Execution[]
                 {a.verified ? '验证凭证有效' : '尚未验证'}
               </span>
             </div>
-            <Button onClick={() => rt.openTask(a.runId, 'changes')}>
+            <Button onClick={() => rt.openTask(a.runId, 'changes', a.id)}>
               预览
               <ArrowUpRight size={15} />
             </Button>

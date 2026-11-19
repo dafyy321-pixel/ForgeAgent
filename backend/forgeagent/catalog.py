@@ -4,7 +4,7 @@ from typing import Any
 
 from sqlalchemy import func, or_, select
 
-from . import db
+from . import artifact_delivery, db
 from .auth import require_admin
 from .domain import Fault
 from .pagination import records, visible
@@ -72,7 +72,8 @@ def page(s, actor, collection, cursor=None, limit=50, status=None, run_id=None, 
         if hasattr(row, "run_id"):
             result["run_id"] = row.run_id
         if cls == db.Artifact:
-            result.update(name=row.name, kind=row.kind, digest=row.ref["digest"], bytes=row.ref["bytes"], verified=row.verified, version=row.version)
+            checksum, size = artifact_delivery.metadata(s, row)
+            result.update(name=row.name, kind=row.kind, digest=checksum, bytes=size, verified=row.verified, version=row.version)
         elif cls == db.Action:
             result.update(tool=row.tool, effect_class=row.effect_class, attempt=row.attempt)
         elif cls == db.Event:

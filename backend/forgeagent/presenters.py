@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from sqlalchemy import func, select
 
-from . import db, service
+from . import artifact_delivery, db, service
 from .auth import run_access
 from .domain import canonical, digest
 from .task_status import presentation
@@ -164,7 +164,7 @@ def event_view(e):
             "time": int(e.created_at.timestamp() * 1000)}
 
 
-def workspace(s, tenant, actor=None, project=None, status=None, q="", cursor=None, limit=50, run_id=None):
+def workspace(s, tenant, actor=None, project=None, status=None, q="", cursor=None, limit=50, run_id=None, artifact_id=None):
     assert actor is not None
     from .catalog import page as catalog_page
     from .pagination import runs as page_runs
@@ -206,19 +206,23 @@ def workspace(s, tenant, actor=None, project=None, status=None, q="", cursor=Non
             }
         )
     artifacts = []
-    for a in s.scalars(select(db.Artifact).where(db.Artifact.tenant_id == tenant, db.Artifact.run_id.in_(by_id)).order_by(db.Artifact.created_at.desc(), db.Artifact.id.desc()).limit(200)):
+    query = select(db.Artifact).where(db.Artifact.tenant_id == tenant, db.Artifact.run_id.in_(by_id))
+    if artifact_id and run_id:
+        query = query.order_by(((db.Artifact.id == artifact_id) & (db.Artifact.run_id == run_id)).desc())
+    for a in s.scalars(query.order_by(db.Artifact.created_at.desc(), db.Artifact.id.desc()).limit(200)):
+        checksum, size = artifact_delivery.metadata(s, a)
         artifacts.append(
             {
                 "id": a.id,
                 "runId": a.run_id,
                 "name": a.name,
                 "type": {"patch": "代码补丁", "test_report": "验证报告", "summary": "交付说明"}.get(a.kind, a.kind),
-                "size": f"{a.ref['bytes']} bytes",
+                "size": f"{size} bytes",
                 "verified": a.verified,
                 "content": "",
                 "download_url": f"/v1/artifacts/{a.id}/download",
                 "version": a.version,
-                "digest": a.ref["digest"],
+                "digest": checksum,
             }
         )
     event_page = catalog_page(s, actor, "events", limit=100, run_id=run_id) if run_id else None

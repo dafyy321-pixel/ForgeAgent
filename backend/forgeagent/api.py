@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import AwareDatetime, Field, model_validator
 from sqlalchemy import Integer, cast, func, select, text
 
-from . import db, domain, presenters, service
+from . import artifact_delivery, db, domain, presenters, service
 from . import evaluations as experiments
 from .api_dependencies import Actor
 from .auth import Identity, project_access, require_admin, require_run_access
@@ -191,9 +191,9 @@ def ready():
 
 @app.get("/v1/workspace", response_model=WorkspaceIndex)
 def workspace(actor: Actor, project: str | None = None, status: str | None = None, q: str = "",
-              cursor: str | None = None, limit: int = 50, run_id: str | None = None):
+              cursor: str | None = None, limit: int = 50, run_id: str | None = None, artifact_id: str | None = None):
     with db.transaction(actor.tenant) as s:
-        return presenters.workspace(s, actor.tenant, actor, project, status, q, cursor, limit, run_id)
+        return presenters.workspace(s, actor.tenant, actor, project, status, q, cursor, limit, run_id, artifact_id)
 
 
 @app.get("/v1/workspace/revision")
@@ -675,18 +675,19 @@ def reconcile_budget(id: str, operation_id: str, body: BudgetReconciliation, act
 def artifacts(id: str, actor: Actor):
     with db.transaction(actor.tenant) as s:
         db.get(s, db.Run, actor.tenant, id)
-        return [
-            {
+        result = []
+        for a in db.list_rows(s, db.Artifact, actor.tenant, run_id=id):
+            checksum, size = artifact_delivery.metadata(s, a)
+            result.append({
                 "id": a.id,
                 "name": a.name,
                 "kind": a.kind,
-                "digest": a.ref["digest"],
-                "bytes": a.ref["bytes"],
+                "digest": checksum,
+                "bytes": size,
                 "verified": a.verified,
                 "download_url": f"/v1/artifacts/{a.id}/download",
-            }
-            for a in db.list_rows(s, db.Artifact, actor.tenant, run_id=id)
-        ]
+            })
+        return result
 
 
 @app.get("/v1/runs/{id}/recovery", response_model=CatalogPage)
@@ -707,12 +708,8 @@ def recovery_records(id: str, actor: Actor, kind: Literal["diagnoses", "evidence
 def download(artifact_id: str, actor: Actor):
     with db.transaction(actor.tenant) as s:
         a = db.get(s, db.Artifact, actor.tenant, artifact_id)
-        body = objects.get(actor.tenant, a.ref)
-        if a.kind == "test_report":
-            r = db.get(s, db.Run, actor.tenant, a.run_id)
-            body = canonical(service.public_report(r.state["acceptance"], json.loads(body)))
         return Response(
-            body,
+            artifact_delivery.body(s, a),
             media_type="application/octet-stream",
             headers={"Content-Disposition": f'attachment; filename="{a.id}.txt"'},
         )

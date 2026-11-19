@@ -3687,6 +3687,7 @@ export interface operations {
                 cursor?: string | null;
                 limit?: number;
                 run_id?: string | null;
+                artifact_id?: string | null;
             };
             header?: never;
             path?: never;
