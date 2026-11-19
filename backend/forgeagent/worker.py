@@ -82,6 +82,7 @@ class Worker:
                 .join(root, and_(root.tenant_id == db.Run.tenant_id, root.id == db.Run.root_id))
                 .where(
                     db.Run.tenant_id == tenant,
+                    db.Job.status.not_in(["QUARANTINED", "BLOCKED"]),
                     db.Run.status.in_(["QUEUED", "ACTIVE", "CANCELLING", "WAITING"]),
                     db.Run.available_at <= time,
                     or_(db.Run.lease_until.is_(None), db.Run.lease_until <= time),
@@ -99,25 +100,38 @@ class Worker:
                 return None
             ready_at = max(r.available_at, r.lease_until) if r.lease_until else r.available_at
             queue_wait.observe(max(0, (time - ready_at).total_seconds()))
-            if r.epoch:
-                from .reducer import rebuild
+            from .reducer import rebuild
 
+            job = db.get(s, db.Job, tenant, r.id, True)
+            try:
                 recovered = rebuild(s, tenant, r.id)
+            except (Fault, KeyError, ValueError, TypeError) as exc:
+                # This queue record is independent of the unreadable event chain.
+                # Emitting an event or checkpoint here would try the same replay.
+                code = exc.code if isinstance(exc, Fault) else "REPLAY_INVALID"
+                temporary = isinstance(exc, Fault) and (exc.retryable or exc.status == 503)
+                failures = job.data.get("replay_failures", 0) + 1
+                job.status = "READY" if temporary else "QUARANTINED"
+                if temporary:
+                    r.available_at = db.clock(s) + timedelta(seconds=min(300, 2 ** min(failures, 9)))
+                job.data = {**job.data, "replay_error": code, "replay_failures": failures,
+                            "available_at": r.available_at.isoformat()}
+                r.lease_owner = r.lease_until = None
+                log.error("Cannot replay run %s: %s (%s)", r.id, code, job.status)
+                return None
+            s.info.setdefault("event_projections", {})[(tenant, r.id)] = (r.seq, deepcopy(recovered))
+            if r.epoch:
                 if digest(recovered) != digest(db.projection(r)):
                     r.status, r.wait_reason = "PAUSED", None
                     r.state = {**r.state, "reason": "REPLAY_DIVERGENCE: live state differs from committed event history"}
                     db.emit(s, r, "REPLAY_DIVERGENCE", r.state["reason"])
                     db.get(s, db.Job, tenant, r.id).status = "DONE"
                     return None
-                # The validated committed projection is also the predecessor for the
-                # lease event. Rebuilding it again in emit repeats the same SQL/reduction.
-                s.info.setdefault("event_projections", {})[(tenant, r.id)] = (r.seq, deepcopy(recovered))
                 r.state = recovered["state"]
             expired_at = r.lease_until.isoformat() if r.lease_owner and r.lease_until else None
             interrupted = False
             r.epoch += 1
             r.lease_owner, r.lease_until = self.owner, time + timedelta(seconds=settings.lease_seconds)
-            job = db.get(s, db.Job, tenant, r.id, True)
             job.status, job.data = (
                 "LEASED",
                 {**job.data, "owner": self.owner, "epoch": r.epoch, "lease_until": r.lease_until.isoformat()},
@@ -221,8 +235,10 @@ class Worker:
                 job = db.get(s, db.Job, tenant, id)
                 if r.status in {"ACTIVE", "QUEUED"}:
                     db.schedule(s, r)  # Put a completed decision quantum behind other ready runs.
-                else:
-                    job.status = "READY" if r.status in {"WAITING", "CANCELLING"} else "DONE"
+                elif r.status not in {"WAITING", "CANCELLING"}:
+                    job.status = "DONE"
+                elif job.status == "LEASED":
+                    job.status = "READY"
                 if r.status in TERMINAL:
                     service.release_child_allocation(s, r)
                 if r.status not in {"ACTIVE", "QUEUED"} or r.state.get("knowledge_erased"):
@@ -234,7 +250,9 @@ class Worker:
                 run = db.fence(s, tenant, id, self.owner, epoch)
                 from .remote import consume_inbox
 
-                consume_inbox(s, run)
+                if consume_inbox(s, run):
+                    db.schedule(s, run)
+                    return None
                 remote_pending = [
                     a.id
                     for a in db.rows(s, db.Action, tenant, run_id=id)
@@ -242,6 +260,8 @@ class Worker:
                 ]
             return remote_pending
         remote_pending = await asyncio.to_thread(pending_remote)
+        if remote_pending is None:
+            return
         if remote_pending:
             from .remote import poll_remote
 
@@ -264,19 +284,26 @@ class Worker:
                 unknown = [a for a in actions if a.status == "UNKNOWN"]
                 children = db.rows(s, db.Run, tenant, parent_id=id)
                 if unknown:
-                    r.status, r.wait_reason = "CANCELLING" if r.cancel_requested else "WAITING", "RECONCILIATION"
-                    r.state = {**state, "reason": "External effect requires reconciliation"}
-                    db.emit(s, r, "RECONCILIATION_REQUIRED", "Unknown effects block further execution")
-                    db.schedule(s, r, 30)
+                    status = "CANCELLING" if r.cancel_requested else "WAITING"
+                    if (r.status, r.wait_reason) != (status, "RECONCILIATION"):
+                        r.status, r.wait_reason = status, "RECONCILIATION"
+                        r.state = {**state, "reason": "External effect requires reconciliation"}
+                        db.emit(s, r, "RECONCILIATION_REQUIRED", "Unknown effects block further execution")
+                    db.get(s, db.Job, tenant, id).status = "BLOCKED"
                     return
                 if r.cancel_requested:
                     try:
                         service.require_settled_usage(s, r)
                     except Fault as exc:
-                        r.status, r.wait_reason = "CANCELLING", "RECONCILIATION"
-                        r.state = {**state, "reason": exc.message}
-                        db.emit(s, r, "CANCELLATION_WAITING", "Cancellation awaits billing reconciliation")
-                        db.schedule(s, r, 30)
+                        if r.wait_reason != "RECONCILIATION" or state.get("reason") != exc.message:
+                            r.status, r.wait_reason = "CANCELLING", "RECONCILIATION"
+                            r.state = {**state, "reason": exc.message}
+                            db.emit(s, r, "CANCELLATION_WAITING", "Cancellation awaits billing reconciliation")
+                        if any(c.status not in TERMINAL for c in children):
+                            # A live child's ordinary model settlement can unblock its parent.
+                            db.schedule(s, r, 30)
+                        else:
+                            db.get(s, db.Job, tenant, id).status = "BLOCKED"
                         return
                     if any(c.status not in TERMINAL for c in children):
                         r.status, r.wait_reason = "CANCELLING", "CHILD_RUN"
@@ -303,6 +330,7 @@ class Worker:
                     return
                 pending = [a for a in actions if a.status == "WAITING_APPROVAL"]
                 if pending:
+                    deadlines = []
                     for a in pending:
                         approvals = [p for p in db.rows(s, db.Approval, tenant, action_id=a.id) if p.decision == "pending"]
                         if not approvals or approvals[-1].expires_at <= db.clock(s):
@@ -313,9 +341,11 @@ class Worker:
                             r.status, r.wait_reason = "PAUSED", None
                             db.emit(s, r, "APPROVAL_EXPIRED", "Approval expired before dispatch")
                             return
-                    r.status, r.wait_reason = "WAITING", "APPROVAL"
-                    db.emit(s, r, "APPROVAL_WAITING", "Pending approval blocks execution")
-                    db.schedule(s, r, 5)
+                        deadlines.append(approvals[-1].expires_at)
+                    if (r.status, r.wait_reason) != ("WAITING", "APPROVAL"):
+                        r.status, r.wait_reason = "WAITING", "APPROVAL"
+                        db.emit(s, r, "APPROVAL_WAITING", "Pending approval blocks execution")
+                    db.schedule(s, r, at=min(deadlines))
                     return
                 required_pending, required_failed = service.join_children(s, r, children)
                 if required_pending:

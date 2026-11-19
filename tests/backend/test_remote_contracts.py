@@ -16,6 +16,7 @@ from forgeagent.config import settings
 from forgeagent.domain import Fault, ToolCall, canonical, digest
 from forgeagent.storage import objects
 from forgeagent.worker import Worker
+from sqlalchemy import event
 from test_remote import pending_remote
 
 SCHEMA = {"type": "object", "properties": {"value": {"type": "string"}}, "required": ["value"], "additionalProperties": False}
@@ -115,6 +116,7 @@ def test_business_key_cas_scope_schema_and_live_revocation(tenant, make_run):
         assert action.args["business_key"] == action.args["arguments"]["request_key"]
         assert action.args["arguments"]["expected_version"] == "remote-v1"
         assert len(db.rows(s, db.Approval, tenant, action_id=action.id)) == 1
+        assert run.available_at == db.rows(s, db.Approval, tenant, action_id=action.id)[0].expires_at
         db.get(s, db.ToolVersion, tenant, connection_id).status = "disabled"
         with pytest.raises(Fault, match="disabled"):
             remote.authorize_remote(s, run, action)
@@ -122,6 +124,52 @@ def test_business_key_cas_scope_schema_and_live_revocation(tenant, make_run):
     with db.transaction(tenant) as s:
         with pytest.raises(Fault, match="unselected"):
             remote.prepare_remote(s, db.get(s, db.Run, tenant, unselected), connection_id, "publish", {"value": "x"})
+
+
+async def test_manual_reconciliation_parks_until_an_explicit_decision(tenant, make_run, client):
+    run_id = make_run()
+    action_id = pending_remote(tenant, run_id)
+    with db.transaction(tenant) as s:
+        db.get(s, db.Action, tenant, action_id).status = "UNKNOWN"
+    worker = Worker(target_run=run_id)
+    assert await worker.once(tenant)
+    with db.transaction(tenant) as s:
+        run = db.get(s, db.Run, tenant, run_id)
+        version = run.version
+        run.available_at = db.clock(s) - timedelta(days=1)
+        assert db.get(s, db.Job, tenant, run_id).status == "BLOCKED"
+    assert not await worker.once(tenant)
+    response = client.post(f"/v1/actions/{action_id}/reconcile", json={"expected_version": version,
+                           "outcome": "absent", "evidence": "Reviewed receipt", "reason": "Confirmed absent"})
+    assert response.status_code == 200, response.text
+    with db.transaction(tenant) as s:
+        run = db.get(s, db.Run, tenant, run_id)
+        service.control(s, tenant, run_id, "resume", run.version, "Continue after reconciliation")
+    assert worker.claim(tenant)[0] == run_id
+
+
+async def test_remote_poll_does_not_load_other_actions_or_consumed_messages(tenant, make_run, monkeypatch):
+    run_id, other_id = make_run(), make_run()
+    action_id, other_action = pending_remote(tenant, run_id), pending_remote(tenant, other_id)
+    with db.transaction(tenant) as s:
+        for n in range(32):
+            s.add(db.Inbox(tenant_id=tenant, status="consumed", data={"payload": {"action_id": action_id}}))
+            s.add(db.Inbox(tenant_id=tenant, status="received", data={"payload": {"action_id": other_action}}))
+            s.add(db.Outbox(tenant_id=tenant, status="pending", data={"action_id": other_action}))
+            s.add(db.Outbox(tenant_id=tenant, status="sent", data={"action_id": action_id}))
+        s.add(db.Inbox(tenant_id=tenant, id="new-hint", status="received", data={"payload": {"action_id": action_id}}))
+    loaded = []
+    def track(row, context):
+        loaded.append(row.id)
+    for cls in (db.Inbox, db.Outbox):
+        event.listen(cls, "load", track)
+    monkeypatch.setattr(remote, "rpc", AsyncMock(return_value={"taskId": "task-1", "status": "working"}))
+    try:
+        await Worker(target_run=run_id).once(tenant)
+    finally:
+        for cls in (db.Inbox, db.Outbox):
+            event.remove(cls, "load", track)
+    assert loaded == ["new-hint"]
 
 
 async def test_native_remote_intent_runs_through_worker_receipt_and_continuation(tenant, make_run, monkeypatch):

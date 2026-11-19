@@ -300,8 +300,8 @@ def fence(s, tenant, id, owner, epoch):
     return r
 
 
-def schedule(s, run, seconds=0):
-    run.available_at = clock(s) + timedelta(seconds=seconds)
+def schedule(s, run, seconds=0, *, at=None):
+    run.available_at = at if at is not None else clock(s) + timedelta(seconds=seconds)
     job = s.get(Job, (run.tenant_id, run.id))
     if not job:
         job = Job(tenant_id=run.tenant_id, id=run.id, run_id=run.id, data={})

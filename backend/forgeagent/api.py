@@ -31,7 +31,7 @@ from .domain import (
     uid,
 )
 from .rea import RegisterTarget
-from .remote import accept_callback, prepare_remote, validate_url
+from .remote import accept_callback, outbox_for_action, prepare_remote, validate_url
 from .repository import RepositoryInput
 from .sandbox import safe_path, sandbox
 from .state_types import EvaluationResult
@@ -419,15 +419,14 @@ def reconcile(action_id: str, body: Reconcile, actor: Actor):
             raise Fault("RECONCILE_CONFLICT", "Action is no longer awaiting reconciliation")
         a.status = "SUCCEEDED" if body.outcome == "occurred" else "FAILED"
         a.receipt = {"manual": True, "reviewer": actor.actor, "evidence": body.evidence, "outcome": body.outcome}
-        for job in db.rows(s, db.Outbox, actor.tenant):
-            if job.data.get("action_id") == a.id and job.status in {"unknown", "dispatching"}:
-                job.status = "reconciled"
-                job.data = {
-                    **job.data,
-                    "evidence": body.evidence,
-                    "reviewer": actor.actor,
-                    "whole_action_outcome": body.outcome,
-                }
+        for job in s.scalars(outbox_for_action(actor.tenant, a.id).where(db.Outbox.status.in_(["unknown", "dispatching"]))):
+            job.status = "reconciled"
+            job.data = {
+                **job.data,
+                "evidence": body.evidence,
+                "reviewer": actor.actor,
+                "whole_action_outcome": body.outcome,
+            }
         r.status, r.wait_reason = "CANCELLING" if r.cancel_requested else "PAUSED", None
         db.emit(s, r, "ACTION_RECONCILED", body.reason, action_id=a.id, receipt=a.receipt)
         db.schedule(s, r)

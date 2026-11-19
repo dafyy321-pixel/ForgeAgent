@@ -11,6 +11,8 @@ from .domain import TERMINAL
 def health(s, tenant):
     time = db.clock(s)
     rules = [
+        ("replay_quarantined", db.Job, db.Job.run_id, db.Job.status == "QUARANTINED",
+         "Inspect the job replay error and recover the immutable history from a verified backup before rescheduling."),
         ("expired_leases", db.Run, db.Run.id, (db.Run.lease_until < time) & db.Run.status.not_in(TERMINAL),
          "Check worker and database health. The next claim fences the old epoch; do not redispatch remote writes."),
         ("unknown_effects", db.Action, db.Action.run_id, db.Action.status == "UNKNOWN",

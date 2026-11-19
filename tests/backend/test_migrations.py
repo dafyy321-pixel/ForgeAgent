@@ -38,6 +38,8 @@ def test_frozen_migrations_build_current_schema_without_live_metadata():
                 revision("0009_workspace_revisions.py").upgrade()
                 revision("0010_evidence_recovery.py").upgrade()
             inspector = inspect(connection)
+            assert {"inbox_callback_action", "outbox_action_status"} <= {
+                item["name"] for name in ("inbox", "outbox") for item in inspector.get_indexes(name, schema=schema)}
             assert set(inspector.get_table_names(schema=schema)) == set(db.Base.metadata.tables)
             for name, table in db.Base.metadata.tables.items():
                 columns = inspector.get_columns(name, schema=schema)

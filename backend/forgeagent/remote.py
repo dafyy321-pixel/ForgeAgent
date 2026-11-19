@@ -8,6 +8,7 @@ from datetime import timedelta
 from urllib.parse import urlsplit
 
 import httpx
+from sqlalchemy import literal_column, select
 
 from . import db, service
 from .config import settings
@@ -271,6 +272,7 @@ def prepare_remote(s, run, connection_id, operation, arguments, logical_key=None
         db.emit(s, run, "ACTION_PREPARED", "Reviewed remote read prepared", action_id=a.id, effect_digest=a.effect_digest)
         return a
     auth = service.authorization(s, run)
+    expires_at = db.clock(s) + timedelta(minutes=15)
     s.add(
         db.Approval(
             tenant_id=run.tenant_id,
@@ -278,12 +280,12 @@ def prepare_remote(s, run, connection_id, operation, arguments, logical_key=None
             effect_digest=a.effect_digest,
             resource_version=run.state["workspace_digest"],
             policy_epoch=auth.data["epoch"],
-            expires_at=db.clock(s) + timedelta(minutes=15),
+            expires_at=expires_at,
         )
     )
     run.status, run.wait_reason = "WAITING", "APPROVAL"
     db.emit(s, run, "APPROVAL_REQUESTED", "Remote effect prepared; awaiting specific authorization", action_id=a.id)
-    db.schedule(s, run, 5)
+    db.schedule(s, run, at=expires_at)
     return a
 
 
@@ -353,6 +355,12 @@ async def dispatch_remote(tenant, run_id, action_id, args):
     raise Fault("PROTOCOL_UNSUPPORTED", "This adapter version is not implemented; no request was sent")
 
 
+def outbox_for_action(tenant, action_id):
+    # The fixed expression matches the PG index even with prepared statement parameters.
+    return select(db.Outbox).where(db.Outbox.tenant_id == tenant,
+                                   literal_column("(outbox.data->>'action_id')") == action_id)
+
+
 async def poll_remote(tenant, run_id, action_id, owner, epoch):
     def prepare_poll():
         with db.transaction(tenant) as s:
@@ -371,20 +379,16 @@ async def poll_remote(tenant, run_id, action_id, owner, epoch):
                 cancel_job.status = "unknown"
                 db.emit(s, run, "REMOTE_CANCEL_UNKNOWN", "Interrupted cancellation is not repeated; query task status", outbox_id=cancel_key)
             cancel = bool(cancel_job and cancel_job.status == "pending" and run.cancel_requested)
-            uncertain_inputs = [
-                o
-                for o in db.rows(s, db.Outbox, tenant)
-                if o.status in {"dispatching", "unknown"} and o.data.get("action_id") == action_id and o.data.get("kind") != "cancel"
-            ]
+            inputs = outbox_for_action(tenant, action_id).where(db.Outbox.data["kind"].as_string().is_distinct_from("cancel"))
+            uncertain_inputs = list(s.scalars(inputs.where(db.Outbox.status.in_(["dispatching", "unknown"]))))
             if uncertain_inputs:
                 for job in uncertain_inputs:
                     job.status = "unknown"
                 action.status = "UNKNOWN"
                 db.emit(s, run, "REMOTE_INPUT_UNKNOWN", "Interrupted remote input delivery requires reconciliation")
                 return None
-            input_jobs = [
-                o for o in db.rows(s, db.Outbox, tenant) if o.status == "pending" and o.data.get("action_id") == action_id and o.data.get("kind") != "cancel"
-            ]
+            input_jobs = s.scalars(inputs.where(db.Outbox.status == "pending")
+                                   .order_by(db.Outbox.created_at, db.Outbox.id).limit(100))
             approved_inputs = []
             for job in input_jobs:
                 auth = service.authorization(s, run, "external.write")
@@ -558,15 +562,17 @@ def accept_callback(s, tenant, provider, message_id, timestamp, body, signature)
 
 
 def consume_inbox(s, run):
-    actions = {a.id: a for a in db.rows(s, db.Action, run.tenant_id, run_id=run.id)}
-    for entry in db.rows(s, db.Inbox, run.tenant_id):
-        if entry.status != "received" or entry.data.get("payload", {}).get("action_id") not in actions:
-            continue
+    actions = select(db.Action.id).where(db.Action.tenant_id == run.tenant_id, db.Action.run_id == run.id)
+    query = select(db.Inbox).where(db.Inbox.tenant_id == run.tenant_id, db.Inbox.status == "received",
+                                   literal_column("(inbox.data->'payload'->>'action_id')").in_(actions))
+    entries = list(s.scalars(query.order_by(db.Inbox.created_at, db.Inbox.id).limit(101)))
+    for entry in entries[:100]:
         entry.status = "consumed"
         entry.data = {**entry.data, "consumed_at": db.clock(s).isoformat()}
         # Callbacks are wake-up hints. Task state comes from the bound provider query,
         # and repository success still requires the independent local verifier.
         db.emit(s, run, "CALLBACK_CONSUMED", "Remote hint consumed once; querying authoritative task state", inbox_id=entry.id)
+    return len(entries) > 100
 
 
 def artifact_links(receipt):
