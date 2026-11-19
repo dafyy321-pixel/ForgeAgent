@@ -75,7 +75,10 @@ def compile_context(task, state, observations, skills, memories, window, output,
     budget = window - output - context_reserve
     if budget <= 0:
         raise Fault("CONTEXT_OVERFLOW", "Mandatory task constraints exceed the context window after output/provider reserves")
-    system = SYSTEM + "\nJSON decision schema:\n" + canonical(decision_schema(state)).decode()
+    mode = harness.get("tool_form", "profile")
+    if mode == "profile":
+        mode = settings.model_output_mode
+    system = SYSTEM
     discussing = task.get("mode") == "discuss"
     if discussing:
         system += ("\nDISCUSSION MODE: Read-only collaboration before the user confirms execution. "
@@ -84,6 +87,15 @@ def compile_context(task, state, observations, skills, memories, window, output,
                    "answer or question; use propose_completion to present a concrete plan ready for user confirmation. "
                    "In this mode propose_completion only saves the proposed plan and waits; it never executes it. "
                    "Put the complete user-visible answer in summary. Do not ask the user to configure a task contract.")
+    if harness.get("read_composition") and "repo.read" in state.get("capabilities", []):
+        system += "\nrepo.inspect_symbol {path,query,max_matches,max_lines} returns bounded source ranges for matching symbols."
+    if harness.get("defer_remote_tools") and state.get("remote_connections"):
+        system += "\nUse tools.discover {query} to find approved remote operations by name or description."
+    if mode == "json":
+        system += "\nJSON decision schema:\n" + canonical(decision_schema(state)).decode()
+    elif mode == "native":
+        system = system.replace("Return only a JSON decision matching the supplied schema.",
+                                "Use the supplied native functions for scoped actions and control decisions.")
     mandatory = [
         {"type": "constraints", "content": system, "trust": "system"},
         {"type": "task", "content": task, "trust": "user"},
@@ -103,7 +115,7 @@ def compile_context(task, state, observations, skills, memories, window, output,
                 "Make a change inside the allowed paths", "Run relevant checks", "Propose independent verification"],
             "allowed_paths": task.get("allowed_paths", []), "criteria": task.get("criteria", []),
             "acceptance_conditions": task.get("acceptance_conditions", [])}})
-    if state.get("remote_connections"):
+    if state.get("remote_connections") and mode == "json":
         from .remote_contracts import catalog
 
         mandatory.append({"type": "remote_tool_catalog", "trust": "untrusted_remote_metadata", "content": {

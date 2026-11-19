@@ -15,6 +15,8 @@
 
 ## 连接与审核契约
 
+创建任务时可设置 `harness.defer_remote_tools=true`。模型先调用本地只读的 `tools.discover {"query":"lookup"}` 搜索固定目录，每次最多展开四项与当前能力匹配的操作；下一轮请求携带这些操作的 schema，后续搜索替换上次选择。发现有独立 Action、回执及工具额度。真正调用远端时仍重新检查连接、授权和审批。native/structured 请求由协议传递 schema，JSON 模式则把当前可用目录写入上下文。
+
 1. 配置 `FORGE_REMOTE_HOSTS` 公网主机允许列表；端点必须 HTTPS，禁止 URL 用户信息、fragment、私网/metadata/loopback、重定向及环境代理。DNS 校验覆盖全部解析地址，实际连接固定到已校验 IP 并保留原 TLS SNI。
 2. 管理员 POST `/v1/connections`，登记协议、URL、可选发现 URL、凭据引用和审核后的 `tools`。初始状态 pending。
 3. 管理员 POST `/v1/connections/{id}/discover`，将真实发现证据、时间、审核人及摘要持久化；MCP 工具名和完整输入 schema 必须与审核契约一致。协议/扩展/认证不兼容拒绝激活。工具服务自报只读/幂等注解只作为发现证据，效果由管理员审核。

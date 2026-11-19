@@ -1,5 +1,7 @@
 # 模型、上下文与成本
 
+任务可单独开启 `harness.read_composition`。在 Python 或 TypeScript 源文件中，`repo.inspect_symbol` 先按名称搜索符号，再读取匹配位置的有界源码片段，返回路径、行号和摘要。查询和各次读取分别占用根任务工具额度，恢复同一动作时复用已登记的范围。适合用固定的多文件定位任务与普通逐次读取做配对比较。另一项开关 `harness.defer_remote_tools` 控制远程工具 schema 的按需加载，见[远程工具文档](remote-protocols.md)。
+
 配置固定 `FORGE_MODEL_ID` 与实际供应商费率（USD / 百万 token，数值等于 micros/token）。普通输入、输出、缓存读取和缓存写入分别配置 `FORGE_INPUT_PRICE`、`FORGE_OUTPUT_PRICE`、`FORGE_CACHED_INPUT_PRICE`、`FORGE_CACHE_WRITE_PRICE`。推理 token 已包含在输出中，不重复收费。未知、不一致、缺失用量或未配置的正缓存费用保留 UNKNOWN 账单和预留；返回型号、tier 或 hosted tool 与绑定不一致也不能自动结算。
 
 `FORGE_MODEL_PROTOCOL=responses|chat`，`FORGE_MODEL_OUTPUT_MODE=native|structured|json`。Anthropic 使用 Messages。原生目录只暴露获授权工具，运行时再次检查权限；strict schema 使用封闭对象，协议结束、拒绝和截断均单独处理。持久 response receipt 和 call IDs 支持跨恢复的工具结果对话，Responses 加密 reasoning item 原样传回。SDK 内部重试关闭；429 按持久 Retry-After/退避重试，超时和 5xx 保留未知账单。

@@ -137,28 +137,52 @@ def pin(s, tenant, ids, parent=None):
     return result
 
 
-def catalog(state):
+def catalog(state, *, include_deferred=False):
     from .service import TOOLS
 
     result = copy.deepcopy(TOOLS)
+    lazy = state.get("semantic", {}).get("harness", {}).get("defer_remote_tools", False)
+    selected = set(state.get("discovered_remote_tools", []))
+    capabilities = state.get("capabilities", [])
+    if lazy and state.get("remote_connections") and any(cap in capabilities for cap in ("external.read", "external.write")):
+        result["tools.discover"]["capability"] = "external.read" if "external.read" in capabilities else "external.write"
+    else:
+        result.pop("tools.discover", None)
     if not state.get("semantic", {}).get("harness", {}).get("read_composition"):
         result.pop("repo.inspect_symbol", None)
     if not state.get("reference_targets"):
         result = {name: spec for name, spec in result.items() if not name.startswith("rea.")}
     for connection in state.get("remote_connections", []):
         for tool in connection["data"]["tools"]:
+            name = tool_name(connection["id"], tool["operation"])
+            if lazy and not include_deferred and name not in selected:
+                continue
             schema = copy.deepcopy(tool["input_schema"])
             if tool.get("idempotency_field"):
                 field = tool["idempotency_field"]
                 # This key is runtime-owned, never chosen by a model.
                 schema.get("properties", {}).pop(field, None)
                 schema["required"] = [p for p in schema.get("required", []) if p != field]
-            result[tool_name(connection["id"], tool["operation"])] = {
+            result[name] = {
                 "effect": tool["effect"], "capability": "external.read" if tool["effect"] == "read" else "external.write",
                 "input_schema": schema, "description": tool["description"] or tool["operation"],
                 "connection_id": connection["id"], "operation": tool["operation"],
             }
     return result
+
+
+def discover(state, query):
+    """Search the task's pinned, capability-scoped metadata locally."""
+    terms = query.casefold().split()
+    matches = []
+    for name, spec in catalog(state, include_deferred=True).items():
+        if not spec.get("connection_id") or spec["capability"] not in state["capabilities"]:
+            continue
+        label = f"{spec['connection_id']} {spec['operation']} {spec['description']}".casefold()
+        if terms and all(term in label for term in terms):
+            matches.append((spec["operation"].casefold() != query.casefold(), name, spec))
+    return [{"name": name, "operation": spec["operation"], "description": spec["description"],
+             "schema_digest": digest(spec["input_schema"])} for _, name, spec in sorted(matches)[:4]]
 
 
 def current(s, run, connection_id):

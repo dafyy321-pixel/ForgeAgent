@@ -147,8 +147,6 @@ def build_request(messages, state, catalog):
         if not settings.model_supports_tools:
             raise Fault("MODEL_CAPABILITY", "Selected model profile does not support native tools")
         tools, names = native_tools(catalog, capabilities, state.get("task", {}).get("mode") == "discuss")
-        messages[0]["content"] = messages[0]["content"].split("\nJSON decision schema:", 1)[0].replace(
-            "Return only a JSON decision matching the supplied schema.", "Use the supplied native functions for scoped actions and control decisions.")
     schema = None
     if mode == "structured":
         if not settings.model_supports_schema:

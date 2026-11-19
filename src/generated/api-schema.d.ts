@@ -2023,6 +2023,11 @@ export interface components {
         /** Harness */
         Harness: {
             /**
+             * Defer Remote Tools
+             * @default false
+             */
+            defer_remote_tools?: boolean;
+            /**
              * Read Composition
              * @default false
              */

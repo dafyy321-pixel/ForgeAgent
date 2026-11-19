@@ -142,6 +142,7 @@ class Task(Strict):
 
 
 class Harness(Strict):
+    defer_remote_tools: bool = False
     read_composition: bool = False
     evidence_recovery: bool = False
     context_policy: Literal["elide", "full"] = "elide"
@@ -227,6 +228,10 @@ class SearchArgs(Strict):
     max_matches: int = Field(100, ge=1, le=200)
 
 
+class DiscoverArgs(Strict):
+    query: str = Field(min_length=1, max_length=200)
+
+
 class PatchArgs(Strict):
     patch: str = Field(min_length=1, max_length=2_000_000)
     expected_workspace_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
@@ -291,6 +296,7 @@ class ReaTraceArgs(Strict):
 
 
 TOOL_INPUTS = {
+    "tools.discover": DiscoverArgs,
     "rea.analyze": ReaAnalyzeArgs,
     "rea.view": ReaViewArgs,
     "rea.trace": ReaTraceArgs,

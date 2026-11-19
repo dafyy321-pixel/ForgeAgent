@@ -856,6 +856,12 @@ class Worker:
                 if a.effect_class == "workspace_write" and (r.state.get("recovery_guard") or {}).get("requires_probe"):
                     raise Fault("RECOVERY_PROBE_REQUIRED", "Inspect public failure evidence before dispatching writes")
                 spec = service.TOOLS.get(a.tool)
+                if a.tool == "tools.discover":
+                    from .remote_contracts import catalog
+
+                    spec = catalog(r.state).get(a.tool)
+                    if not spec:
+                        raise Fault("TOOL_UNAVAILABLE", "Remote discovery is disabled")
                 if spec is None:
                     # Remote dispatch has its own bound approval check and persisted attempt.
                     remote = True
@@ -916,6 +922,10 @@ class Worker:
                         from .repo_tools import execute
 
                         return execute(root, tool, args, state)
+                    elif tool == "tools.discover":
+                        from .remote_contracts import discover
+
+                        receipt = {"exit_code": 0, "matches": discover(state, args["query"])}
                     elif tool == "skill.read":
                         from .knowledge import read_skill
 
@@ -1011,6 +1021,10 @@ class Worker:
                 }
                 if remote:
                     a.receipt = {**a.receipt, **receipt}
+                if tool == "tools.discover" and action_status == "SUCCEEDED":
+                    updated_state = dict(r.state)
+                    updated_state["discovered_remote_tools"] = [item["name"] for item in receipt["matches"]]
+                    r.state = updated_state
                 if receipt.get("remote_task_id") and receipt.get("pending"):
                     r.status, r.wait_reason = (("CANCELLING", "TOOL") if r.cancel_requested else
                                                ("PAUSED", None) if r.pause_requested else ("WAITING", "TOOL"))

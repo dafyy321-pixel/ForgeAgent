@@ -13,6 +13,8 @@ from .storage import objects
 from .telemetry import annotate, observed
 
 TOOLS = {
+    "tools.discover": {"effect": "read", "capability": "external.read",
+                       "description": "Find matching operations in the approved remote catalog. Their schemas become available on the next turn."},
     "rea.analyze": {"effect": "read", "capability": "reference.read", "description": "Inspect a pinned reference statically; never execute it."},
     "rea.view": {"effect": "read", "capability": "reference.read", "description": "Read a bounded page of previously captured reference evidence."},
     "rea.trace": {"effect": "read", "capability": "reference.read", "description": "Follow a static relationship in pinned reference evidence."},
