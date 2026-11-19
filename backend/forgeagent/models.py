@@ -67,9 +67,10 @@ async def generate(messages, model_id, request=None) -> tuple[str, dict[str, Any
     if settings.input_price <= 0 or settings.output_price <= 0:
         raise Fault("PRICING_REQUIRED", "Configure provider prices before making billable calls", 503)
     if request is None:
-        from .service import TOOLS
+        from .remote_contracts import catalog
 
-        request = build_request(messages, {"capabilities": ["repo.read"], "semantic": {"model_id": model_id}}, TOOLS)
+        state = {"capabilities": ["repo.read"], "semantic": {"model_id": model_id}}
+        request = build_request(messages, state, catalog(state))
     if settings.model_provider == "openai":
         async with openai_client() as client:
             headers = {"X-Client-Request-Id": request["client_request_id"]} if request.get("client_request_id") else {}

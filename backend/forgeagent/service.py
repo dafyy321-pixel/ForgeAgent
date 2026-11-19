@@ -21,6 +21,7 @@ TOOLS = {
     "repo.write": {"effect": "workspace_write", "capability": "workspace.write", "description": "Write one complete file. First repo.read that file, then copy its complete-file digest exactly into expected_digest; never invent or reuse a digest from another path."},
     "repo.search": {"effect": "read", "capability": "repo.read", "description": "Find bounded literal matches in workspace text files."},
     "repo.symbols": {"effect": "read", "capability": "repo.read", "description": "Find symbols and static relationships in one source file."},
+    "repo.inspect_symbol": {"effect": "read", "capability": "repo.read", "description": "Find symbols in one Python or TypeScript file and return bounded source excerpts. Each selected range uses one additional tool call."},
     "repo.apply_patch": {"effect": "workspace_write", "capability": "workspace.write", "description": "Apply a raw unified diff with Git. The patch must start with diff --git or --- and contain standard ---/+++ and @@ hunks; do not send Markdown fences or *** Begin Patch wrappers. Use paths relative to the workspace and preserve exact context lines. expected_workspace_digest must be copied from the latest workspace receipt."},
     "repo.delete": {"effect": "workspace_write", "capability": "workspace.write", "description": "Delete one file after repo.read and exact expected_digest confirmation."},
     "repo.move": {"effect": "workspace_write", "capability": "workspace.write", "description": "Move one file after reading the source and target and copying both exact digests."},
@@ -526,14 +527,33 @@ def settle(s, run, operation_id, actual, actual_tokens=None):
         run.pause_requested = True
 
 
-def consume_tool_slot(s, run):
+def consume_tool_slot(s, run, count=1):
     account = db.get(s, db.BudgetAccount, run.tenant_id, run.root_id, True)
     root = db.get(s, db.Run, run.tenant_id, run.root_id)
     resources = account.resources or {}
     calls = resources.get("tool_calls", 0)
-    if calls >= root.state["budget"]["max_tool_calls"]:
+    if calls + count > root.state["budget"]["max_tool_calls"]:
         raise Fault("TOOL_BUDGET_LIMIT", "Root tool-call budget exhausted")
-    account.resources = {**resources, "tool_calls": calls + 1}
+    account.resources = {**resources, "tool_calls": calls + count}
+
+
+def admit_symbol_ranges(s, run, action, ranges):
+    """The outer tool slot pays for repo.symbols. Reserve its exact reads before executing them."""
+    authorization(s, run, "repo.read")
+    if run.cancel_requested or run.pause_requested or action.status != "DISPATCHED" or action.epoch != run.epoch:
+        raise Fault("STALE_ACTION", "Symbol inspection is no longer active")
+    binding = digest([run.state["workspace_digest"], ranges])
+    previous = (action.receipt or {}).get("symbol_range_reservation")
+    if previous:
+        if previous != binding:
+            raise Fault("SOURCE_CHANGED", "A retried symbol inspection must retain the admitted source ranges")
+        return
+    if ranges:
+        consume_tool_slot(s, run, len(ranges))
+    action.receipt = {"symbol_range_reservation": binding}
+    db.emit(s, run, "SYMBOL_READS_ADMITTED", "Bounded symbol reads admitted against the root tool budget",
+            action_id=action.id, path=action.args["path"], query=action.args["query"], ranges=ranges,
+            workspace_digest=run.state["workspace_digest"], reservation_digest=binding)
 
 
 def control(s, tenant, id, command, expected_version, reason, executor="current"):
@@ -672,9 +692,9 @@ def prepare_action(s, run, call, logical_key):
         return prepare_remote(s, run, descriptor["connection_id"], descriptor["operation"], call.args, logical_key)
     consume_tool_slot(s, run)
     error = None
-    tool = TOOLS.get(call.tool, {"effect": "read", "capability": "repo.read"})
+    tool = descriptor or TOOLS.get(call.tool, {"effect": "read", "capability": "repo.read"})
     try:
-        if call.tool not in TOOLS:
+        if call.tool not in TOOLS or not descriptor:
             raise Fault("TOOL_UNAVAILABLE", "Tool is not in the pinned tool catalog", 422)
         TOOL_INPUTS[call.tool].model_validate(call.args)
         authorization(s, run, tool["capability"])

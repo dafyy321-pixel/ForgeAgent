@@ -2023,6 +2023,11 @@ export interface components {
         /** Harness */
         Harness: {
             /**
+             * Read Composition
+             * @default false
+             */
+            read_composition?: boolean;
+            /**
              * Evidence Recovery
              * @default false
              */

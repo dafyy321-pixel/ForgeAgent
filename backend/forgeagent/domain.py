@@ -142,6 +142,7 @@ class Task(Strict):
 
 
 class Harness(Strict):
+    read_composition: bool = False
     evidence_recovery: bool = False
     context_policy: Literal["elide", "full"] = "elide"
     code_retrieval: Literal["off", "lexical", "structure"] = "off"
@@ -246,6 +247,12 @@ class SymbolsArgs(Strict):
     query: str = Field("", max_length=200)
 
 
+class InspectSymbolArgs(SymbolsArgs):
+    query: str = Field(min_length=1, max_length=200)
+    max_matches: int = Field(3, ge=1, le=4)
+    max_lines: int = Field(40, ge=1, le=80)
+
+
 class TestArgs(Strict):
     argv: list[str] = Field(min_length=1, max_length=100)
 
@@ -296,6 +303,7 @@ TOOL_INPUTS = {
     "repo.delete": DeleteArgs,
     "repo.move": MoveArgs,
     "repo.symbols": SymbolsArgs,
+    "repo.inspect_symbol": InspectSymbolArgs,
     "tests.run": TestArgs,
     "observation.read": RecallArgs,
     "child.integrate": IntegrateArgs,

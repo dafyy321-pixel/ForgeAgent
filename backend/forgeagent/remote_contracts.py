@@ -141,6 +141,8 @@ def catalog(state):
     from .service import TOOLS
 
     result = copy.deepcopy(TOOLS)
+    if not state.get("semantic", {}).get("harness", {}).get("read_composition"):
+        result.pop("repo.inspect_symbol", None)
     if not state.get("reference_targets"):
         result = {name: spec for name, spec in result.items() if not name.startswith("rea.")}
     for connection in state.get("remote_connections", []):

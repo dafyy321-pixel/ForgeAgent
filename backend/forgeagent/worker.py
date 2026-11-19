@@ -851,6 +851,8 @@ class Worker:
                 a = db.get(s, db.Action, tenant, action_id, True)
                 if a.status != "READY" or r.cancel_requested or r.pause_requested:
                     return
+                if a.tool == "repo.inspect_symbol" and not r.state["semantic"].get("harness", {}).get("read_composition"):
+                    raise Fault("TOOL_UNAVAILABLE", "Symbol inspection is disabled in this task contract")
                 if a.effect_class == "workspace_write" and (r.state.get("recovery_guard") or {}).get("requires_probe"):
                     raise Fault("RECOVERY_PROBE_REQUIRED", "Inspect public failure evidence before dispatching writes")
                 spec = service.TOOLS.get(a.tool)
@@ -901,6 +903,15 @@ class Worker:
             elif tool != "tests.run":
                 def local_tool():
                     changed = None
+                    if tool == "repo.inspect_symbol":
+                        from .repo_tools import inspect_symbol
+
+                        def admit(ranges):
+                            with db.transaction(tenant) as s:
+                                run = db.fence(s, tenant, id, self.owner, epoch)
+                                action = db.get(s, db.Action, tenant, action_id, True)
+                                service.admit_symbol_ranges(s, run, action, ranges)
+                        return inspect_symbol(root, args, state, admit), None
                     if tool.startswith("repo."):
                         from .repo_tools import execute
 

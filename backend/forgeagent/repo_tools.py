@@ -5,7 +5,7 @@ import fnmatch
 import tempfile
 from pathlib import Path
 
-from .domain import Fault, digest
+from .domain import Fault, InspectSymbolArgs, digest
 from .sandbox import git, raw_attributes
 from .workspace import body, clear_tree, entry, files, mode, safe_path, text, validate_manifest, write_tree
 
@@ -53,6 +53,30 @@ def normalize_patch(patch):
     return value
 
 
+def inspect_symbol(root, args, state, admit):
+    request = InspectSymbolArgs.model_validate(args)
+    index, _ = execute(root, "repo.symbols", {"path": request.path, "query": request.query}, state)
+    matches = index["symbols"][:request.max_matches]
+    ranges = [{"name": symbol["name"], "path": request.path, "line_start": symbol["line"] - 1,
+               "max_lines": min(request.max_lines, symbol["end_line"] - symbol["line"] + 1),
+               "digest": index["digest"]} for symbol in matches]
+    admit(ranges)
+    excerpts = []
+    truncated = index["truncated"] or len(index["symbols"]) > len(matches)
+    for symbol, step in zip(matches, ranges, strict=True):
+        receipt, _ = execute(root, "repo.read", {"path": request.path, "line_start": step["line_start"],
+                                                 "max_lines": step["max_lines"]}, state)
+        if receipt["digest"] != step["digest"]:
+            raise Fault("SOURCE_CHANGED", "The indexed source changed before reading its symbol range")
+        clipped = receipt["range_truncated"] or symbol["end_line"] - symbol["line"] + 1 > request.max_lines
+        truncated = truncated or clipped
+        excerpts.append({**step, "end_line": symbol["end_line"], "content": receipt["content"],
+                         "excerpt_digest": digest(receipt["content"].encode()), "truncated": clipped})
+    return {"exit_code": 0, "path": request.path, "query": request.query, "parser": index["parser"],
+            "digest": index["digest"], "source_digest": index["source_digest"], "excerpts": excerpts,
+            "truncated": truncated}
+
+
 def execute(root, tool, args, state):
     if tool == "repo.read":
         path = safe_path(root, args["path"])
@@ -71,7 +95,7 @@ def execute(root, tool, args, state):
             selected = "".join(lines[start:start + count])
             selected_bytes = selected.encode("utf-8")
             receipt.update(content=selected_bytes[:65536].decode("utf-8", errors="ignore"), encoding="utf8", line_start=start, total_lines=len(lines),
-                           truncated=start + count < len(lines) or len(selected_bytes) > 65536)
+                           range_truncated=len(selected_bytes) > 65536, truncated=start + count < len(lines) or len(selected_bytes) > 65536)
         return receipt, None
     before = files(root)
     if tool == "repo.list":
@@ -108,7 +132,7 @@ def execute(root, tool, args, state):
         symbols = index["symbols"]
         selected = [s for s in symbols if args.get("query", "") in s["name"]]
         return {"exit_code": 0, "symbols": selected[:200], "truncated": len(selected) > 200,
-                "parser": index["parser"], "imports": index["imports"], "references": index["references"],
+                "parser": index["parser"], "imports": index["imports"], "references": index["references"], "digest": index["digest"],
                 "source_digest": digest([body(before[args["path"]]), selected[:200]])}, None
     after = dict(before)
     if tool == "repo.apply_patch":
