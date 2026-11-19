@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Activity,
   ArrowUpRight,
@@ -41,7 +41,18 @@ const nav = [
 export default function Twitter({ runtime: rt }: { runtime: Runtime }) {
   const { app, state, route } = rt;
   const [menu, setMenu] = useState(false);
-  const [info, setInfo] = useState(false);
+  const [infoRoute, setInfoRoute] = useState<typeof route | null>(null);
+  useEffect(() => {
+    if (!infoRoute || infoRoute === route) return;
+    setInfoRoute(null);
+    const destination =
+      document.querySelector<HTMLElement>('#main-content h1') ||
+      document.getElementById('main-content');
+    if (destination) {
+      destination.tabIndex = -1;
+      destination.focus({ preventScroll: true });
+    }
+  }, [infoRoute, route]);
   const [right, setRight] = useState(false);
   const projects = useCatalog<{ id: string }>('/catalog/projects?limit=100');
   const allProjects = Array.from(
@@ -130,10 +141,11 @@ export default function Twitter({ runtime: rt }: { runtime: Runtime }) {
                 <small>个人工作空间</small>
               </div>
             </div>
+            <span className="scope-caption">浏览范围</span>
             <label className="project-picker">
               <Project size={16} />
               <select
-                aria-label="当前项目"
+                aria-label="浏览范围"
                 value={route.project}
                 onChange={(e) => app.setProject(e.target.value)}
               >
@@ -159,6 +171,20 @@ export default function Twitter({ runtime: rt }: { runtime: Runtime }) {
                   title={run.title}
                 >
                   {run.title}
+                  {state.runs
+                    .slice(0, 6)
+                    .some((other) => other.id !== run.id && other.title === run.title) && (
+                    <small>
+                      {run.project} ·{' '}
+                      {new Date(run.started).toLocaleString('zh-CN', {
+                        month: 'numeric',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                      })}
+                    </small>
+                  )}
                 </button>
               ))}
             </div>
@@ -220,7 +246,7 @@ export default function Twitter({ runtime: rt }: { runtime: Runtime }) {
                       (document.querySelector('.console-viewport')?.clientWidth || innerWidth) <
                       1280
                     )
-                      setInfo(true);
+                      setInfoRoute(route);
                     else setRight(!right);
                   }}
                 >
@@ -230,9 +256,9 @@ export default function Twitter({ runtime: rt }: { runtime: Runtime }) {
             </header>
             <div className="mobile-project">
               <label>
-                当前项目
+                浏览范围
                 <select
-                  aria-label="手机当前项目"
+                  aria-label="浏览范围"
                   value={route.project}
                   onChange={(e) => app.setProject(e.target.value)}
                 >
@@ -304,8 +330,8 @@ export default function Twitter({ runtime: rt }: { runtime: Runtime }) {
           <Button onClick={() => go('settings')}>工作空间设置</Button>
         </Dialog>
       )}
-      {info && (
-        <Dialog title="辅助信息" onClose={() => setInfo(false)}>
+      {infoRoute === route && (
+        <Dialog title="辅助信息" onClose={() => setInfoRoute(null)}>
           <Inspector runtime={rt} />
         </Dialog>
       )}

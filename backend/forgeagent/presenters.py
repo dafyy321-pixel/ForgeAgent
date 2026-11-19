@@ -64,8 +64,8 @@ def run_view(s, r, cache=None):
         "updatedAt": int(r.updated_at.timestamp() * 1000),
         "waitReason": r.wait_reason,
         "scope": st["task"].get("scope") or ", ".join(st["task"]["allowed_paths"]),
-        "criteria": st["task"].get("criteria")
-        or ["Registered acceptance contract passes", "Artifact digest matches evidence"],
+        "criteria": st["task"].get("criteria", []),
+        "acceptanceConditions": st["task"].get("acceptance_conditions", []),
         "milestones": [
             {"label": label, "done": done}
             for label, done in [
@@ -164,7 +164,8 @@ def event_view(e):
             "time": int(e.created_at.timestamp() * 1000)}
 
 
-def workspace(s, tenant, actor=None, project=None, status=None, q="", cursor=None, limit=50, run_id=None, artifact_id=None):
+def workspace(s, tenant, actor=None, project=None, status=None, q="", cursor=None, limit=50, run_id=None, artifact_id=None,
+              approval_id=None):
     assert actor is not None
     from .catalog import page as catalog_page
     from .pagination import runs as page_runs
@@ -181,10 +182,12 @@ def workspace(s, tenant, actor=None, project=None, status=None, q="", cursor=Non
         return actor.admin or operation in grants.get(project_id, []) or operation in grants.get("*", [])
     by_id = {r.id: r for r in runs}
     approvals = []
-    for p, a in s.execute(select(db.Approval, db.Action).join(db.Action,
+    approval_query = select(db.Approval, db.Action).join(db.Action,
         (db.Action.tenant_id == db.Approval.tenant_id) & (db.Action.id == db.Approval.action_id)).where(
-            db.Approval.tenant_id == tenant, db.Action.run_id.in_([r.id for r in runs if permitted(r.project_id, "approve")])).order_by(
-                db.Approval.created_at.desc(), db.Approval.id.desc()).limit(200)):
+            db.Approval.tenant_id == tenant, db.Action.run_id.in_([r.id for r in runs if permitted(r.project_id, "approve")]))
+    if run_id and approval_id:
+        approval_query = approval_query.order_by(((db.Action.run_id == run_id) & (db.Approval.id == approval_id)).desc())
+    for p, a in s.execute(approval_query.order_by(db.Approval.created_at.desc(), db.Approval.id.desc()).limit(200)):
         if a.run_id not in by_id or (actor and not permitted(by_id[a.run_id].project_id, "approve")):
             continue
         r = by_id[a.run_id]
@@ -209,6 +212,10 @@ def workspace(s, tenant, actor=None, project=None, status=None, q="", cursor=Non
     query = select(db.Artifact).where(db.Artifact.tenant_id == tenant, db.Artifact.run_id.in_(by_id))
     if artifact_id and run_id:
         query = query.order_by(((db.Artifact.id == artifact_id) & (db.Artifact.run_id == run_id)).desc())
+    if run_id in by_id:
+        query = query.order_by((db.Artifact.run_id == run_id).desc(),
+            (db.Artifact.version == by_id[run_id].state["artifact_version"]).desc(),
+            db.Artifact.kind.in_(["patch", "summary"]).desc())
     for a in s.scalars(query.order_by(db.Artifact.created_at.desc(), db.Artifact.id.desc()).limit(200)):
         checksum, size = artifact_delivery.metadata(s, a)
         artifacts.append(

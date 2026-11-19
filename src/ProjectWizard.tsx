@@ -1,9 +1,26 @@
 import { useState } from 'react';
 import { api } from './api';
 import { Button, Dialog } from './components';
+import { draftKey } from './drafts';
 import { acceptanceTemplates, validateAcceptance } from './acceptanceTemplates';
 
-export function ProjectWizard({ onDone, onClose }: { onDone: () => void; onClose: () => void }) {
+export function ProjectWizard({
+  onRegistered,
+  onDiscuss,
+  onClose,
+}: {
+  onRegistered: () => void;
+  onDiscuss: (id: string) => void;
+  onClose: () => void;
+}) {
+  const [showPreparation] = useState(() => {
+    try {
+      return !localStorage.getItem(draftKey('project-preparation-complete'));
+    } catch {
+      return true;
+    }
+  });
+  const [registered, setRegistered] = useState('');
   const [id, setId] = useState('');
   const [commit, setCommit] = useState('');
   const [bundle, setBundle] = useState<File | null>(null);
@@ -68,14 +85,28 @@ export function ProjectWizard({ onDone, onClose }: { onDone: () => void; onClose
       setBusy(false);
     }
   }
+  if (registered)
+    return (
+      <Dialog title="项目已接入" onClose={onClose}>
+        <p role="status">
+          已登记项目 <strong>{registered}</strong>，可以开始讨论需求。
+        </p>
+        <div className="form-footer">
+          <Button onClick={onClose}>完成</Button>
+          <Button primary onClick={() => onDiscuss(registered)}>
+            用这个项目开始讨论
+          </Button>
+        </div>
+      </Dialog>
+    );
   return (
     <Dialog title="接入 Git 仓库" subtitle="准备文件 → 上传预检 → 确认接入" onClose={onClose}>
       <p>
         接入后，可以讨论这个项目、确认修改方案，并下载代码补丁。请选择一个已提交的 Git
         版本；浏览器上传不会修改你的本地目录。
       </p>
-      <details className="project-preparation">
-        <summary>第一次接入？查看文件准备步骤</summary>
+      <details className="project-preparation" open={showPreparation}>
+        <summary>准备项目文件</summary>
         <ol>
           <li>
             在准备接入的仓库目录中运行以下命令，复制完整版本号并生成上传文件：
@@ -93,7 +124,7 @@ export function ProjectWizard({ onDone, onClose }: { onDone: () => void; onClose
             </p>
           </li>
           <li>
-            填写下方信息并选择文件。预检通过后，点击“登记已预检项目”。回到首页选择该项目即可开始讨论。
+            填写下方信息并选择文件。预检通过后，点击“登记已预检项目”，即可用这个项目开始讨论。
           </li>
         </ol>
         <p className="muted">
@@ -196,7 +227,11 @@ export function ProjectWizard({ onDone, onClose }: { onDone: () => void; onClose
             setBusy(true);
             try {
               await api('/projects', 'POST', payload, undefined, { timeoutMs: 120000 });
-              onDone();
+              setRegistered(id.trim());
+              try {
+                localStorage.setItem(draftKey('project-preparation-complete'), '1');
+              } catch {}
+              onRegistered();
             } catch (e) {
               setError((e as Error).message);
             } finally {

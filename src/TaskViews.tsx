@@ -191,7 +191,7 @@ export function ConsoleContent({ runtime: rt }: { runtime: Runtime }) {
   if (route.page === 'runs') return <TaskList runtime={rt} runs={scoped} />;
   if (['inbox', 'approvals', 'recovery'].includes(route.page))
     return <InboxView runtime={rt} runs={scoped} />;
-  if (route.page === 'artifacts') return <Deliveries runtime={rt} runs={scoped} />;
+  if (route.page === 'artifacts') return <Deliveries runtime={rt} />;
   if (route.page === 'context')
     return (
       <>
@@ -423,18 +423,24 @@ function TaskList({ runtime: rt, runs }: { runtime: Runtime; runs: Execution[] }
         {list.map((r) => (
           <TaskRow key={r.id} run={r} runtime={rt} compact={density === 'compact'} />
         ))}
-        {!list.length && (
-          <Empty
-            title={runs.length ? '没有匹配任务' : '这个项目还没有任务'}
-            description={
-              runs.length
-                ? '调整搜索或筛选条件，现有任务不会被删除。'
-                : '创建任务后，可在这里跟踪执行与交付。'
-            }
-          >
-            <Button onClick={rt.clearFilters}>清除筛选</Button>
-          </Empty>
-        )}
+        {rt.loading && <p role="status">正在加载任务…</p>}
+        {!rt.loading &&
+          !rt.storageError &&
+          !list.length &&
+          (rt.route.q || rt.route.filter !== 'all' ? (
+            <Empty
+              title="没有匹配任务"
+              description={
+                rt.route.q ? `未找到与“${rt.route.q}”匹配的任务。` : '当前筛选下没有任务。'
+              }
+            >
+              <Button onClick={rt.clearFilters}>清除搜索和筛选</Button>
+            </Empty>
+          ) : (
+            <Empty title="这个项目还没有任务" description="创建任务后，可在这里跟踪执行与交付。">
+              <Button onClick={rt.app.newRun}>创建第一项任务</Button>
+            </Empty>
+          ))}
       </div>
       {rt.state.next_cursor && <Button onClick={() => void rt.loadMore()}>加载更多任务</Button>}
     </>
@@ -524,7 +530,7 @@ function InboxView({ runtime: rt, runs }: { runtime: Runtime; runs: Execution[] 
                   </span>
                   {a.reason && <p className="small-note">{a.reason}</p>}
                 </div>
-                <Button onClick={() => rt.openTask(a.run_id, 'review')}>
+                <Button onClick={() => rt.openApproval(a.run_id, a.id)}>
                   查看记录
                   <ArrowRight size={16} />
                 </Button>
@@ -566,11 +572,15 @@ function InboxView({ runtime: rt, runs }: { runtime: Runtime; runs: Execution[] 
     </>
   );
 }
-function Deliveries({ runtime: rt, runs }: { runtime: Runtime; runs: Execution[] }) {
+function Deliveries({ runtime: rt }: { runtime: Runtime }) {
   const [filter, setFilter] = useState('all');
   const catalog = useCatalog<{
     id: string;
     run_id: string;
+    task_title?: string;
+    task_started?: string;
+    project?: string;
+    created_at?: string;
     name: string;
     kind: string;
     verified: boolean;
@@ -586,13 +596,34 @@ function Deliveries({ runtime: rt, runs }: { runtime: Runtime; runs: Execution[]
     runId: a.run_id,
     type:
       (
-        { patch: '代码补丁', test_report: '验证报告', summary: '交付说明' } as Record<
-          string,
-          string
-        >
+        {
+          patch: '代码补丁',
+          test_report: '验证报告',
+          summary: '交付说明',
+          log: '验证日志',
+        } as Record<string, string>
       )[a.kind] || a.kind,
     content: '',
   }));
+  const groups = new Map<
+    string,
+    { title: string; project: string; date?: string; files: typeof items }
+  >();
+  for (const item of items) {
+    let group = groups.get(item.runId);
+    if (!group) {
+      const run = rt.state.runs.find((r) => r.id === item.runId);
+      group = {
+        title: item.task_title || run?.title || `历史任务 ${item.runId.slice(0, 8)}`,
+        project:
+          item.project || run?.project || (rt.route.project === '所有项目' ? '' : rt.route.project),
+        date: item.task_started || run?.started || item.created_at,
+        files: [],
+      };
+      groups.set(item.runId, group);
+    }
+    group.files.push(item);
+  }
   return (
     <>
       <Heading eyebrow="" title="交付物" description="查看文件变更、验证结果与版本绑定的凭证。">
@@ -624,31 +655,47 @@ function Deliveries({ runtime: rt, runs }: { runtime: Runtime; runs: Execution[]
         ))}
       </div>
       <div className="delivery-list">
-        {items.map((a) => (
-          <article key={a.id} className="delivery-row">
-            <span className={`file-icon ${a.verified ? 'verified' : ''}`}>
-              {a.type === '代码补丁' ? <Code2 size={23} /> : <FileText size={23} />}
-            </span>
-            <div>
-              <button
-                className="delivery-name"
-                onClick={() => rt.openTask(a.runId, 'changes', a.id)}
-              >
-                {a.name}
-              </button>
-              <p>
-                {a.runId} · v{a.version} · {a.type}
-              </p>
-              <span className={`verification-label ${a.verified ? 'passed' : ''}`}>
-                {a.verified ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}{' '}
-                {a.verified ? '验证凭证有效' : '尚未验证'}
+        {Array.from(groups, ([id, group]) => (
+          <section className="delivery-group" key={id} aria-labelledby={`delivery-${id}`}>
+            <header>
+              <h2 id={`delivery-${id}`}>{group.title}</h2>
+              <span className="small-note">
+                {group.project}
+                {group.project && group.date && ' · '}
+                {group.date && (
+                  <time dateTime={group.date}>
+                    {new Date(group.date).toLocaleString('zh-CN', { hour12: false })}
+                  </time>
+                )}
               </span>
-            </div>
-            <Button onClick={() => rt.openTask(a.runId, 'changes', a.id)}>
-              预览
-              <ArrowUpRight size={15} />
-            </Button>
-          </article>
+            </header>
+            {group.files.map((a) => (
+              <article key={a.id} className="delivery-row">
+                <span className={`file-icon ${a.verified ? 'verified' : ''}`}>
+                  {a.type === '代码补丁' ? <Code2 size={23} /> : <FileText size={23} />}
+                </span>
+                <div>
+                  <button
+                    className="delivery-name"
+                    onClick={() => rt.openTask(a.runId, 'changes', a.id)}
+                  >
+                    {a.name}
+                  </button>
+                  <p>
+                    v{a.version} · {a.type}
+                  </p>
+                  <span className={`verification-label ${a.verified ? 'passed' : ''}`}>
+                    {a.verified ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}{' '}
+                    {a.verified ? '验证凭证有效' : '尚未验证'}
+                  </span>
+                </div>
+                <Button onClick={() => rt.openTask(a.runId, 'changes', a.id)}>
+                  预览
+                  <ArrowUpRight size={15} />
+                </Button>
+              </article>
+            ))}
+          </section>
         ))}
         {!items.length && (
           <Empty

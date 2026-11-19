@@ -142,7 +142,7 @@ test('mobile primary actions keep the Forge icons and have 44px touch targets', 
   await page.setViewportSize({ width: 390, height: 900 });
   await page.goto('/');
   for (const control of [
-    page.getByRole('combobox', { name: '选择工作项目' }),
+    page.getByRole('combobox', { name: '本次任务的项目' }),
     page.getByRole('button', { name: '接入项目', exact: true }),
     page.getByRole('button', { name: '发送消息' }),
     page.getByRole('button', { name: /搜索任务与页面/ }),

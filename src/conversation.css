@@ -12,12 +12,6 @@
   color: var(--accent);
   margin-bottom: 14px;
 }
-.welcome-eyebrow {
-  color: var(--muted);
-  font-size: 12px;
-  letter-spacing: 0.05em;
-  margin: 0 0 12px;
-}
 .forge-console .chat-welcome h1 {
   font-size: clamp(26px, 3.2vw, 36px);
   letter-spacing: -0.9px;
@@ -79,6 +73,7 @@
   gap: 5px;
   min-width: 0;
   color: var(--muted);
+  font-size: 12px;
 }
 .composer-project select {
   color: var(--text);
@@ -191,9 +186,20 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
-  margin-top: 20px;
+  margin: 0 0 16px;
+}
+.chat-readiness p {
+  margin: 0;
+}
+.undo-template {
+  margin-top: 8px;
+}
+@media (pointer: coarse), (max-width: 700px) {
+  .keyboard-hint {
+    display: none;
+  }
 }
 .chat-error {
   color: var(--danger);
@@ -497,6 +503,17 @@
   color: var(--muted);
   padding: 0 0 16px;
 }
+.followup-reference {
+  border-left: 2px solid var(--line);
+  margin: 12px 0;
+  padding: 4px 14px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.followup-reference summary {
+  cursor: pointer;
+  font-weight: 600;
+}
 .chat-status {
   display: flex;
   gap: 10px;
@@ -564,6 +581,9 @@
   background: var(--bg);
   z-index: 3;
 }
+.conversation-input.followup-input {
+  position: static;
+}
 .composer-mode {
   display: flex;
   align-items: center;
@@ -627,7 +647,7 @@
     gap: 6px 10px;
   }
   .composer-project select {
-    max-width: 170px;
+    max-width: min(145px, 36vw);
   }
   .chat-send {
     width: 44px;

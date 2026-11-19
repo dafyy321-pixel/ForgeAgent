@@ -4,7 +4,7 @@ import { Button, Dialog, Empty } from './components';
 import { pageLabels, type Page } from './types';
 import type { Execution } from './runtime';
 import { useCatalog } from './useCatalog';
-import type { Runtime, TaskDraft } from './useRuntime';
+import { taskPaths, type Runtime, type TaskDraft } from './useRuntime';
 import { useRemote } from './BackendViews';
 import { draftKey } from './drafts';
 
@@ -43,6 +43,20 @@ function Notifications({ runtime: rt, close }: { runtime: Runtime; close: () => 
     </Dialog>
   );
 }
+function planFiles(plan: string) {
+  const prose = plan.replace(/```[\s\S]*?(?:```|$)/g, ' ');
+  const paths = new Set<string>();
+  // Only suggest literal relative file names. URLs and code examples do not grant access.
+  const tokens = prose.matchAll(/`([^`\n]+)`|([^\s`"'()[\]{}，。；：！？、]+)/g);
+  for (const [, quoted, plain] of tokens) {
+    const path = (quoted || plain.replace(/[.,;:!?]+$/, '')).replace(/^\.\//, '');
+    if (!quoted && !path.includes('/')) continue;
+    if (!/^(?:[\p{L}\p{N}_.@+-]+\/)*[\p{L}\p{N}_.@+-]+\.[\w-]+$/u.test(path)) continue;
+    if (!path.split('/').some((part: string) => part === '.' || part === '..')) paths.add(path);
+  }
+  return [...paths];
+}
+
 function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => void }) {
   const projects = useCatalog<{ id: string }>('/catalog/projects?limit=100');
   const connections = useRemote('/connections');
@@ -56,8 +70,8 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
     return {
       title: '',
       description: '',
-      criteria: '回归测试通过\n产物与验证凭证版本一致',
-      scope: '仅修改 src 和 tests；禁止访问生产环境',
+      criteria: '',
+      scope: '',
       project:
         rt.route.project === '所有项目'
           ? rt.state.projects?.[0]?.id || 'runtime-lab'
@@ -73,7 +87,13 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [advanced, setAdvanced] = useState(false);
+  const [limitedScope, setLimitedScope] = useState(false);
   const [busy, setBusy] = useState(false);
+  const paths = taskPaths(draft.allowedPaths ?? 'src,tests', 'write');
+  const mentioned = planFiles(rt.createContext?.plan || '');
+  const uncovered = mentioned.filter(
+    (file) => !paths.some((p) => p === file || file.startsWith(p + '/')),
+  );
   const submitted = useRef(false);
   const stalePlan =
     !!rt.createContext &&
@@ -86,6 +106,7 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
       } catch {}
   }, [draft]);
   const field = <K extends keyof TaskDraft>(key: K, value: TaskDraft[K]) => {
+    if (key === 'allowedPaths') setLimitedScope(false);
     setDraft((d) => ({ ...d, [key]: value }));
     setErrors((e) => ({ ...e, [key]: '' }));
   };
@@ -93,8 +114,20 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
     e.preventDefault();
     if (submitted.current || stalePlan) return;
     const next: Record<string, string> = {};
-    for (const k of ['title', 'description', 'criteria', 'scope'] as const)
+    for (const k of ['title', 'description'] as const)
       if (!draft[k].trim()) next[k] = '请填写此项，任务需要明确的目标与边界。';
+    const files = taskPaths(draft.requiredFiles || '', 'file');
+    const invalidPath = (path: string) =>
+      path.includes(':') || path.split('/').some((part) => !part || part === '.' || part === '..');
+    if (!paths.length) next.allowedPaths = '请填写允许写入的文件或目录。';
+    else if (paths.length > 100 || paths.some(invalidPath))
+      next.allowedPaths = '最多填写 100 项，请使用从项目根目录开始的相对路径。';
+    else if (uncovered.length && !limitedScope)
+      next.allowedPaths = '请核对方案中其余文件，选择允许写入或确认仅供读取。';
+    if (files.length > 100 || files.some((path) => invalidPath(path) || path.length > 500))
+      next.requiredFiles = '最多填写 100 个相对文件路径，每项不超过 500 字符。';
+    if (draft.criteria.split('\n').filter((s) => s.trim()).length > 30)
+      next.criteria = '最多填写 30 项人工验收条件。';
     if (!Number.isFinite(draft.budget) || draft.budget < 0.1 || draft.budget > 100)
       next.budget = '预算应为 0.1–100 USD。';
     setErrors(next);
@@ -143,7 +176,7 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
           <input
             aria-label="任务目标"
             aria-required="true"
-            autoFocus
+            data-dialog-focus
             maxLength={120}
             value={draft.title}
             onChange={(e) => field('title', e.target.value)}
@@ -196,40 +229,99 @@ function CreateTask({ runtime: rt, close }: { runtime: Runtime; close: () => voi
             </span>
           )}
         </label>
-        <div className="field-row">
-          <label className="field">
-            验收条件
-            <textarea
-              aria-label="验收条件"
-              aria-required="true"
-              value={draft.criteria}
-              onChange={(e) => field('criteria', e.target.value)}
-              placeholder="每行一项可检查的条件"
-              aria-invalid={!!errors.criteria}
-            />
-            {errors.criteria && <span className="field-error">{errors.criteria}</span>}
-          </label>
-          <label className="field">
-            允许修改的范围
-            <textarea
-              aria-label="允许修改的范围"
-              aria-required="true"
-              value={draft.scope}
-              onChange={(e) => field('scope', e.target.value)}
-              aria-invalid={!!errors.scope}
-            />
-            {errors.scope && <span className="field-error">{errors.scope}</span>}
-          </label>
-        </div>
         <label className="field">
           允许写入的路径（逗号分隔）
           <input
             aria-label="允许写入的路径"
-            value={draft.allowedPaths || 'src,tests'}
+            aria-required="true"
+            aria-invalid={!!errors.allowedPaths}
+            placeholder="例如：src/calculator.py, tests"
+            value={draft.allowedPaths ?? 'src,tests'}
             onChange={(e) => field('allowedPaths', e.target.value)}
           />
-          <small>按路径执行权限检查；任务描述不会扩大此范围。</small>
+          <small>请按方案填写本次可修改的文件或目录。</small>
+          {errors.allowedPaths && (
+            <span role="alert" className="field-error">
+              {errors.allowedPaths}
+            </span>
+          )}
         </label>
+        {mentioned.length > 0 && (
+          <div className="field">
+            <strong>方案提及的文件</strong>
+            <div className="button-row">
+              {mentioned.map((file) =>
+                uncovered.includes(file) ? (
+                  <Button
+                    key={file}
+                    onClick={() => field('allowedPaths', [...paths, file].join(', '))}
+                  >
+                    允许写入 {file}
+                  </Button>
+                ) : (
+                  <span key={file} className="small-note">
+                    {file} · 已在范围内
+                  </span>
+                ),
+              )}
+            </div>
+            {paths.length > 0 && uncovered.length > 0 && (
+              <label className="selection-item">
+                <input
+                  type="checkbox"
+                  checked={limitedScope}
+                  onChange={(e) => {
+                    setLimitedScope(e.target.checked);
+                    setErrors((current) => ({ ...current, allowedPaths: '' }));
+                  }}
+                />
+                其余文件仅供读取
+              </label>
+            )}
+          </div>
+        )}
+        <label className="field">
+          补充限制（可选）
+          <input
+            value={draft.scope}
+            onChange={(e) => field('scope', e.target.value)}
+            placeholder="例如：保留现有函数签名"
+          />
+        </label>
+        <div className="field-row">
+          <label className="field">
+            必须存在的文件（可选）
+            <textarea
+              aria-label="必须存在的文件"
+              value={draft.requiredFiles || ''}
+              onChange={(e) => field('requiredFiles', e.target.value)}
+              aria-invalid={!!errors.requiredFiles}
+              placeholder="每行一个相对路径，如 docs/guide.md"
+            />
+            <small>独立验收会逐项检查文件是否存在。</small>
+            {errors.requiredFiles && (
+              <span role="alert" className="field-error">
+                {errors.requiredFiles}
+              </span>
+            )}
+          </label>
+          <label className="field">
+            人工验收条件（可选）
+            <textarea
+              aria-label="人工验收条件"
+              value={draft.criteria}
+              onChange={(e) => field('criteria', e.target.value)}
+              aria-invalid={!!errors.criteria}
+              placeholder="每行一项，如：核对示例措辞"
+            />
+            <small>这些条件会在交付时列出，供你逐项核对。</small>
+            {errors.criteria && (
+              <span role="alert" className="field-error">
+                {errors.criteria}
+              </span>
+            )}
+          </label>
+        </div>
         <button
           className="advanced-toggle"
           type="button"
@@ -430,7 +522,7 @@ function CommandSearch({ runtime: rt, close }: { runtime: Runtime; close: () => 
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="任务名称、编号或页面…"
-          autoFocus
+          data-dialog-focus
         />
       </label>
       <label className="check-label">
@@ -449,7 +541,11 @@ function CommandSearch({ runtime: rt, close }: { runtime: Runtime; close: () => 
           </button>
         ))}
         {runs.map((r) => (
-          <button className="command-result" key={r.id} onClick={() => rt.app.openRun(r.id)}>
+          <button
+            className="command-result"
+            key={r.id}
+            onClick={() => rt.app.openRun(r.id, r.project)}
+          >
             <span>
               {r.title}
               <small className="cell-sub">

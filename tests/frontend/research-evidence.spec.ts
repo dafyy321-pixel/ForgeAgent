@@ -72,7 +72,7 @@ test('paired comparison separates repair from expected pause and incomplete cost
 
 test('case replay shows committed summaries without dispatching new effects', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: '运行契约示例', exact: true }).click();
+  await page.getByRole('button', { name: '体验免费示例', exact: true }).click();
   await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]+/);
   const writes: string[] = [];
   page.on('request', (request) => {

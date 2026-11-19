@@ -26,8 +26,12 @@ import {
   XCircle,
 } from './icons';
 import { Button, Dialog, Empty } from './components';
+import { useRemote } from './BackendViews';
+import type { components } from './generated/api-schema';
+import { api } from './api';
 import {
   checksFor,
+  displaySummary,
   needsAttention,
   runMessage,
   relativeTime,
@@ -64,6 +68,7 @@ export function TaskWorkspace({ runtime: rt }: { runtime: Runtime }) {
 function RunWorkspace({ runtime: rt, run: r }: { runtime: Runtime; run: Execution }) {
   const { saved, toggle } = useFollowing();
   const [cancel, setCancel] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [link, setLink] = useState('');
   const [copyError, setCopyError] = useState('');
   const tab = rt.route.tab;
@@ -74,13 +79,38 @@ function RunWorkspace({ runtime: rt, run: r }: { runtime: Runtime; run: Executio
     ['actions', '动作账本'],
     ['changes', '变更与产物'],
     ['verification', '验收结果'],
-    ...(approvals.length ? [['review', '审查操作']] : []),
+    ...(approvals.length || rt.route.approvalId ? [['review', '审查操作']] : []),
     ['recovery', '恢复诊断'],
     ['context', '上下文'],
     ['replay', '案例回放'],
   ];
   const active = r.status === 'ACTIVE';
   const verifying = r.verification.status === 'running';
+  async function exportRecord() {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const events = [];
+      const query = new URLSearchParams({ run_id: r.id, limit: '100' });
+      let cursor: string | null = null;
+      do {
+        if (cursor) query.set('cursor', cursor);
+        const page: { items: typeof rt.state.events; next_cursor: string | null } = await api(
+          '/catalog/events?' + query,
+        );
+        events.push(...page.items);
+        cursor = page.next_cursor;
+      } while (cursor);
+      rt.app.download(
+        r.id + '-events.json',
+        JSON.stringify({ runtime: true, run: r, events }, null, 2),
+      );
+    } catch (error) {
+      rt.app.notify('导出失败：' + (error as Error).message);
+    } finally {
+      setExporting(false);
+    }
+  }
   async function share() {
     const url = `${location.origin}/tasks/${encodeURIComponent(r.id)}`;
     setLink(url);
@@ -95,7 +125,7 @@ function RunWorkspace({ runtime: rt, run: r }: { runtime: Runtime; run: Executio
     <div className={`task-workspace ${tab === 'conversation' ? 'is-conversation' : ''}`}>
       <button className="back-button" onClick={rt.back}>
         <ArrowLeft size={17} />
-        返回任务列表
+        {rt.backLabel}
       </button>
       <div className="task-heading">
         <div className="task-heading-meta">
@@ -129,26 +159,17 @@ function RunWorkspace({ runtime: rt, run: r }: { runtime: Runtime; run: Executio
                 <MoreHorizontal size={20} />
               </summary>
               <div>
-                <button
-                  onClick={() =>
-                    rt.app.download(
-                      `${r.id}-events.json`,
-                      JSON.stringify(
-                        {
-                          runtime: true,
-                          run: r,
-                          events: rt.state.events.filter((e) => e.runId === r.id),
-                        },
-                        null,
-                        2,
-                      ),
-                    )
-                  }
-                >
+                <button disabled={exporting} onClick={() => void exportRecord()}>
                   <ArrowDownToLine size={15} />
-                  导出任务记录
+                  {exporting ? '正在导出…' : '导出任务记录'}
                 </button>
-                {!['SUCCEEDED', 'CANCELLED'].includes(r.status) && !r.cancelRequested && (
+                {r.status === 'FAILED' && (
+                  <button onClick={() => void rt.fork(r.id)}>
+                    <RotateCcw size={15} />
+                    创建新的尝试
+                  </button>
+                )}
+                {!['FAILED', 'SUCCEEDED', 'CANCELLED'].includes(r.status) && !r.cancelRequested && (
                   <button className="danger-text" onClick={() => setCancel(true)}>
                     <Square size={15} />
                     取消任务
@@ -274,8 +295,8 @@ function RunWorkspace({ runtime: rt, run: r }: { runtime: Runtime; run: Executio
             <dl>
               <dt>允许修改</dt>
               <dd>{r.scope}</dd>
-              <dt>验收条件</dt>
-              <dd>{r.criteria.join('；')}</dd>
+              <dt>人工验收条件</dt>
+              <dd>{r.criteria.join('；') || '未添加'}</dd>
             </dl>
           </div>
           <div className="section-title">
@@ -287,7 +308,7 @@ function RunWorkspace({ runtime: rt, run: r }: { runtime: Runtime; run: Executio
       )}
       {tab === 'actions' && <ActionLedger runtime={rt} run={r} />}
       {tab === 'review' && (
-        <ApprovalReview key={approvals.map((a) => a.id).join(',')} runtime={rt} run={r} />
+        <ApprovalReview key={rt.route.approvalId || r.id} runtime={rt} run={r} />
       )}
       {tab === 'recovery' && <RecoveryPanel runtime={rt} run={r} />}
       {tab === 'changes' && <EvidencePanel runtime={rt} run={r} />}
@@ -352,8 +373,11 @@ function RunWorkspace({ runtime: rt, run: r }: { runtime: Runtime; run: Executio
 }
 function ApprovalReview({ runtime: rt, run: r }: { runtime: Runtime; run: Execution }) {
   const all = rt.state.approvals.filter((a) => a.runId === r.id);
-  const [id, setId] = useState(all.find((a) => a.status === 'pending')?.id || all[0]?.id || '');
-  const a = all.find((a) => a.id === id) || all[0];
+  const requested = rt.route.approvalId;
+  const [initialId] = useState(
+    () => all.find((record) => record.status === 'pending')?.id || all[0]?.id,
+  );
+  const a = all.find((record) => record.id === (requested || initialId));
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
   const busy = !!a?.submission;
@@ -367,8 +391,12 @@ function ApprovalReview({ runtime: rt, run: r }: { runtime: Runtime; run: Execut
   if (!a)
     return (
       <Empty
-        title="当前任务没有授权请求"
-        description="需要执行受控外部操作时，具体请求会显示在这里。"
+        title={requested || initialId ? '这条审批记录不可用' : '当前任务没有授权请求'}
+        description={
+          requested
+            ? '请返回审批记录，重新选择可查看的操作。'
+            : '需要执行受控外部操作时，具体请求会显示在这里。'
+        }
       />
     );
   const valid =
@@ -399,7 +427,7 @@ function ApprovalReview({ runtime: rt, run: r }: { runtime: Runtime; run: Execut
           <select
             value={a.id}
             onChange={(e) => {
-              setId(e.target.value);
+              rt.selectApproval(e.target.value);
               setReason('');
               setError('');
             }}
@@ -511,8 +539,9 @@ function ApprovalReview({ runtime: rt, run: r }: { runtime: Runtime; run: Execut
             <span className="small-note">
               {a.status === 'approved' ? '授权决定已记录。' : '旧授权不会继续用于当前操作。'}
             </span>
-            {!r.cancelRequested &&
-              !['SUCCEEDED', 'CANCELLED'].includes(r.status) &&
+            {!requested &&
+              !r.cancelRequested &&
+              !['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(r.status) &&
               a.status !== 'approved' && (
                 <Button onClick={() => rt.requestApproval(r.id)}>重新发起当前版本审查</Button>
               )}
@@ -714,6 +743,7 @@ function EvidencePanel({ runtime: rt, run: r }: { runtime: Runtime; run: Executi
         )}
       </Empty>
     );
+  const shownPreview = a.type === '交付说明' ? displaySummary(r, preview) : preview;
   return (
     <>
       <div className="section-title">
@@ -746,10 +776,13 @@ function EvidencePanel({ runtime: rt, run: r }: { runtime: Runtime; run: Executi
           下载文件
         </Button>
       </div>
+      {shownPreview !== preview && (
+        <p className="small-note">历史示例的中文说明，下载文件保留原文。</p>
+      )}
       {a.type === '代码补丁' ? (
         <Diff content={preview} />
       ) : (
-        <pre className="code-block artifact-code">{preview}</pre>
+        <pre className="code-block artifact-code">{shownPreview}</pre>
       )}
       {error && <p role="alert">{error}</p>}
       <div className="notice">
@@ -763,11 +796,61 @@ function EvidencePanel({ runtime: rt, run: r }: { runtime: Runtime; run: Executi
     </>
   );
 }
+const verificationBlocks: Record<string, string> = {
+  FORBIDDEN: '需要任务控制权限才能发起验证。',
+  VERIFY_CONFLICT: '等待当前操作结束后，可以在空闲的运行中或暂停任务上发起验证。',
+  UNKNOWN_USAGE: '请在动作账本核对模型用量。',
+  UNSETTLED_BUDGET: '等待费用结算后再发起验证。',
+  UNCONSUMED_RESPONSE: '还有模型回复待处理，请先继续任务。',
+  UNSETTLED_ACTION: '等待工具操作完成，或在动作账本核对结果。',
+  UNSETTLED_CHILD: '请先检查子任务是否已完成并交付。',
+  CHILD_NOT_INTEGRATED: '请先将子任务的改动合入工作区。',
+  PUBLICATION_RECEIPT_REQUIRED: '请先核对发布回执。',
+  KNOWLEDGE_ERASED: '此任务的历史已清除。',
+  DISCUSSION_SCOPE: '请先确认方案并创建执行任务。',
+};
+
+function VerifyAction({ runtime: rt, run: r }: { runtime: Runtime; run: Execution }) {
+  const { data, error, reload } = useRemote<components['schemas']['VerificationReadiness']>(
+    `/runs/${encodeURIComponent(r.id)}/verification-readiness?version=${r.stateVersion}`,
+    5000,
+  );
+  const current = data?.version === r.stateVersion && !error;
+  const allowed = current && data?.allowed;
+  return (
+    <div className="review-actions">
+      <span className="small-note">
+        {error
+          ? '验收状态加载失败。'
+          : !current
+            ? '正在检查验收条件…'
+            : allowed
+              ? '独立验证器将检查当前版本的产物。'
+              : verificationBlocks[data?.code || ''] || '请先处理任务中的阻塞事项。'}
+      </span>
+      {error && <Button onClick={() => void reload()}>重新检查</Button>}
+      <Button primary disabled={!allowed} onClick={() => rt.verify(r.id, true)}>
+        <Play size={16} />
+        运行独立验证
+      </Button>
+    </div>
+  );
+}
+
 function VerificationPanel({ runtime: rt, run: r }: { runtime: Runtime; run: Execution }) {
   const verifying = r.verification.status === 'running';
   const valid = r.verification.status === 'passed' && r.verification.version === r.version;
   const items = rt.state.artifacts.filter((a) => a.runId === r.id);
-  const allowed = r.status === 'ACTIVE' && !r.cancelRequested && !r.unknownEffect && !verifying;
+  const unchecked = (r.acceptanceConditions || []).filter((condition) => {
+    if (!r.verification.checks.length) return true;
+    return (
+      condition.kind !== 'output_contains' &&
+      !r.verification.checks.some(
+        (check) =>
+          check.name === '注册验收条件: ' + condition.kind && check.evidence === condition.path,
+      )
+    );
+  });
   const labels = { passed: '通过', failed: '失败', not_run: '未运行', not_applicable: '不适用' };
   return (
     <>
@@ -784,7 +867,9 @@ function VerificationPanel({ runtime: rt, run: r }: { runtime: Runtime; run: Exe
         <div>
           <h2>
             {valid
-              ? '验收通过，可交付'
+              ? r.criteria.length
+                ? '自动验收通过，待人工核对'
+                : '验收通过，可交付'
               : verifying
                 ? '正在独立验证'
                 : r.verification.status === 'failed'
@@ -796,7 +881,7 @@ function VerificationPanel({ runtime: rt, run: r }: { runtime: Runtime; run: Exe
           <p>
             当前产物 v{r.version} ·{' '}
             {valid
-              ? '所有必需检查均通过'
+              ? '已登记的自动检查通过'
               : verifying
                 ? '执行任务约束、回归测试与版本绑定检查'
                 : '生成文件不等于完成任务'}
@@ -804,10 +889,28 @@ function VerificationPanel({ runtime: rt, run: r }: { runtime: Runtime; run: Exe
         </div>
       </div>
       <div className="section-title">
-        <h2>验收清单</h2>
+        <h2>自动验收清单</h2>
         <span className="small-note">固定于任务创建时</span>
       </div>
       <div className="verification-checks">
+        {unchecked.map((condition, index) => (
+          <div className="verification-check not_run" key={index}>
+            <Clock3 size={19} />
+            <div>
+              <strong>
+                {
+                  {
+                    file_exists: '文件存在',
+                    file_digest: '文件内容校验',
+                    output_contains: '输出包含文本',
+                  }[condition.kind]
+                }
+              </strong>
+              <p>{condition.path || condition.value}</p>
+            </div>
+            <span>{verifying ? '检查中' : '未运行'}</span>
+          </div>
+        ))}
         {r.verification.checks.map((c, i) => (
           <div className={`verification-check ${verifying ? 'not_run' : c.status}`} key={i}>
             {verifying ? (
@@ -833,6 +936,19 @@ function VerificationPanel({ runtime: rt, run: r }: { runtime: Runtime; run: Exe
           </div>
         ))}
       </div>
+      {r.criteria.length > 0 && (
+        <section>
+          <div className="section-title">
+            <h2>人工验收条件</h2>
+            <span className="small-note">请对照交付物逐项核对</span>
+          </div>
+          <ul>
+            {r.criteria.map((criterion, index) => (
+              <li key={index}>{criterion}</li>
+            ))}
+          </ul>
+        </section>
+      )}
       {r.verification.status === 'failed' && (
         <div className="notice warning" role="alert">
           <TriangleAlert size={18} />
@@ -840,18 +956,8 @@ function VerificationPanel({ runtime: rt, run: r }: { runtime: Runtime; run: Exe
           <Button onClick={() => rt.setTab('recovery')}>诊断与恢复</Button>
         </div>
       )}
-      {!valid && (
-        <div className="review-actions">
-          <span className="small-note">
-            {allowed
-              ? '独立验证器检查当前版本产物。'
-              : '仅运行中的任务可发起验证；阻塞事项必须先处理。'}
-          </span>
-          <Button primary disabled={!allowed} onClick={() => rt.verify(r.id, true)}>
-            {verifying ? <LoaderCircle size={16} className="spin" /> : <Play size={16} />}
-            运行独立验证
-          </Button>
-        </div>
+      {!valid && !verifying && r.mode === 'execute' && ['ACTIVE', 'PAUSED'].includes(r.status) && (
+        <VerifyAction runtime={rt} run={r} />
       )}
 
       {items.length > 0 && (

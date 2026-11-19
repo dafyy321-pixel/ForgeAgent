@@ -82,7 +82,8 @@ export interface AppController {
   project: string;
   setProject: (s: string) => void;
   selectedRun: Run | null;
-  openRun: (id: string) => void;
+  openRun: (id: string, project?: string) => void;
+  startProjectDiscussion: (project: string) => void;
   closeRun: () => void;
   newRun: () => void;
   updateRun: (id: string, action: 'pause' | 'resume' | 'cancel' | 'complete' | 'recover') => void;

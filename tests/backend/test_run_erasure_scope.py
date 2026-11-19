@@ -23,6 +23,7 @@ def test_purge_follows_copied_workspaces_and_dialogue(tenant, make_run, client, 
     result = client.post(f"/v1/operations/runs/{source}/purge")
     assert result.status_code == 200, result.text
     assert set(result.json()["derived_runs"]) == {source, fork, discussion, execution}
+    assert client.get(f"/v1/runs/{execution}/conversation").json()["followup_reference"] is None
     with db.transaction(tenant) as s:
         assert "copied material" not in json.dumps(db.get(s, db.Run, tenant, execution).state)
         assert not db.get(s, db.Run, tenant, unrelated).state.get("knowledge_erased")

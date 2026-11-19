@@ -877,9 +877,10 @@ export function Settings({ app }: { app: AppController }) {
       {wizard && (
         <ProjectWizard
           onClose={() => setWizard(false)}
-          onDone={() => {
+          onRegistered={() => void projects.reload()}
+          onDiscuss={(id) => {
             setWizard(false);
-            void projects.reload();
+            app.startProjectDiscussion(id);
           }}
         />
       )}

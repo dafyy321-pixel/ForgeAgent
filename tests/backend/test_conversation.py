@@ -39,6 +39,10 @@ async def test_durable_multiturn_discussion_and_confirmed_execution(tenant, make
     assert started.status_code == 202, started.text
     execution = started.json()
     assert execution["id"] != run_id and execution["sourceDiscussionId"] == run_id
+    summary = client.get("/v1/workspace/summary").json()
+    assert summary["attention"] == 0 and summary["attention_runs"] == []
+    for status in ("attention", "recovery", "approval"):
+        assert not client.get("/v1/runs", params={"status": status}).json()["items"]
     again = client.post(f"/v1/runs/{run_id}/execute", json=confirmation, headers={"Idempotency-Key": "execute-1"})
     assert again.json()["id"] == execution["id"]
     with db.transaction(tenant) as s:
@@ -155,10 +159,27 @@ async def test_followup_preserves_workspace_through_plan_confirmation(tenant, ma
     from forgeagent.storage import objects
 
     source = make_run()
+    prior = discussion(make_run)
     for _ in range(12):
         await Worker(target_run=source).once(tenant)
+    with db.transaction(tenant) as s:
+        old = db.get(s, db.Run, tenant, source)
+        summary_artifact, = db.rows(s, db.Artifact, tenant, run_id=source, kind="summary")
+        assert "加法" in objects.get(tenant, summary_artifact.ref).decode()
+        plan = db.get(s, db.Run, tenant, prior)
+        service.append_message(s, plan, "assistant", "外部讨论内容不可用作已冻结的方案")
+        old.state = {**old.state, "source_discussion_id": prior,
+                     "dialogue": [{"id": uid(), "role": "assistant", "content": "保留小数行为" + "文" * 9000,
+                                   "time": db.clock(s).isoformat()}]}
+        db.emit(s, old, "PLAN_CONFIRMED", "Historic frozen plan")
+        old.state = {**old.state, "completion": "Fixture change ready for independent AST verification"}
+        service.append_message(s, old, "assistant", "执行中的临时提问")
+        db.emit(s, old, "TEST_HISTORY", "Historic execution summary")
     view = client.get(f"/v1/runs/{source}").json()
     assert view["status"] == "SUCCEEDED"
+    reference = client.get(f"/v1/runs/{source}/conversation").json()["followup_reference"]
+    assert "保留小数行为" in reference and "加法" in reference and len(reference) < 3000
+    assert "外部讨论内容" not in reference and "临时提问" not in reference
     spec = {"project_id": "runtime-lab", "model": "configured", "capabilities": ["repo.read"],
             "task": {"mode": "discuss", "goal": "Keep the fix and discuss documentation"}}
     payload = {"expected_version": view["stateVersion"], "spec": spec}
@@ -166,14 +187,19 @@ async def test_followup_preserves_workspace_through_plan_confirmation(tenant, ma
     assert response.status_code == 202, response.text
     followup = response.json()
     assert followup["sourceRunId"] == source and followup["mode"] == "discuss"
+    assert client.get(f"/v1/runs/{followup['id']}/conversation").json()["followup_reference"] == reference
     assert client.post(f"/v1/runs/{source}/followup", json=payload,
                        headers={"Idempotency-Key": "followup"}).json()["id"] == followup["id"]
 
-    async def model(*args):
+    captured = []
+
+    async def model(messages, *args):
+        captured.extend(messages)
         return json.dumps({"kind": "propose_completion", "summary": "Preserve the fixed addition."}), {
             "input_tokens": 1, "output_tokens": 1}, {}, "local-test"
 
     await Worker(model=model, target_run=followup["id"]).once(tenant)
+    assert "保留小数行为" in str(captured) and "加法" in str(captured)
     plan = client.get(f"/v1/runs/{followup['id']}").json()
     execution = client.post(f"/v1/runs/{followup['id']}/execute", json={
         "expected_version": plan["stateVersion"],

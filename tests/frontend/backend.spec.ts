@@ -5,7 +5,7 @@ test('durable task completes and opens in a separate browser context', async ({
   browser,
 }, testInfo) => {
   await page.goto('/');
-  await page.getByRole('button', { name: '运行契约示例', exact: true }).click();
+  await page.getByRole('button', { name: '体验免费示例', exact: true }).click();
   await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]+/);
   const taskUrl = page.url();
   await expect(page.locator('#main-content .run-badge').first()).toHaveText('已验证完成', {

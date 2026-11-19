@@ -16,7 +16,7 @@ from . import evaluations as experiments
 from .api_dependencies import Actor
 from .auth import Identity, project_access, require_admin, require_run_access
 from .config import settings
-from .contracts import AuthConfig, CatalogPage, RunPage, RunView, WorkspaceIndex
+from .contracts import AuthConfig, CatalogPage, RunPage, RunView, VerificationReadiness, WorkspaceIndex
 from .conversation_api import router as conversation_router
 from .domain import (
     TERMINAL,
@@ -191,9 +191,10 @@ def ready():
 
 @app.get("/v1/workspace", response_model=WorkspaceIndex)
 def workspace(actor: Actor, project: str | None = None, status: str | None = None, q: str = "",
-              cursor: str | None = None, limit: int = 50, run_id: str | None = None, artifact_id: str | None = None):
+              cursor: str | None = None, limit: int = 50, run_id: str | None = None, artifact_id: str | None = None,
+              approval_id: str | None = None):
     with db.transaction(actor.tenant) as s:
-        return presenters.workspace(s, actor.tenant, actor, project, status, q, cursor, limit, run_id, artifact_id)
+        return presenters.workspace(s, actor.tenant, actor, project, status, q, cursor, limit, run_id, artifact_id, approval_id)
 
 
 @app.get("/v1/workspace/revision")
@@ -210,6 +211,13 @@ def workspace_summary(actor: Actor, project: str | None = None):
 
     with db.transaction(actor.tenant) as s:
         return summary(s, actor, project)
+
+
+@app.get("/v1/workspace/model-status")
+def workspace_model_status(actor: Actor) -> dict[str, bool]:
+    return {"available": bool(settings.model_provider in {"openai", "anthropic"}
+                              and settings.model_id and settings.model_api_key
+                              and settings.input_price > 0 and settings.output_price > 0)}
 
 
 @app.get("/v1/catalog/{collection}", response_model=CatalogPage)
@@ -731,20 +739,33 @@ def context(id: str, turn: int, actor: Actor):
         return chosen.data
 
 
+def require_manual_verification(s, run, *, preview=False):
+    if run.state["task"].get("mode") == "discuss":
+        raise Fault("DISCUSSION_SCOPE", "Confirm a plan to create an execution task before verification")
+    if run.status not in {"ACTIVE", "PAUSED"} or run.cancel_requested or run.lease_owner:
+        raise Fault("VERIFY_CONFLICT", "Verification requires an idle active or paused task at the current version")
+    service.require_finalizable(s, run, update_children=not preview)
+
+
+@app.get("/v1/runs/{id}/verification-readiness", response_model=VerificationReadiness)
+def verification_readiness(id: str, actor: Actor):
+    with db.transaction(actor.tenant) as s:
+        run = db.get(s, db.Run, actor.tenant, id)
+        try:
+            require_run_access(s, actor, run, "control")
+            require_manual_verification(s, run, preview=True)
+        except Fault as exc:
+            return {"allowed": False, "version": run.version, "code": exc.code}
+        return {"allowed": True, "version": run.version}
+
+
 @app.post("/v1/runs/{id}/verify", status_code=202)
 def verify_run(id: str, body: Control, actor: Actor):
     with db.transaction(actor.tenant) as s:
         r = db.get(s, db.Run, actor.tenant, id, True)
-        if r.state["task"].get("mode") == "discuss":
-            raise Fault("DISCUSSION_SCOPE", "Confirm a plan to create an execution task before verification")
-        if (
-            r.version != body.expected_version
-            or r.status not in {"ACTIVE", "PAUSED"}
-            or r.cancel_requested
-            or r.lease_owner
-        ):
+        if r.version != body.expected_version:
             raise Fault("VERIFY_CONFLICT", "Verification requires an idle active or paused task at the current version")
-        service.require_finalizable(s, r)
+        require_manual_verification(s, r)
         r.state = {**r.state, "completion": "User requested independent verification"}
         r.status, r.phase, r.pause_requested = "QUEUED", "VERIFYING", False
         db.emit(s, r, "VERIFICATION_REQUESTED", body.reason)

@@ -27,6 +27,10 @@ test('overview uses server totals and deliveries reach history independently of 
           {
             id: second ? 'old' : 'recent',
             run_id: 'not-in-workspace',
+            task_title: '上月的计算器修复',
+            task_started: '2026-10-19T08:00:00Z',
+            project: 'runtime-lab',
+            created_at: second ? '2026-10-19T08:00:00Z' : '2026-11-19T08:00:00Z',
             name: second ? 'historic.patch' : 'recent.patch',
             kind: 'patch',
             verified: true,
@@ -47,6 +51,11 @@ test('overview uses server totals and deliveries reach history independently of 
   await expect(page.getByRole('button', { name: 'recent.patch', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '加载更多交付物' }).click();
   await expect(page.getByRole('button', { name: 'historic.patch', exact: true })).toBeVisible();
+  const historic = page.getByRole('region', { name: '上月的计算器修复' });
+  await expect(historic).toContainText(/上月的计算器修复.*runtime-lab.*v1/);
+  await expect(historic.getByRole('heading')).toHaveCount(1);
+  await expect(historic.locator('.delivery-row')).toHaveCount(2);
+  await expect(historic.locator('time')).toHaveAttribute('datetime', '2026-10-19T08:00:00Z');
   await expect(page.getByRole('button', { name: 'recent.patch', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '加载更多交付物' })).toHaveCount(0);
 });

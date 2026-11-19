@@ -4,6 +4,72 @@ export function draftKey(name: string) {
   return `forge-draft:${sessionStorage.getItem('forge-draft-principal') || 'local'}:${name}`;
 }
 
+export type ChatDraft = {
+  text: string;
+  manualBudget?: number;
+  previousText?: string;
+  legacyBudget?: number;
+};
+
+function chatProjectKey(project: string) {
+  return draftKey('chat/project/' + encodeURIComponent(project));
+}
+
+export function initialChatProject(scope: string): string {
+  try {
+    if (scope !== '所有项目')
+      return history.state?.composerScope === draftKey(scope)
+        ? history.state.composerProject
+        : scope;
+    const last = localStorage.getItem(draftKey('chat/selection'));
+    if (last !== null) return last;
+    const legacy = JSON.parse(localStorage.getItem(draftKey('chat')) || 'null');
+    return typeof legacy?.project === 'string' ? legacy.project : '';
+  } catch {
+    return scope === '所有项目' ? '' : scope;
+  }
+}
+
+export function rememberChatProject(scope: string, project: string) {
+  try {
+    if (scope === '所有项目') localStorage.setItem(draftKey('chat/selection'), project);
+    else
+      history.replaceState(
+        { ...history.state, composerScope: draftKey(scope), composerProject: project },
+        '',
+      );
+  } catch {}
+}
+
+export function readChatDraft(project: string): ChatDraft {
+  try {
+    const saved = JSON.parse(localStorage.getItem(chatProjectKey(project)) || 'null');
+    if (typeof saved?.text === 'string') return saved;
+    const legacy = JSON.parse(localStorage.getItem(draftKey('chat')) || 'null');
+    if (legacy?.project === project && typeof legacy.text === 'string') {
+      // Older drafts stored the temporary workspace default as if the user had edited it.
+      return {
+        text: legacy.text,
+        legacyBudget: Number.isFinite(legacy.budget) ? legacy.budget : undefined,
+      };
+    }
+  } catch {}
+  return { text: '' };
+}
+
+export function writeChatDraft(project: string, draft?: ChatDraft) {
+  try {
+    if (draft) localStorage.setItem(chatProjectKey(project), JSON.stringify(draft));
+    else localStorage.removeItem(chatProjectKey(project));
+    const legacy = JSON.parse(localStorage.getItem(draftKey('chat')) || 'null');
+    if (legacy?.project === project) {
+      if (localStorage.getItem(draftKey('chat/selection')) === null)
+        localStorage.setItem(draftKey('chat/selection'), project);
+      localStorage.removeItem(draftKey('chat'));
+    }
+  } catch {}
+}
+
 export function setDraftPrincipal(
   issuer: string,
   subject: string,

@@ -26,6 +26,24 @@ def test_keyset_pages_are_stable_and_bound_to_identity_and_filters(client, tenan
     assert client.get("/v1/runs", params={"cursor": cursor}).status_code == 422
 
 
+def test_selected_historical_approval_remains_available_outside_workspace_window(client, tenant, make_run):
+    run_id = make_run()
+    with db.transaction(tenant) as s:
+        action = db.Action(tenant_id=tenant, run_id=run_id, logical_key="reviewed", tool="remote.call", args={},
+                           effect_class="external_write", effect_digest="effect")
+        s.add(action)
+        s.flush()
+        for index in range(201):
+            s.add(db.Approval(tenant_id=tenant, id=f"approval-{index:03d}", action_id=action.id,
+                              effect_digest="effect", policy_epoch=1, resource_version="1",
+                              decision="denied", expires_at=action.created_at, created_at=action.created_at))
+    route = {"run_id": run_id}
+    regular = client.get("/v1/workspace", params=route).json()["approvals"]
+    assert len(regular) == 200 and all(row["id"] != "approval-000" for row in regular)
+    selected = client.get("/v1/workspace", params={**route, "approval_id": "approval-000"}).json()["approvals"]
+    assert selected[0]["id"] == "approval-000" and selected[0]["status"] == "denied"
+
+
 def test_workspace_queries_are_batched_and_never_read_artifact_objects(client, tenant, make_run, monkeypatch):
     run_id = make_run()
     reference = objects.put(tenant, run_id, b"private artifact content")

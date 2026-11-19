@@ -12,6 +12,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import aliased
 
 from . import billing, db, diagnosis, models, observation, progress, recovery, resources, service
+from .artifact_delivery import FIXTURE_SUMMARY
 from .config import settings
 from .context import compile_context
 from .domain import TERMINAL, Fault, canonical, digest, uid
@@ -623,7 +624,7 @@ class Worker:
                 else:
                     response = {
                         "kind": "propose_completion",
-                        "summary": "Fixture change ready for independent AST verification",
+                        "summary": FIXTURE_SUMMARY,
                     }
                 raw_text, usage, raw, provider_id = (
                     json.dumps(response),

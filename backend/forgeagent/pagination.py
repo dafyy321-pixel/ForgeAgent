@@ -67,8 +67,9 @@ def visible(s, actor, operation="read"):
 
 
 def attention():
-    return or_(db.Run.status.in_(["PAUSED", "FAILED"]),
-               and_(db.Run.status == "WAITING", db.Run.wait_reason.in_(["APPROVAL", "RECONCILIATION"])))
+    return and_(db.Run.state["execution_id"].as_string().is_(None),
+                or_(db.Run.status.in_(["PAUSED", "FAILED"]),
+                    and_(db.Run.status == "WAITING", db.Run.wait_reason.in_(["APPROVAL", "RECONCILIATION"]))))
 
 
 def runs(s, actor, project=None, status=None, q="", cursor=None, limit=50):

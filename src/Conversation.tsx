@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, ApiError } from './api';
-import { draftKey } from './drafts';
+import {
+  draftKey,
+  initialChatProject,
+  readChatDraft,
+  rememberChatProject,
+  writeChatDraft,
+  type ChatDraft,
+} from './drafts';
 import type { components } from './generated/api-schema';
 import { Button } from './components';
 import { useCatalog } from './useCatalog';
@@ -21,11 +28,10 @@ import {
   Plus,
   Project,
   ShieldCheck,
-  Terminal,
   TriangleAlert,
 } from './icons';
 import type { Runtime } from './useRuntime';
-import { runMessage, type Execution } from './runtime';
+import { displaySummary, runMessage, type Execution } from './runtime';
 
 type Conversation = components['schemas']['ConversationView'];
 
@@ -66,7 +72,7 @@ function Composer({
   readOnly?: boolean;
   label: string;
   children?: ReactNode;
-  hint: string;
+  hint: ReactNode;
 }) {
   const field = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -114,48 +120,84 @@ function Composer({
   );
 }
 
-function savedDraft() {
-  try {
-    return JSON.parse(localStorage.getItem(draftKey('chat')) || '{}');
-  } catch {
-    return {};
-  }
+export function StartWork({ runtime: rt }: { runtime: Runtime }) {
+  return <StartWorkForm key={draftKey('chat:' + rt.route.project)} runtime={rt} />;
 }
 
-export function StartWork({ runtime: rt }: { runtime: Runtime }) {
-  const [draft] = useState(savedDraft);
-  const [text, setText] = useState<string>(draft.text || '');
-  const [selected, setSelected] = useState<string>(
-    rt.route.project === '所有项目' ? draft.project || '' : rt.route.project,
-  );
-  const [budget, setBudget] = useState<number>(draft.budget || rt.app.settings.budget);
+function StartWorkForm({ runtime: rt }: { runtime: Runtime }) {
+  const scope = rt.route.project;
+  const [selected, setSelected] = useState(() => initialChatProject(scope));
+  const [draft, setDraft] = useState(() => readChatDraft(selected));
+  const text = draft.text;
+  const budget =
+    draft.manualBudget ??
+    (rt.app.settingsReady
+      ? Math.min(rt.app.settings.budget, draft.legacyBudget ?? rt.app.settings.budget)
+      : undefined);
   const [busy, setBusy] = useState(false);
+  const [exampleBusy, setExampleBusy] = useState(false);
   const [error, setError] = useState('');
   const [wizard, setWizard] = useState(false);
   const submitting = useRef(false);
   const projects = useCatalog<{ id: string; name?: string }>('/catalog/projects?limit=100');
-  const diagnostics = useRemote('/diagnostics');
-  useEffect(() => {
+  const model = useRemote<{ available: boolean }>('/workspace/model-status');
+  function updateDraft(next: ChatDraft) {
+    writeChatDraft(selected, next);
+    setDraft(next);
+    setError('');
+  }
+  function selectProject(project: string, registered = false) {
+    const stored = readChatDraft(project);
+    const carry =
+      (registered || !selected) &&
+      project &&
+      !stored.text &&
+      (text || draft.manualBudget !== undefined);
+    const next = carry ? draft : stored;
+    if (carry) {
+      writeChatDraft(project, next);
+      if (!selected) writeChatDraft('');
+    }
+    rememberChatProject(scope, project);
+    setSelected(project);
+    setDraft(next);
+    setError('');
+  }
+  async function example() {
+    if (exampleBusy) return;
+    setExampleBusy(true);
     try {
-      localStorage.setItem(draftKey('chat'), JSON.stringify({ text, project: selected, budget }));
-    } catch {}
-  }, [text, selected, budget]);
+      await rt.scenario('active');
+    } finally {
+      setExampleBusy(false);
+    }
+  }
   async function start() {
-    if (submitting.current || !text.trim()) return;
-    if (!selected || !projects.items.some((p) => p.id === selected)) {
+    if (submitting.current || !text.trim() || !model.data?.available || !rt.app.settingsReady)
+      return;
+    if (!selected) {
       setError('先选择一个项目，或接入你的代码。需求草稿会为你保留。');
       return;
     }
-    if (!Number.isFinite(budget) || budget < 0.1 || budget > 100) {
+    if (budget === undefined || !Number.isFinite(budget) || budget < 0.1 || budget > 100) {
       setError('对话额度应为 0.1–100 USD。');
       return;
     }
     submitting.current = true;
     setBusy(true);
     setError('');
+    const owner = draftKey('chat');
     try {
+      if (!projects.items.some((p) => p.id === selected)) {
+        const matches = await api<{ items: { id: string }[] }>(
+          '/catalog/projects?limit=1&project=' + encodeURIComponent(selected),
+        );
+        if (!matches.items.some((p) => p.id === selected))
+          throw Error('项目不可用，请重新选择本次任务的项目。');
+      }
       await rt.discuss(text.trim(), selected, budget);
-      localStorage.removeItem(draftKey('chat'));
+      if (owner === draftKey('chat') && readChatDraft(selected).text === text)
+        writeChatDraft(selected);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -186,31 +228,54 @@ export function StartWork({ runtime: rt }: { runtime: Runtime }) {
         <span className="welcome-mark">
           <ForgeMark size={30} />
         </span>
-        <p className="welcome-eyebrow">你的项目，从想法到可验证的修改</p>
         <h1>今天想对项目做些什么？</h1>
         <p className="welcome-description">
           说说你的需求。一起理清方案，再修改代码、运行测试，交付你能检查的结果。
         </p>
+        {model.data?.available === false && (
+          <div className="chat-readiness">
+            <p>模型尚未就绪，写好的需求会保存在这里。</p>
+            <div className="button-row">
+              <Button primary disabled={exampleBusy} onClick={() => void example()}>
+                <FlaskConical size={16} />
+                {exampleBusy ? '正在启动示例…' : '体验免费示例'}
+              </Button>
+              <Button onClick={() => rt.app.navigate('settings')}>查看模型配置</Button>
+            </div>
+          </div>
+        )}
+        {model.error && (
+          <p role="alert" className="chat-error">
+            暂时无法确认模型状态。<Button onClick={() => void model.reload()}>重新检查</Button>
+          </p>
+        )}
         <Composer
           value={text}
-          onChange={(value) => {
-            setText(value);
-            setError('');
-          }}
+          onChange={(value) => updateDraft({ ...draft, text: value, previousText: undefined })}
           onSend={() => void start()}
           busy={busy}
+          disabled={!rt.app.settingsReady || !model.data?.available}
           label="描述你的需求，或粘贴遇到的问题…"
-          hint="Enter 发送 · Shift + Enter 换行 · 先讨论，确认方案后才会修改代码"
+          hint={
+            <>
+              <span className="keyboard-hint">Enter 发送 · Shift + Enter 换行 · </span>
+              先讨论，确认方案后才会修改代码
+            </>
+          }
         >
           <label className="composer-project">
             <Project size={17} />
-            <span className="sr-only">选择工作项目</span>
+            <span>本次任务的项目</span>
             <select
-              aria-label="选择工作项目"
+              aria-label="本次任务的项目"
               value={selected}
-              onChange={(e) => setSelected(e.target.value)}
+              disabled={busy}
+              onChange={(e) => selectProject(e.target.value)}
             >
               <option value="">选择项目</option>
+              {selected && !projects.items.some((p) => p.id === selected) && (
+                <option value={selected}>{selected}</option>
+              )}
               {projects.items.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.id === 'runtime-lab' ? '示例项目 · Runtime Lab' : p.name || p.id}
@@ -218,12 +283,17 @@ export function StartWork({ runtime: rt }: { runtime: Runtime }) {
               ))}
             </select>
           </label>
-          <button type="button" className="text-action" onClick={() => setWizard(true)}>
+          <button
+            type="button"
+            className="text-action"
+            disabled={busy}
+            onClick={() => setWizard(true)}
+          >
             <Plus size={15} />
             接入项目
           </button>
           <details className="chat-budget">
-            <summary>对话额度 ${budget}</summary>
+            <summary>{budget === undefined ? '正在读取对话额度…' : `对话额度 $${budget}`}</summary>
             <label>
               本次对话费用上限（USD）
               <input
@@ -231,8 +301,9 @@ export function StartWork({ runtime: rt }: { runtime: Runtime }) {
                 min="0.1"
                 max="100"
                 step="0.1"
-                value={budget}
-                onChange={(e) => setBudget(Number(e.target.value))}
+                value={budget ?? ''}
+                disabled={busy || !rt.app.settingsReady}
+                onChange={(e) => updateDraft({ ...draft, manualBudget: Number(e.target.value) })}
               />
             </label>
           </details>
@@ -253,8 +324,14 @@ export function StartWork({ runtime: rt }: { runtime: Runtime }) {
           {examples.map(({ icon: Icon, title, text: prompt }) => (
             <button
               key={title}
+              disabled={busy}
               onClick={() => {
-                setText(prompt);
+                const next = text ? text + '\n\n' + prompt : prompt;
+                if (next.length > 10000) {
+                  setError('插入模板会超出 10000 字限制，请先缩短草稿。');
+                  return;
+                }
+                updateDraft({ ...draft, text: next, previousText: text || undefined });
                 document.querySelector<HTMLTextAreaElement>('.chat-composer textarea')?.focus();
               }}
             >
@@ -264,21 +341,24 @@ export function StartWork({ runtime: rt }: { runtime: Runtime }) {
             </button>
           ))}
         </div>
-        {diagnostics.data && !diagnostics.data.model.configured && (
-          <p className="chat-readiness">
-            <Terminal size={16} />
-            尚未配置模型，可以先体验示例流程。
-            <button className="text-action" onClick={() => rt.app.navigate('settings')}>
-              查看配置
-            </button>
-          </p>
+        {draft.previousText !== undefined && (
+          <button
+            className="text-action undo-template"
+            disabled={busy}
+            onClick={() =>
+              updateDraft({ ...draft, text: draft.previousText!, previousText: undefined })
+            }
+          >
+            撤销插入模板
+          </button>
         )}
         <div className="welcome-secondary">
-          <button className="text-action" onClick={() => void rt.scenario('active')}>
-            <FlaskConical size={16} />
-            运行契约示例
-          </button>
-          <span>不调用付费模型，体验执行与交付</span>
+          {model.data?.available !== false && (
+            <button className="text-action" disabled={exampleBusy} onClick={() => void example()}>
+              <FlaskConical size={16} />
+              体验免费示例
+            </button>
+          )}
           <button className="text-action" aria-label="创建任务" onClick={rt.app.newRun}>
             高级创建任务
           </button>
@@ -322,22 +402,37 @@ export function StartWork({ runtime: rt }: { runtime: Runtime }) {
                   : r.status === 'SUCCEEDED'
                     ? '已验证完成，可查看交付'
                     : phaseLabel(r)}
+                {rt.state.runs
+                  .slice(0, 4)
+                  .some((other) => other.id !== r.id && other.title === r.title) &&
+                  ' · 开始于 ' + new Date(r.started).toLocaleString('zh-CN', { hour12: false })}
               </small>
             </span>
             <ArrowUpRight size={16} />
           </button>
         ))}
         {!rt.state.runs.length && (
-          <p className="muted">你的对话和任务会保存在这里。可以先选择示例项目，说说你想改什么。</p>
+          <p className="muted">
+            你的对话和任务会保存在这里。
+            {model.data?.available === false
+              ? '可以先体验免费示例。'
+              : model.data?.available
+                ? '选择项目后即可开始讨论。'
+                : ''}
+          </p>
         )}
       </section>
       {wizard && (
         <ProjectWizard
           onClose={() => setWizard(false)}
-          onDone={() => {
-            setWizard(false);
+          onRegistered={() => {
             void projects.reload();
             void rt.refresh();
+          }}
+          onDiscuss={(id) => {
+            setWizard(false);
+            selectProject(id, true);
+            document.querySelector<HTMLTextAreaElement>('.chat-composer textarea')?.focus();
           }}
         />
       )}
@@ -399,6 +494,7 @@ export function ConversationPanel({ runtime: rt, run: r }: { runtime: Runtime; r
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [followup, setFollowup] = useState(false);
+  const referencePanel = useRef<HTMLDetailsElement>(null);
   const [followupBudget, setFollowupBudget] = useState(rt.app.settings.budget);
   const sending = useRef(false);
   const bottom = useRef<HTMLDivElement>(null);
@@ -487,22 +583,35 @@ export function ConversationPanel({ runtime: rt, run: r }: { runtime: Runtime; r
     }
   }
   const assistant = history?.messages.filter((m) => m.role === 'assistant').at(-1);
-  const summary = rt.state.artifacts.find((a) => a.runId === r.id && a.name === 'summary.md');
-  const patch = rt.state.artifacts.find((a) => a.runId === r.id && a.name === 'changes.patch');
+  const currentArtifacts = rt.state.artifacts.filter(
+    (a) => a.runId === r.id && a.version === r.version,
+  );
+  const summary = currentArtifacts.find((a) => a.name === 'summary.md');
+  const patch = currentArtifacts.find((a) => a.type === '代码补丁');
   const [deliverySummary, setDeliverySummary] = useState('');
   useEffect(() => {
     let alive = true;
+    setDeliverySummary('');
     if (summary)
       void rt
         .artifactText(summary)
         .then((value) => {
-          if (alive) setDeliverySummary(value);
+          if (alive) setDeliverySummary(displaySummary(r, value));
         })
         .catch(() => {});
     return () => {
       alive = false;
     };
   }, [summary?.id, summary?.digest]);
+  useEffect(() => {
+    if (followup) referencePanel.current?.scrollIntoView({ block: 'center' });
+  }, [followup, history?.followup_reference]);
+  const reference = history?.followup_reference && (
+    <details ref={referencePanel} className="followup-reference" open>
+      <summary>本轮讨论引用的内容</summary>
+      <MessageText text={history.followup_reference} />
+    </details>
+  );
   return (
     <div className="conversation-workspace">
       {r.sourceRunId && (
@@ -514,6 +623,7 @@ export function ConversationPanel({ runtime: rt, run: r }: { runtime: Runtime; r
           </button>
         </div>
       )}
+      {!terminal && r.sourceRunId && reference}
       {r.sourceDiscussionId && (
         <div className="chat-context-link">
           <ShieldCheck size={15} />
@@ -638,19 +748,25 @@ export function ConversationPanel({ runtime: rt, run: r }: { runtime: Runtime; r
           <div>
             <strong>
               {r.status === 'SUCCEEDED'
-                ? '修改已通过独立验收'
+                ? '修改已通过自动验收'
                 : '本次任务已结束，现场和已有产物已保留'}
             </strong>
             <p>
               {r.status === 'SUCCEEDED'
-                ? '查看代码补丁与测试结果，再决定如何应用到你的项目。'
+                ? r.criteria.length
+                  ? `${r.criteria.length} 项人工条件待核对，请在验收结果中查看。`
+                  : '查看代码补丁与测试结果，再决定如何应用到你的项目。'
                 : phaseLabel(r)}
             </p>
           </div>
           <div className="button-row">
-            <Button primary onClick={() => rt.setTab('changes')}>
-              查看代码变更
-            </Button>
+            {patch ? (
+              <Button primary onClick={() => rt.setTab('changes', patch.id)}>
+                查看代码变更
+              </Button>
+            ) : (
+              <span className="small-note">当前版本没有代码补丁</span>
+            )}
             <Button onClick={() => rt.setTab('verification')}>查看测试结果</Button>
             {patch && <Button onClick={() => void rt.downloadArtifact(patch)}>下载补丁</Button>}
             {!r.unknownEffect && !r.budget_unknown && (
@@ -670,8 +786,9 @@ export function ConversationPanel({ runtime: rt, run: r }: { runtime: Runtime; r
           有新回复，跳到最新消息
         </button>
       )}
+      {terminal && followup && reference}
       {((!terminal && !r.executionId) || (terminal && followup)) && (
-        <div className="conversation-input">
+        <div className={terminal ? 'conversation-input followup-input' : 'conversation-input'}>
           <Composer
             value={text}
             onChange={(value) => {

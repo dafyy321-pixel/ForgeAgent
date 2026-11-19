@@ -106,6 +106,9 @@ def compile_context(task, state, observations, skills, memories, window, output,
     mandatory.append({"type": "facts", "trust": "runtime", "content": {k: state.get(k) for k in (
         "workspace_digest", "artifact_version", "last_failure", "child_results", "reason"
     )}})
+    if state.get("followup_reference"):
+        mandatory.append({"type": "previous_task_excerpt", "trust": "untrusted_history",
+                          "content": state["followup_reference"]})
     if state.get("dialogue"):
         mandatory.append({"type": "conversation", "trust": "user_and_assistant_history", "content": [
             {"role": m["role"], "content": m["content"]} for m in state["dialogue"]]})

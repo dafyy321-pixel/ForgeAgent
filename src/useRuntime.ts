@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { AppController, Page } from './types';
+import { pageLabels, type AppController, type Page } from './types';
 import { stamp, type WorkspaceState, type RunEvent } from './runtime';
 import { api } from './api';
 import type { components } from './generated/api-schema';
@@ -14,6 +14,7 @@ type Route = {
   q: string;
   filter: string;
   artifactId?: string;
+  approvalId?: string;
 };
 export type TaskDraft = {
   title: string;
@@ -25,6 +26,7 @@ export type TaskDraft = {
   budget: number;
   skills: string[];
   allowedPaths?: string;
+  requiredFiles?: string;
   allowExternal?: boolean;
   allowExternalRead?: boolean;
   connections?: string[];
@@ -33,6 +35,16 @@ export type TaskDraft = {
   referenceTargets?: string[];
   mode?: 'execute' | 'discuss';
 };
+export function taskPaths(value: string, kind: 'write' | 'file') {
+  const paths = value.split(kind === 'write' ? /[,，\n]/ : /\n/).map((item) => {
+    const path = item
+      .trim()
+      .replaceAll('\\', '/')
+      .replace(/^(\.\/)+/, '');
+    return kind === 'write' && !path.startsWith('/') ? path.replace(/\/+$/, '') : path;
+  });
+  return [...new Set(paths.filter(Boolean))];
+}
 export type Scenario =
   | 'active'
   | 'approval'
@@ -80,6 +92,7 @@ function readRoute(): Route {
     id,
     tab: q.get('view') || 'conversation',
     artifactId: id && q.get('view') === 'changes' ? q.get('artifact') || '' : '',
+    approvalId: id && q.get('view') === 'review' ? q.get('approval') || '' : '',
     project: q.get('project') || '所有项目',
     q: q.get('q') || '',
     filter: q.get('status') || 'all',
@@ -92,6 +105,7 @@ function url(r: Route) {
   if (r.filter !== 'all') q.set('status', r.filter);
   if (r.tab !== 'conversation') q.set('view', r.tab);
   if (r.page === 'task' && r.tab === 'changes' && r.artifactId) q.set('artifact', r.artifactId);
+  if (r.page === 'task' && r.tab === 'review' && r.approvalId) q.set('approval', r.approvalId);
   return `${r.page === 'task' ? `/tasks/${encodeURIComponent(r.id)}` : r.page === 'overview' ? '/' : `/${r.page}`}${q.size ? '?' + q : ''}`;
 }
 export function useRuntime() {
@@ -135,6 +149,8 @@ export function useRuntime() {
     if (current.id) query.set('run_id', current.id);
     if (current.id && current.tab === 'changes' && current.artifactId)
       query.set('artifact_id', current.artifactId);
+    if (current.id && current.tab === 'review' && current.approvalId)
+      query.set('approval_id', current.approvalId);
     if (['inbox', 'recovery'].includes(current.page))
       query.set('status', current.page === 'recovery' ? 'recovery' : 'attention');
     if (
@@ -267,7 +283,15 @@ export function useRuntime() {
     setState(empty);
     setLoading(true);
     void refresh();
-  }, [route.project, route.q, route.filter, route.id, route.page, route.artifactId]);
+  }, [
+    route.project,
+    route.q,
+    route.filter,
+    route.id,
+    route.page,
+    route.artifactId,
+    route.approvalId,
+  ]);
   useEffect(() => {
     if (!route.id) return;
     const controller = new AbortController();
@@ -344,7 +368,7 @@ export function useRuntime() {
     if (!replace) {
       history.replaceState({ ...history.state, scroll: window.scrollY }, '');
       history.pushState(
-        { forgeDepth: (history.state?.forgeDepth || 0) + 1, scroll: 0 },
+        { forgeDepth: (history.state?.forgeDepth || 0) + 1, fromPage: route.page, scroll: 0 },
         '',
         url(next),
       );
@@ -355,7 +379,20 @@ export function useRuntime() {
   }
   const navigate = (page: Page) =>
     changeRoute({ ...route, page, id: '', q: '', filter: 'all', tab: 'conversation' });
-  const openRun = (id: string) => changeRoute({ ...route, page: 'task', id, tab: 'conversation' });
+  const openRun = (id: string, project = route.project) =>
+    changeRoute({
+      ...route,
+      project,
+      page: 'task',
+      id,
+      tab: 'conversation',
+      q: '',
+      filter: 'all',
+      artifactId: '',
+      approvalId: '',
+    });
+  const fromPage: Page = history.state?.fromPage || 'runs';
+  const backLabel = fromPage === 'runs' ? '返回任务列表' : '返回' + pageLabels[fromPage];
   const back = () => {
     if (history.state?.forgeDepth > 0) history.back();
     else navigate('runs');
@@ -432,18 +469,26 @@ export function useRuntime() {
     }
   }
   function specFor(d: TaskDraft): components['schemas']['CreateRun'] {
+    const allowedPaths = taskPaths(d.allowedPaths ?? 'src,tests', 'write');
     const spec: components['schemas']['CreateRun'] = {
       project_id: d.project,
       title: d.title,
       task: {
         mode: d.mode || 'execute',
         goal: d.description,
-        criteria: d.criteria.split('\n').filter(Boolean),
-        scope: d.scope,
-        allowed_paths: (d.allowedPaths || 'src,tests')
-          .split(',')
-          .map((s) => s.trim())
+        criteria: d.criteria
+          .split('\n')
+          .map((line) => line.trim())
           .filter(Boolean),
+        acceptance_conditions: taskPaths(d.requiredFiles || '', 'file').map((path) => ({
+          kind: 'file_exists',
+          path,
+        })),
+        scope:
+          d.mode === 'discuss'
+            ? d.scope
+            : [`允许写入：${allowedPaths.join('、')}`, d.scope.trim()].filter(Boolean).join('。'),
+        allowed_paths: allowedPaths,
       },
       budget: { max_cost_usd: String(d.budget) },
       harness: { evidence_recovery: !!d.evidenceRecovery },
@@ -492,9 +537,9 @@ export function useRuntime() {
         description: run.description,
         project: run.project,
         model: 'configured',
-        criteria: run.criteria.join('\n') || '项目独立验收通过\n修改与确认方案一致',
-        scope: run.scope || '仅修改确认范围内的项目文件',
-        allowedPaths: 'src,tests',
+        criteria: run.criteria.join('\n'),
+        scope: '',
+        allowedPaths: '',
         budget: stateRef.current.settings.budget,
         skills: [],
         evidenceRecovery: true,
@@ -526,7 +571,7 @@ export function useRuntime() {
     try {
       const r = await api<components['schemas']['RunView']>('/examples/smoke', 'POST', undefined);
       await refresh();
-      openRun(r.id);
+      openRun(r.id, r.project);
     } catch (e) {
       setToast((e as Error).message);
     }
@@ -588,6 +633,8 @@ export function useRuntime() {
     variant: 'twitter',
     page: route.page,
     navigate,
+    startProjectDiscussion: (project) =>
+      changeRoute({ page: 'overview', project, id: '', q: '', filter: 'all', tab: 'conversation' }),
     runs: state.runs,
     approvals: state.approvals,
     artifacts: state.artifacts,
@@ -685,6 +732,7 @@ export function useRuntime() {
     storageError,
     loading,
     back,
+    backLabel,
     create,
     scenario,
     verify,
@@ -704,9 +752,32 @@ export function useRuntime() {
     downloadArtifact,
     clearFilters: () => changeRoute({ ...route, q: '', filter: 'all' }, true),
     openTask: (id: string, tab = 'conversation', artifactId?: string) =>
-      changeRoute({ ...route, page: 'task', id, tab, artifactId }),
+      changeRoute({
+        ...route,
+        page: 'task',
+        id,
+        tab,
+        artifactId,
+        approvalId: '',
+        q: '',
+        filter: 'all',
+      }),
+    openApproval: (id: string, approvalId: string) =>
+      changeRoute({
+        ...route,
+        page: 'task',
+        id,
+        tab: 'review',
+        approvalId,
+        artifactId: '',
+        q: '',
+        filter: 'all',
+      }),
+    selectApproval: (approvalId: string) =>
+      changeRoute({ ...route, tab: 'review', approvalId }, true),
     setFilter: (filter: string) => changeRoute({ ...route, filter }, true),
-    setTab: (tab: string, artifactId?: string) => changeRoute({ ...route, tab, artifactId }, true),
+    setTab: (tab: string, artifactId?: string) =>
+      changeRoute({ ...route, tab, artifactId, approvalId: '' }, true),
   };
 }
 export type Runtime = ReturnType<typeof useRuntime>;

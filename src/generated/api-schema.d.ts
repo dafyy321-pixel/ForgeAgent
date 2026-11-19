@@ -260,6 +260,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/workspace/model-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Workspace Model Status */
+        get: operations["workspace_model_status_v1_workspace_model_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/catalog/{collection}": {
         parameters: {
             query?: never;
@@ -729,6 +746,23 @@ export interface paths {
         };
         /** Context */
         get: operations["context_v1_runs__id__context__turn__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{id}/verification-readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Verification Readiness */
+        get: operations["verification_readiness_v1_runs__id__verification_readiness_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1841,6 +1875,8 @@ export interface components {
             version: number;
             /** Plan Digest */
             plan_digest: string;
+            /** Followup Reference */
+            followup_reference?: string | null;
         };
         /** CostAssumptions */
         CostAssumptions: {
@@ -2374,6 +2410,8 @@ export interface components {
             scope: string;
             /** Criteria */
             criteria: string[];
+            /** Acceptanceconditions */
+            acceptanceConditions: components["schemas"]["AcceptanceCondition"][];
             /** Milestones */
             milestones: components["schemas"]["Milestone"][];
             snapshot: components["schemas"]["ExecutionSnapshot"];
@@ -2575,6 +2613,15 @@ export interface components {
             status: "passed" | "failed" | "not_run" | "not_applicable";
             /** Evidence */
             evidence: string;
+        };
+        /** VerificationReadiness */
+        VerificationReadiness: {
+            /** Version */
+            version: number;
+            /** Allowed */
+            allowed: boolean;
+            /** Code */
+            code?: string | null;
         };
         /** VerificationView */
         VerificationView: {
@@ -3698,6 +3745,7 @@ export interface operations {
                 limit?: number;
                 run_id?: string | null;
                 artifact_id?: string | null;
+                approval_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -3862,6 +3910,82 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Structured API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+        };
+    };
+    workspace_model_status_v1_workspace_model_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
                 };
             };
             /** @description Structured API error */
@@ -6149,6 +6273,82 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Structured API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+            /** @description Structured API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FaultResponse"];
+                };
+            };
+        };
+    };
+    verification_readiness_v1_runs__id__verification_readiness_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationReadiness"];
                 };
             };
             /** @description Structured API error */

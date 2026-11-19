@@ -31,6 +31,9 @@ def test_legacy_private_report_publishes_the_digest_of_its_redacted_bytes(client
         s.flush()
         artifact_id = artifact.id
     response = assert_public_metadata(client, run_id, artifact_id)
+    row, = client.get("/v1/catalog/artifacts", params={"run_id": run_id}).json()["items"]
+    assert row["task_title"] == client.get(f"/v1/runs/{run_id}").json()["title"]
+    assert row["project"] == "runtime-lab" and row["created_at"] and row["version"] == 1
     assert b"private result" not in response.content
     assert objects.get(tenant, ref) != response.content
 

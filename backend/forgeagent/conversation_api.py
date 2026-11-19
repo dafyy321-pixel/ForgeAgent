@@ -5,8 +5,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Header
 from pydantic import Field
+from sqlalchemy import func, select
 
-from . import db, presenters, service
+from . import artifact_delivery, db, presenters, service
 from .api_dependencies import Actor
 from .auth import require_run_access
 from .contracts import ConversationView, RunView
@@ -48,6 +49,28 @@ def user_input(id: str, body: UserInput, actor: Actor):
         return presenters.run_view(s, r)
 
 
+def excerpt(text):
+    return text[:1000] + ("…" if len(text) > 1000 else "")
+
+
+def followup_reference(s, run):
+    state = run.state
+    if state.get("knowledge_erased"):
+        return None
+    plan = state.get("confirmed_plan_excerpt")
+    if plan is None and state.get("source_discussion_id"):
+        # Old executions froze their approved dialogue in their own confirmation event.
+        payload = db.Event.payload
+        plan = s.scalar(select(func.coalesce(
+            payload["transition"]["state_set"]["dialogue"][-1]["content"].as_string(),
+            payload["projection"]["state"]["dialogue"][-1]["content"].as_string(),
+        )).where(db.Event.tenant_id == run.tenant_id, db.Event.run_id == run.id,
+                 db.Event.type == "PLAN_CONFIRMED").order_by(db.Event.seq).limit(1))
+    scope = ("上轮已确认方案：" + excerpt(plan)) if plan else ("上轮任务要求：" + excerpt(state["task"]["goal"]))
+    summary = artifact_delivery.summary_text(state) if state.get("verification") else ""
+    return scope + "\n\n上轮交付摘要：" + (excerpt(summary) if summary else "该版本没有已发布的交付摘要。")
+
+
 @router.get("/v1/runs/{id}/conversation", response_model=ConversationView)
 def conversation(id: str, actor: Actor):
     with db.transaction(actor.tenant) as s:
@@ -55,7 +78,9 @@ def conversation(id: str, actor: Actor):
         return {"messages": [{k: v for k, v in m.items() if k != "key"} for m in r.state.get("dialogue", [])],
                 "initial": r.state["task"]["goal"], "mode": r.state["task"].get("mode", "execute"),
                 "plan_ready": service.plan_ready(r), "execution_id": r.state.get("execution_id"),
-                "version": r.version, "plan_digest": service.discussion_plan_digest(r)}
+                "version": r.version, "plan_digest": service.discussion_plan_digest(r),
+                "followup_reference": followup_reference(s, r) if r.status in {"SUCCEEDED", "FAILED", "CANCELLED"}
+                else r.state.get("followup_reference")}
 
 
 @router.post("/v1/runs/{id}/messages", response_model=RunView)
@@ -109,7 +134,8 @@ def followup_discussion(id: str, body: FollowupDiscussion, actor: Actor, idempot
             raise Fault("FOLLOWUP_CONFLICT", "Follow-up requires the current finished task")
         service.require_finalizable(s, old)
         content = json.loads(objects.get(actor.tenant, old.state["workspace_ref"]))
-        r.state = {**r.state, "source_run_id": id, "workspace_ref": put_reviewed(s, r, content),
+        r.state = {**r.state, "source_run_id": id, "followup_reference": followup_reference(s, old),
+                   "workspace_ref": put_reviewed(s, r, content),
                    "workspace_digest": digest(content)}
         db.emit(s, r, "FOLLOWUP_CREATED", "基于已保留的工作区继续只读讨论", source_run_id=id)
         service.checkpoint(s, r)
@@ -146,10 +172,14 @@ def execute_plan(id: str, body: ConfirmExecution, actor: Actor, idempotency_key:
             from .resources import put_reviewed
 
             content = json.loads(objects.get(actor.tenant, r.state["workspace_ref"]))
-            execution.state = {**execution.state, "workspace_ref": put_reviewed(s, execution, content),
+            execution.state = {**execution.state, "followup_reference": r.state.get("followup_reference"),
+                               "workspace_ref": put_reviewed(s, execution, content),
                                "workspace_digest": digest(content)}
         # The confirmed history is frozen into the new run; the discussion never gains write authority.
-        execution.state = {**execution.state, "source_discussion_id": id, "dialogue": r.state.get("dialogue", []),
+        dialogue = r.state.get("dialogue", [])
+        plan = dialogue[-1]["content"] if dialogue and dialogue[-1]["role"] == "assistant" else ""
+        execution.state = {**execution.state, "source_discussion_id": id, "dialogue": dialogue,
+                           "confirmed_plan_excerpt": excerpt(plan),
                            "confirmed_plan_digest": body.plan_digest, "confirmed_plan_version": body.expected_version}
         db.emit(s, execution, "PLAN_CONFIRMED", "用户确认方案，创建独立执行任务", discussion_id=id,
                 plan_digest=body.plan_digest, reviewed_version=body.expected_version)

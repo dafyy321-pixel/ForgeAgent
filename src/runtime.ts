@@ -78,10 +78,19 @@ export function event(
   return { id: crypto.randomUUID(), runId, kind, title, detail, time };
 }
 export function needsAttention(r: Execution) {
+  if (r.executionId) return false;
   return (
     ['PAUSED', 'FAILED'].includes(r.status) ||
     (r.status === 'WAITING' && ['APPROVAL', 'RECONCILIATION'].includes(r.waitReason || ''))
   );
+}
+export function displaySummary(run: Execution, text: string) {
+  if (
+    run.model === 'fixture@1' &&
+    text.trim() === 'Fixture change ready for independent AST verification'
+  )
+    return '已修改 src/calculator.py 中的 add 函数，使用加法返回两个输入之和。';
+  return text;
 }
 export function checksFor(r: Execution, approvals: Decision[]) {
   return [

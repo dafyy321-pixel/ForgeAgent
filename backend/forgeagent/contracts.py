@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .domain import AcceptanceCondition
+
 
 class NextAction(BaseModel):
     label: str
@@ -58,6 +60,12 @@ class VerificationView(BaseModel):
     checks: list[VerificationCheck]
 
 
+class VerificationReadiness(BaseModel):
+    version: int
+    allowed: bool
+    code: str | None = None
+
+
 class AuthConfig(BaseModel):
     mode: Literal["local", "oidc"]
     authority: str | None = None
@@ -81,6 +89,7 @@ class ConversationView(BaseModel):
     execution_id: str | None
     version: int
     plan_digest: str
+    followup_reference: str | None = None
 
 
 class RunView(BaseModel):
@@ -98,6 +107,7 @@ class RunView(BaseModel):
     waitReason: Literal["APPROVAL", "TOOL", "CHILD_RUN", "RETRY_TIMER", "RECONCILIATION"] | None
     scope: str
     criteria: list[str]
+    acceptanceConditions: list[AcceptanceCondition]
     milestones: list[Milestone]
     snapshot: ExecutionSnapshot
     checkpoint: CheckpointView

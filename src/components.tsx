@@ -198,7 +198,7 @@ export function Dialog({
           'button:not([disabled]),input,select,textarea,a[href],[tabindex="0"]',
         ) || [],
       );
-    focusable()[0]?.focus();
+    (box?.querySelector<HTMLElement>('[data-dialog-focus]') || focusable()[0])?.focus();
     const listener = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();

@@ -14,6 +14,9 @@ test('preview opens the requested artifact and downloading keeps its original by
   const rows = ['summary', 'remote'].map((kind) => ({
     id: kind,
     run_id: run.id,
+    task_title: run.title,
+    project: run.project,
+    created_at: run.started,
     runId: run.id,
     name: kind + '.file',
     type: kind,

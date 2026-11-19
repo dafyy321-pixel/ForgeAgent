@@ -474,14 +474,14 @@ def release_child_allocation(s, run):
         db.emit(s, run, "CHILD_ALLOCATION_RELEASED", "Unused child budget returned to the root")
 
 
-def join_children(s, run, children):
+def join_children(s, run, children, *, update=True):
     results, required_pending, required_failed = {}, False, False
     for child in children:
         contract = child.state.get("child_contract", {"required": True, "join": "report", "deliverables": []})
         deadline = child.state.get("deadline")
-        if deadline and datetime.fromisoformat(deadline) <= db.clock(s) and child.status not in TERMINAL:
+        if update and deadline and datetime.fromisoformat(deadline) <= db.clock(s) and child.status not in TERMINAL:
             control(s, run.tenant_id, child.id, "cancel", child.version, "Child deadline reached")
-        if child.status in TERMINAL:
+        if update and child.status in TERMINAL:
             release_child_allocation(s, child)
         artifacts = db.rows(s, db.Artifact, run.tenant_id, run_id=child.id)
         kinds = {a.kind for a in artifacts if a.verified and a.version == child.state["artifact_version"]}
@@ -492,7 +492,7 @@ def join_children(s, run, children):
                              "verdict": (child.state.get("verification") or {}).get("verdict")}
         required_pending |= required and child.status not in TERMINAL
         required_failed |= required and child.status in TERMINAL and (child.status != "SUCCEEDED" or not delivery_ok)
-    if results != run.state.get("child_results", {}):
+    if update and results != run.state.get("child_results", {}):
         run.state = {**run.state, "child_results": results}
         db.emit(s, run, "CHILD_JOIN_STATUS", "Child outcomes and required delivery contracts updated")
     return required_pending, required_failed
@@ -833,7 +833,7 @@ def require_settled_usage(s, run):
         raise Fault("UNSETTLED_BUDGET", "Root budget still contains reserved funds or tokens")
 
 
-def require_finalizable(s, run):
+def require_finalizable(s, run, *, update_children=True):
     if run.state.get("knowledge_erased"):
         raise Fault("KNOWLEDGE_ERASED", "Erased history cannot be verified or restored")
     require_settled_usage(s, run)
@@ -843,7 +843,7 @@ def require_finalizable(s, run):
            for a in db.rows(s, db.Action, run.tenant_id, run_id=run.id)):
         raise Fault("UNSETTLED_ACTION", "Pending actions must settle before verification")
     children = db.rows(s, db.Run, run.tenant_id, parent_id=run.id)
-    pending, failed = join_children(s, run, children)
+    pending, failed = join_children(s, run, children, update=update_children)
     if pending or failed or any(c.status not in TERMINAL for c in children):
         raise Fault("UNSETTLED_CHILD", "Child calls must settle and required children must deliver successfully")
     if any(c.state.get("child_contract", {}).get("required", True)

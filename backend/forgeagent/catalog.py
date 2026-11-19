@@ -65,6 +65,9 @@ def page(s, actor, collection, cursor=None, limit=50, status=None, run_id=None, 
     calls = skill_calls(s, actor, [row.id for row in values]) if cls == db.SkillVersion else {}
     actions = {row.id: row for row in s.scalars(select(db.Action).where(db.Action.tenant_id == actor.tenant,
         db.Action.id.in_([row.action_id for row in values])))} if cls == db.Approval else {}
+    artifact_tasks = {row.id: row for row in s.execute(select(
+        db.Run.id, db.Run.state["title"].as_string().label("title"), db.Run.project_id, db.Run.created_at
+    ).where(visible(s, actor), db.Run.id.in_({row.run_id for row in values})))} if cls == db.Artifact else {}
     def view(row):
         result = {"id": row.id, "created_at": row.created_at.isoformat()}
         if hasattr(row, "status"):
@@ -73,6 +76,8 @@ def page(s, actor, collection, cursor=None, limit=50, status=None, run_id=None, 
             result["run_id"] = row.run_id
         if cls == db.Artifact:
             checksum, size = artifact_delivery.metadata(s, row)
+            task = artifact_tasks[row.run_id]
+            result.update(task_title=task.title, project=task.project_id, task_started=task.created_at.isoformat())
             result.update(name=row.name, kind=row.kind, digest=checksum, bytes=size, verified=row.verified, version=row.version)
         elif cls == db.Action:
             result.update(tool=row.tool, effect_class=row.effect_class, attempt=row.attempt)

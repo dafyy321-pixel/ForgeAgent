@@ -4,6 +4,9 @@ import { apiURL } from './api-url';
 test('homepage explains the workflow, preserves the draft and starts a read-only conversation', async ({
   page,
 }) => {
+  await page.route('**/v1/workspace/model-status', (route) =>
+    route.fulfill({ json: { available: true } }),
+  );
   await page.goto('/');
   await expect(page.getByRole('heading', { name: '今天想对项目做些什么？' })).toBeVisible();
   await page.getByRole('button', { name: '增加一个功能', exact: true }).click();
@@ -15,10 +18,11 @@ test('homepage explains the workflow, preserves the draft and starts a read-only
   await expect(composer).toHaveValue('先分析项目中的搜索功能\na');
   await page.getByRole('button', { name: '发送消息' }).click();
   await expect(page.getByRole('alert')).toContainText('先选择一个项目');
-  await page.getByRole('combobox', { name: '选择工作项目' }).selectOption('runtime-lab');
+  await page.getByRole('combobox', { name: '本次任务的项目' }).selectOption('runtime-lab');
   await page.reload();
   await expect(composer).toHaveValue('先分析项目中的搜索功能\na');
-  await expect(page.getByRole('combobox', { name: '选择工作项目' })).toHaveValue('runtime-lab');
+  await expect(page.getByRole('combobox', { name: '本次任务的项目' })).toHaveValue('runtime-lab');
+  await expect(page.getByRole('button', { name: '发送消息' })).toBeEnabled();
   const sent = page.waitForRequest((r) => r.url().endsWith('/v1/runs') && r.method() === 'POST');
   await composer.press('Enter');
   const spec = (await sent).postDataJSON();
@@ -56,6 +60,55 @@ async function pausedDiscussion(request: import('@playwright/test').APIRequestCo
   return id as string;
 }
 
+test('delivery keeps manual criteria visible and failed tasks offer a new attempt', async ({
+  page,
+  request,
+}) => {
+  const response = await request.post(`${apiURL}/v1/runs`, {
+    headers: { 'Idempotency-Key': crypto.randomUUID() },
+    data: {
+      project_id: 'runtime-lab',
+      model: 'fixture',
+      task: {
+        goal: 'Fix add',
+        criteria: ['核对示例的措辞'],
+        acceptance_conditions: [{ kind: 'file_exists', path: 'src/calculator.py' }],
+      },
+    },
+  });
+  expect(response.status()).toBe(202);
+  const { id } = await response.json();
+  await page.goto(`/tasks/${id}`);
+  await expect(page.locator('.chat-delivery')).toContainText('1 项人工条件待核对', {
+    timeout: 30000,
+  });
+  await page.getByRole('button', { name: '查看测试结果' }).click();
+  await expect(page.getByRole('heading', { name: '人工验收条件' })).toBeVisible();
+  await expect(page.locator('#main-content')).toContainText('核对示例的措辞');
+  await page.route('**/v1/workspace?*', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    const item = body.runs.find((r: { id: string }) => r.id === id);
+    item.status = 'FAILED';
+    item.verification = {
+      version: 1,
+      status: 'inconclusive',
+      checks: [{ name: '环境', evidence: '环境不可用', status: 'not_run' }],
+    };
+    await route.fulfill({ response, json: body });
+  });
+  await page.reload();
+  await expect(
+    page.locator('.verification-check').filter({ hasText: 'src/calculator.py' }),
+  ).toContainText('未运行');
+  await page.locator('.more-menu summary').click();
+  await expect(
+    page.locator('.more-menu').getByRole('button', { name: '创建新的尝试' }),
+  ).toBeVisible();
+  await expect(page.locator('.more-menu').getByRole('button', { name: '取消任务' })).toHaveCount(0);
+  await page.unrouteAll({ behavior: 'wait' });
+});
+
 test('plan confirmation UI waits for explicit confirmation and then opens the execution', async ({
   page,
   request,
@@ -83,7 +136,7 @@ test('plan confirmation UI waits for explicit confirmation and then opens the ex
             id: 'plan',
             role: 'assistant',
             content:
-              '## 实现方案\n修复 **加法**，保留小数。\n- 运行独立测试\n```python\nreturn left + right\n```',
+              '## 实现方案\n修复 **加法**，保留小数。修改 `src/calculator.py`，参考 docs/guide.md。\n- 运行独立测试\n```python\nreturn left + right\n```',
           },
         ],
         plan_ready: true,
@@ -98,6 +151,13 @@ test('plan confirmation UI waits for explicit confirmation and then opens the ex
     const body = route.request().postDataJSON();
     expect(body.spec.project_id).toBe('runtime-lab');
     expect(body.spec.task.mode).toBe('execute');
+    expect(body.spec.task.allowed_paths).toEqual(['src/calculator.py']);
+    expect(body.spec.task.scope).toContain('src/calculator.py');
+    expect(body.spec.task.scope).not.toContain('只读讨论');
+    expect(body.spec.task.acceptance_conditions).toEqual([
+      { kind: 'file_exists', path: 'src/calculator.py' },
+    ]);
+    expect(body.spec.task.criteria).toEqual(['用户认可计算结果的展示方式']);
     expect(body.expected_version).toBe(current.stateVersion);
     expect(body.plan_digest).toBe('reviewed-plan');
     const execution = await request.post(`${apiURL}/v1/examples/smoke`, {
@@ -114,6 +174,16 @@ test('plan confirmation UI waits for explicit confirmation and then opens the ex
   await page.getByRole('button', { name: '确认方案并执行', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '确认方案并执行', exact: true });
   await expect(dialog.getByLabel('项目', { exact: true })).toBeDisabled();
+  await expect(dialog.getByLabel('允许写入的路径')).toHaveValue('');
+  await dialog.getByRole('button', { name: '确认并开始执行', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('填写允许写入的文件或目录');
+  await dialog.getByRole('button', { name: '允许写入 src/calculator.py', exact: true }).click();
+  await expect(dialog.getByLabel('允许写入的路径')).toHaveValue('src/calculator.py');
+  await dialog.getByRole('button', { name: '确认并开始执行', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('核对方案中其余文件');
+  await dialog.getByLabel('其余文件仅供读取').check();
+  await dialog.getByLabel('必须存在的文件').fill('src/calculator.py');
+  await dialog.getByLabel('人工验收条件').fill('用户认可计算结果的展示方式');
   expect(confirmations).toBe(0);
   await dialog.getByRole('button', { name: '确认并开始执行', exact: true }).click();
   await expect(page.locator('#main-content .run-badge').first()).toHaveText('已验证完成', {

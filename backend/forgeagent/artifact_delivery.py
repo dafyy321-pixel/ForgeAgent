@@ -7,6 +7,15 @@ from . import db, service
 from .domain import canonical, digest
 from .storage import objects
 
+FIXTURE_SUMMARY = "已修改 src/calculator.py 中的 add 函数，使用加法返回两个输入之和。"
+
+
+def summary_text(state):
+    value = state.get("completion") or ""
+    if state.get("fixture") and value == "Fixture change ready for independent AST verification":
+        return FIXTURE_SUMMARY
+    return value
+
 
 def _legacy_report(artifact):
     return artifact.kind == "test_report" and artifact.ref.get("public_report_version") != 1

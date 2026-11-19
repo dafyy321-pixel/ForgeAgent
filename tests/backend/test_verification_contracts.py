@@ -13,6 +13,51 @@ from forgeagent.verification import verify
 from forgeagent.workspace import entry, validate_manifest
 
 
+def test_manual_verification_readiness_matches_admission(tenant, make_run, client):
+    run_id = make_run()
+    url = f"/v1/runs/{run_id}"
+    assert client.get(url).json()["criteria"] == []
+    assert client.get(url + "/verification-readiness").json()["allowed"] is False
+    with db.transaction(tenant) as s:
+        run = db.get(s, db.Run, tenant, run_id)
+        run.status = "ACTIVE"
+        run.lease_owner = "worker-testing"
+    active = client.get(url + "/verification-readiness").json()
+    assert not active["allowed"] and active["code"] == "VERIFY_CONFLICT"
+    assert client.post(url + "/verify", json={"expected_version": active["version"]}).json()["code"] == active["code"]
+    with db.transaction(tenant) as s:
+        run = db.get(s, db.Run, tenant, run_id)
+        run.status, run.lease_owner = "PAUSED", None
+        account = db.get(s, db.BudgetAccount, tenant, run.root_id)
+        account.reserved = 1
+    blocked = client.get(url + "/verification-readiness").json()
+    assert not blocked["allowed"] and blocked["code"] == "UNSETTLED_BUDGET"
+    assert client.post(url + "/verify", json={"expected_version": blocked["version"]}).json()["code"] == blocked["code"]
+    with db.transaction(tenant) as s:
+        db.get(s, db.BudgetAccount, tenant, run_id).reserved = 0
+    ready = client.get(url + "/verification-readiness").json()
+    assert ready["allowed"] and client.post(url + "/verify", json={"expected_version": ready["version"]}).status_code == 202
+
+
+@pytest.mark.parametrize(("path", "expected"), [("src/calculator.py", "passed"), ("src/required.py", "failed")])
+async def test_manual_and_automatic_requirements_stay_distinct(tenant, make_run, client, path, expected):
+    from forgeagent.worker import Worker
+
+    run_id = make_run(task=Task(goal="Fix add", criteria=["Review the example wording"],
+                                acceptance_conditions=[{"kind": "file_exists", "path": path}]))
+    worker = Worker(target_run=run_id)
+    for _ in range(12):
+        await worker.once(tenant)
+        view = client.get(f"/v1/runs/{run_id}").json()
+        if view["verification"]["status"] in {"passed", "failed"}:
+            break
+    assert view["criteria"] == ["Review the example wording"]
+    assert view["acceptanceConditions"][0]["path"] == path
+    assert view["verification"]["status"] == expected
+    assert any(c["status"] == expected and c["name"] == "注册验收条件: file_exists" and c["evidence"] == path
+               for c in view["verification"]["checks"])
+
+
 @pytest.mark.parametrize("manifest", [
     {"a": entry(b"b", "120000"), "b": entry(b"a", "120000")},
     {"a": entry(b".", "120000"), "b": entry(b"a/../outside", "120000")},
