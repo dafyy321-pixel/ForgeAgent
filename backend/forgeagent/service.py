@@ -696,7 +696,9 @@ def prepare_action(s, run, call, logical_key):
     error = None
     tool = descriptor or TOOLS.get(call.tool, {"effect": "read", "capability": "repo.read"})
     try:
-        if call.tool not in TOOLS or not descriptor:
+        if not descriptor:
+            if call.tool in TOOLS and call.tool.startswith("rea.") and not run.state.get("reference_targets"):
+                raise Fault("REFERENCE_SCOPE", "No reference target is pinned to this task", 403)
             raise Fault("TOOL_UNAVAILABLE", "Tool is not in the pinned tool catalog", 422)
         TOOL_INPUTS[call.tool].model_validate(call.args)
         authorization(s, run, tool["capability"])

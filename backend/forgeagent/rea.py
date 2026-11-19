@@ -229,8 +229,8 @@ async def execute(tenant, run_id, epoch, owner, action_id, attempt_id, tool, arg
             current(s, run, target_id)
             if run.cancel_requested or run.pause_requested or diagnosis.binding(run) != bound:
                 raise Fault("REA_EVIDENCE_STALE", "Control or task revision changed before analyzer start")
-        # This host runner has no one-core container guarantee: conservatively reserve all host CPUs.
-        cores = os.cpu_count() or 1
+        # The Windows job constrains the entire process family to one allowed CPU.
+        cores = 1 if os.name == "nt" else os.cpu_count() or 1
         charged = await asyncio.to_thread(resources.admit_cpu, tenant, run_id, attempt_id, 120 * cores)
         timeout = max(0.1, charged / cores)
         cancelled = threading.Event()

@@ -45,9 +45,15 @@ class WindowsJob:
                         ("peak_process", ctypes.c_size_t), ("peak_job", ctypes.c_size_t)]
 
         info = Extended()
-        info.basic.flags = 0x2000 | 0x200 | 0x8  # kill-on-close, job-memory, active-process limits
+        info.basic.flags = 0x2000 | 0x200 | 0x8 | 0x10  # kill-on-close, job-memory, process count, affinity
         info.basic.active, info.job_memory = 8, 1024 * 1024 * 1024
         try:
+            mask, system_mask = ctypes.c_size_t(), ctypes.c_size_t()
+            kernel.GetProcessAffinityMask.argtypes = [wintypes.HANDLE, ctypes.POINTER(ctypes.c_size_t),
+                                                      ctypes.POINTER(ctypes.c_size_t)]
+            if not kernel.GetProcessAffinityMask(int(process._handle), ctypes.byref(mask), ctypes.byref(system_mask)) or not mask.value:
+                raise Fault("REA_SUPERVISION", "Cannot select an allowed analyzer processor")
+            info.basic.affinity = mask.value & -mask.value
             if not kernel.SetInformationJobObject(self.handle, 9, ctypes.byref(info), ctypes.sizeof(info)):
                 raise Fault("REA_SUPERVISION", "Cannot bound analyzer process family")
             if not kernel.AssignProcessToJobObject(self.handle, int(process._handle)):
@@ -70,10 +76,33 @@ class WindowsJob:
                 _fields_ = [("times", ctypes.c_int64 * 4), ("faults", wintypes.DWORD),
                             ("total", wintypes.DWORD), ("active", wintypes.DWORD), ("terminated", wintypes.DWORD)]
 
+            class Members(ctypes.Structure):
+                # The job's active process limit is eight.
+                _fields_ = [("assigned", wintypes.DWORD), ("count", wintypes.DWORD), ("ids", ctypes.c_size_t * 8)]
+
+            handles = []
             try:
+                # ActiveProcesses can reach zero before a terminating member releases its cwd.
+                # Keep handles to the live members so their final exit is observable after termination.
+                members = Members()
+                if not self.kernel.QueryInformationJobObject(self.handle, 3, ctypes.byref(members), ctypes.sizeof(members), None):
+                    raise Fault("REA_SUPERVISION", "Cannot enumerate owned analyzer processes")
+                self.kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+                self.kernel.OpenProcess.restype = wintypes.HANDLE
+                self.kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+                for pid in members.ids[:members.count]:
+                    process = self.kernel.OpenProcess(0x100000, False, pid)  # SYNCHRONIZE
+                    if process:
+                        handles.append(process)
+                    elif ctypes.get_last_error() != 87:  # ERROR_INVALID_PARAMETER: PID already exited
+                        raise Fault("REA_SUPERVISION", "Cannot observe owned analyzer process exit")
                 if not self.kernel.TerminateJobObject(self.handle, 1):
                     raise Fault("REA_SUPERVISION", "Cannot terminate owned analyzer family")
                 deadline = time.monotonic() + 5
+                for process in handles:
+                    remaining_ms = max(0, int((deadline - time.monotonic()) * 1000))
+                    if self.kernel.WaitForSingleObject(process, remaining_ms) != 0:
+                        raise Fault("REA_SUPERVISION", "Analyzer process did not exit before cleanup deadline")
                 info = Accounting()
                 while True:
                     if not self.kernel.QueryInformationJobObject(self.handle, 1, ctypes.byref(info), ctypes.sizeof(info), None):
@@ -84,6 +113,8 @@ class WindowsJob:
                         raise Fault("REA_SUPERVISION", "Analyzer family did not exit before cleanup deadline")
                     time.sleep(.01)
             finally:
+                for process in handles:
+                    self.kernel.CloseHandle(process)
                 self.kernel.CloseHandle(self.handle)
                 self.handle = None
 

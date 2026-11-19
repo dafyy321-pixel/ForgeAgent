@@ -106,8 +106,13 @@ def test_reference_escape_and_unpinned_target_are_rejected(tmp_path, monkeypatch
     link = tmp_path / "link"
     try:
         link.symlink_to(reference[1], target_is_directory=True)
-    except OSError:
-        pytest.skip("Symlink creation unavailable")
+    except OSError as exc:
+        if sys.platform != "win32" or exc.winerror != 1314:
+            raise
+        # Unprivileged Windows accounts can still exercise directory-link rejection.
+        import _winapi
+
+        _winapi.CreateJunction(str(reference[1]), str(link))
     monkeypatch.setattr(settings, "rea_target_roots", json.dumps([str(tmp_path)]))
     with pytest.raises(Fault):
         rea.capture(str(link))
