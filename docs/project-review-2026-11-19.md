@@ -2,6 +2,24 @@
 
 2026-11-19 · 基线 `c49b9c560bccda5f0301085ed95750e2232c7e65`
 
+## 整改与复验记录
+
+下文保留初审时的判断和证据。整改覆盖六项优先问题及性能、界面表中的五项问题。
+
+| 范围 | 已交付的行为与复验入口 |
+|---|---|
+| 共享部署与隐私 | Worker 使用 PostgreSQL 跨连接限制并发，manager 独立限流，RPC 显式信任部署 CA。擦除跟随跨预算 root 的内容派生关系，同时清理当前及历史 manager 回执。见[共享部署测试](../tests/backend/test_manager_deployment.py)、[正式 Compose 拓扑冒烟脚本](../scripts/deploy-manager-smoke.sh)和[擦除回归](../tests/backend/test_run_erasure_scope.py)。 |
+| 用户输入与交付 | 两个输入入口统一使旧提案失效，确认绑定提案生成时的输入版本。下载保留原始字节，公开验收报告的大小与摘要对应脱敏后交付给用户的内容。历史评测报告的校验文件已修正。 |
+| 调度与工作台 | 隔离损坏历史、退避暂时性读取失败，按任务与状态分批查询队列，由对账、审批或到期唤醒等待任务。工作台在快照成功后更新版本并刷新待办目录；筛选按钮支持键盘操作。三种模型协议均保留讨论提示。 |
+
+三项实验均已实现。配对评测用两个脚本化模型 profile、两种 Harness 配置运行四个合成 Python/TypeScript 任务，共 16 次试验；每个配置组合均有两个独立验收通过、两个按预期暂停。通过 CLI 可重跑及比较报告。[配对实验与命令](external-repair-pilot.md)
+
+按需工具发现和只读符号组合均可按任务启用，默认关闭。OpenAI Responses 原生请求离线对照中，计入发现的一次额外请求，64 个远程工具的本地估算输入从 5,242 降至 3,081 token；2 个工具时从 1,479 升至 3,075。只读组合在单文件及 32 文件样本中各减少一个有依赖的工具调用阶段，保持源片段摘要与底层计量次数一致，原始回执各多出 48 个估算 token。25 次重复测量中，本地工具 P95 未出现改善。模型实际选择准确率、供应商费用与真实任务交付收益仍需使用固定模型测量。[可复跑的实验](../scripts/profile-tool-paths.py) · [完整结果](../benchmarks/reports/offline-tool-paths-2026-11-19.json)
+
+本地复验使用 Windows、UTF-8 PostgreSQL 和锁定的 REA，后端全量 442 项通过、11 项跳过；独立 Chromium 实例连接真实 API 和 Worker，32 项端到端测试全部通过。[Linux 运行时验收记录](https://github.com/dafyy321-pixel/ForgeAgent/actions/workflows/runtime.yml) · [调度性能作业](https://github.com/dafyy321-pixel/ForgeAgent/actions/workflows/performance.yml)
+
+## 初审记录
+
 **下一轮先打通真实共享部署，修复方案确认、数据擦除和交付校验，再扩展模型实验。** ForgeAgent 已经有较完整的持久任务内核。当前影响使用者的主要问题出现在边界上：部署配置与实际运行依赖、预算家族与内容派生关系、内部证据与用户实际下载的文件，以及后端状态与浏览器所见状态。
 
 ## 现有能力和验证程度
