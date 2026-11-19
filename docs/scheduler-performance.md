@@ -2,6 +2,8 @@
 
 普通 CI 的 180 秒上限用于发现挂起。`.github/workflows/performance.yml` 单独运行性能门槛，默认 45 秒，保留失败报告。它每周运行，也支持手动指定门槛。
 
+手动选择 `runner_class=hosted` 可在独立的 GitHub Ubuntu 24.04 作业上建立当前提交的基线，环境标记为 `github-hosted-ubuntu-24.04`。固定自托管机器仍使用 `dedicated` 和原有启用开关。比较性能变化时应选相同的机器类别、软件配置与任务组合。
+
 先配置专用 Linux x64 runner，标签为 `forge-performance`，安装 Docker、PostgreSQL 客户端及 Git；该机器同一时刻只接受此作业，禁止其他测试、模型任务和构建共用资源。随后设置仓库变量 `FORGE_PERFORMANCE_ENABLED=1`。当前仅交付作业配置，没有声称已经配置或运行 GitHub 专用机器。Python 3.12.10、Node 24.10.0、PostgreSQL 17.6 及 uv.lock 固定；报告保留实现摘要、commit、平台和环境标签。调整机器资源或数据库配置后需建立新基线。
 
 本地可在跟踪文件干净的 commit 上运行：

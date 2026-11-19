@@ -2,6 +2,11 @@ name: Scheduler Performance
 on:
   workflow_dispatch:
     inputs:
+      runner_class:
+        description: Machine class recorded in the baseline
+        type: choice
+        options: [hosted, dedicated]
+        default: hosted
       max_seconds:
         description: Separate throughput limit for the 20-task fixture (seconds)
         required: true
@@ -13,9 +18,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   profile:
-    # Opt in only after provisioning one dedicated machine with this label.
-    if: vars.FORGE_PERFORMANCE_ENABLED == '1'
-    runs-on: [self-hosted, linux, x64, forge-performance]
+    if: vars.FORGE_PERFORMANCE_ENABLED == '1' || (github.event_name == 'workflow_dispatch' && inputs.runner_class == 'hosted')
+    runs-on: ${{ fromJSON(inputs.runner_class == 'hosted' && '["ubuntu-24.04"]' || '["self-hosted","linux","x64","forge-performance"]') }}
     timeout-minutes: 15
     services:
       postgres:
@@ -30,6 +34,7 @@ jobs:
       FORGE_DATABASE_URL: postgresql+psycopg://forge:forge-local@127.0.0.1:55432/forge
       FORGE_TEST_RELEASE: '0'
       FORGE_TEST_LIVE_RECOVERY: '0'
+      PROFILE_ENVIRONMENT: ${{ inputs.runner_class == 'hosted' && 'github-hosted-ubuntu-24.04' || 'dedicated-forge-performance' }}
       FORGE_SCHEDULER_MAX_SECONDS: ${{ inputs.max_seconds || vars.FORGE_PERFORMANCE_MAX_SECONDS || '45' }}
     steps:
       - uses: actions/checkout@v4
@@ -49,7 +54,7 @@ jobs:
       - name: Measure correctness and separate performance limit
         run: >-
           uv run python scripts/profile-scheduler.py --require-clean
-          --environment-id dedicated-forge-performance
+          --environment-id "$PROFILE_ENVIRONMENT"
           --output .forge/performance-${{ github.run_id }}-${{ github.run_attempt }}.json
       - uses: actions/upload-artifact@v4
         if: always()
