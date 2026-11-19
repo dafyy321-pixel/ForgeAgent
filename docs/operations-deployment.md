@@ -10,6 +10,8 @@
 
 `POST /v1/operations/workspaces/gc` 同样先预览，回收已结算终态任务的目录，以及活动任务已经被 fencing 的旧 epoch、verify、stage/backup 目录；保留活动任务当前及后续 epoch；Git worktree 使用 Git remove。Docker 由 manager 标签绑定共享数据根与工作区，只回收超过持久硬截止时间的受管容器；不按容器名字猜测所有权。
 
+任务擦除会沿 fork、继续讨论、确认执行时产生的数据复制关系跨越预算 root，检查所有派生任务的结算与租约。升级后再次提交此前的擦除请求会补查这批历史副本。独立 manager 的命令输出按租户与任务清理；旧版平铺的操作目录通过请求内记录的工作区绝对路径归属，擦除时应保持原有共享数据挂载路径。清理后保留无正文的幂等摘要和删除标记，迟到的回执无法重新写入。
+
 ## 维护任务、遥测与告警
 
 `POST /v1/operations/jobs` 接受 objects/workspaces/containers、apply、min_age_hours 和 idempotency_key。`GET /v1/operations/jobs` 查询状态。`python -m forgeagent.maintenance_jobs` 独立执行，数据库领取、租约恢复、有界退避、最多五次后 dead_letter；`POST /v1/operations/jobs/{id}/retry` 由管理员审核后重试并追加审计。此目录仅允许可重复的清理，不接收模型调用、远程写入或未知效果重发。

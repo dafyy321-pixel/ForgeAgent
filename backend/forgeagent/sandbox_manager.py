@@ -17,6 +17,7 @@ from pydantic import Field
 
 from .config import settings
 from .domain import BuildContract, Fault, Strict, canonical, digest, uid
+from .manager_receipts import prepare_receipt
 from .sandbox import sandbox
 
 app = FastAPI(title="ForgeAgent Sandbox Manager")
@@ -27,20 +28,6 @@ local_slots = BoundedSemaphore(settings.sandbox_concurrency)
 def manager_client(timeout):
     verify = ssl.create_default_context(cafile=settings.sandbox_manager_ca_file) if settings.sandbox_manager_ca_file else True
     return httpx.AsyncClient(timeout=timeout, trust_env=False, verify=verify)
-
-
-def claim_operation(directory, payload):
-    claim = directory / "request.json"
-    try:
-        with claim.open("xb") as handle:
-            handle.write(canonical(payload))
-    except FileExistsError:
-        if claim.read_bytes() != canonical(payload):
-            raise Fault("MANAGER_CONFLICT", "Operation ID already names a different request")
-        receipt = directory / "receipt.json"
-        if receipt.exists():
-            return json.loads(receipt.read_bytes())
-        raise Fault("MANAGER_INTERRUPTED", "Prior dispatch has no durable result; use a new bounded attempt")
 
 
 class Execution(Strict):
@@ -100,18 +87,16 @@ async def run_execution(body):
 async def execute(body: Execution, authorization: Annotated[str, Header()]):
     payload = body.model_dump()
     authorize(authorization, "execute", payload)
-    directory = settings.data_dir.resolve() / "sandbox-manager" / body.operation
-    await asyncio.to_thread(directory.mkdir, parents=True, exist_ok=True)
-    previous = await asyncio.to_thread(claim_operation, directory, payload)
+    receipt, previous = await asyncio.to_thread(prepare_receipt, payload)
     if previous is not None:
         return previous
     task = asyncio.create_task(run_execution(body))
     active[body.operation] = task
     try:
         result = await task
-        temporary = directory / "receipt.tmp"
+        temporary = receipt.with_suffix(".tmp")
         await asyncio.to_thread(temporary.write_bytes, canonical(result))
-        await asyncio.to_thread(temporary.replace, directory / "receipt.json")
+        await asyncio.to_thread(temporary.replace, receipt)
         return result
     finally:
         active.pop(body.operation, None)

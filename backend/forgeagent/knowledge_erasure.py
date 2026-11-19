@@ -17,18 +17,27 @@ def prepare(s, tenant, memory_id, actor, run_id=None):
     initial = db.get(s, db.Run, tenant, run_id, True) if run_id else None
     key = "run-erasure-" + run_id if run_id else "memory-erasure-" + memory_id
     existing = s.get(db.PolicyVersion, (tenant, key))
+    legacy_ids = set()
+    if existing and existing.data.get("lineage_version") != 2:
+        # Repeating an old purge must also cover copies made into independent roots.
+        legacy_ids = set(existing.data["runs"])
+        key += "-v2"
+        existing = s.get(db.PolicyVersion, (tenant, key))
     if existing:
         return existing.data["runs"], key
     roots, memory_ids, derived_ids = ({initial.root_id} if initial else set()), ({memory_id} if memory_id else set()), set()
     all_runs, all_memories = db.rows(s, db.Run, tenant), db.rows(s, db.Memory, tenant)
+    roots.update(run.root_id for run in all_runs if run.id in legacy_ids)
     all_skills = db.rows(s, db.SkillVersion, tenant)
     skill_ids = set()
     previous = None
     while previous != (len(roots), len(memory_ids), len(skill_ids)):
         previous = len(roots), len(memory_ids), len(skill_ids)
+        derived_ids = {r.id for r in all_runs if r.root_id in roots}
         for run in all_runs:
             lineage = set(run.state.get("memory_lineage", [])) | {m["id"] for m in run.state.get("memories", [])}
-            if lineage & memory_ids or {item["id"] for item in run.state.get("skills", [])} & skill_ids:
+            origins = {run.state.get(field) for field in ("forked_from", "source_run_id", "source_discussion_id")}
+            if lineage & memory_ids or {item["id"] for item in run.state.get("skills", [])} & skill_ids or origins & derived_ids:
                 roots.add(run.root_id)
         derived_ids = {r.id for r in all_runs if r.root_id in roots}
         for linked in all_memories:
@@ -45,10 +54,13 @@ def prepare(s, tenant, memory_id, actor, run_id=None):
         if any(a.status in {"RUNNING", "DISPATCHED", "UNKNOWN"} for a in db.rows(s, db.Action, tenant, run_id=run.id)):
             raise Fault("ERASURE_UNSETTLED", "Reconcile in-flight external effects before erasing their evidence")
     ids = [r.id for r in runs]
-    s.add(db.PolicyVersion(tenant_id=tenant, id=key, status="pending", data={"runs": ids, "reviewer": actor, "memory_id": memory_id}))
+    s.add(db.PolicyVersion(tenant_id=tenant, id=key, status="pending",
+        data={"runs": ids, "reviewer": actor, "memory_id": memory_id, "lineage_version": 2}))
     s.flush()
     s.execute(db.text("SELECT set_config('forge.erasure_request', :key, true)"), {"key": key})
     for run in runs:
+        if run.state.get("knowledge_erased"):
+            continue
         old_digest = digest(run.state)
         old_seq = run.seq
         run.status, run.phase, run.wait_reason = "CANCELLED", "ERASED", None
@@ -121,8 +133,10 @@ def finish(tenant, ids, key):
 
 
 def purge_family(tenant, ids):
+    from .manager_receipts import purge_receipts
     from .sandbox import sandbox
 
+    purge_receipts(tenant, ids)
     for run_id in ids:
         objects.purge_scope(tenant, run_id)
         scope = digest(tenant)[7:23]
