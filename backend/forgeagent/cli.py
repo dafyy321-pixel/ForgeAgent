@@ -239,3 +239,16 @@ def register_dataset(spec: Path):
 @evaluation.command("experiment")
 def run_experiment(spec: Path):
     execute(lambda c: c.request("POST", "/experiments", json.loads(spec.read_text(encoding="utf-8"))))
+
+
+@evaluation.command("compare-profiles")
+def compare_experiment_profiles(reports: list[Path]):
+    """Compare saved paired reports from two or more model deployments."""
+    from .domain import Fault
+    from .evaluations import compare_profiles
+
+    try:
+        result = compare_profiles([json.loads(path.read_text(encoding="utf-8")) for path in reports])
+    except (Fault, KeyError, ValueError, OSError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    typer.echo(json.dumps(result, ensure_ascii=False, indent=2))

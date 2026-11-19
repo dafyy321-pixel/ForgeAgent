@@ -1,5 +1,9 @@
 # 外部修复案例与配对检索 pilot
 
+### 跨模型复跑
+
+在两个使用不同固定模型 profile 的部署上登记相同的开发集和项目，提交同一份单变量实验 JSON。也可在同一部署先完成一组再切换 API 和 Worker 的模型配置。每次启动实验都会绑定当前 profile 摘要。通过 `forge eval report <id>` 保存各自的 JSON，在本地执行 `forge eval compare-profiles first.json second.json`。命令核对数据集摘要、代码实现、配置、种子、重复次数、费用假设和逐项运行记录，按模型及 Harness 输出独立通过数、暂停、延迟、负迁移和全部尝试摊到每次通过的成本。未知完整费用保留为空。已有单次使用的 held-out 约束仍适用，应使用开发集进行多轮调参。
+
 本页记录两个公开历史缺陷的受控外部 pilot。h11 和 trace-mapping 已在固定 Linux sandbox 中验证：各自的基线 commit 使独立验收失败，上游参考修复 commit 通过。这个校验证明验收和环境绑定有效，不等于模型已修复；真实模型的每次 patch、usage、费用、失败和人工介入会写入脱敏 evidence bundle。案例来自公开历史开发记录，模型结果不能称为盲测或普遍修复能力。
 
 本轮结果见 [脱敏证据报告](../benchmarks/reports/external-repair-evidence-2026-10-19.json) 及校验文件。`paid-v8` 和 `paid-v9` 保留了资源耗尽、模型请求失败及未知 usage 的失败取证；`paid-v10` 在修复补丁边界清理后交付了两个 recovery-off 结果：Python 与 TypeScript 各一个，独立验收均为 PASS。两条 recovery-on 任务都因没有足够证据建立支持性恢复而安全暂停。模型 usage 在 v10 全部 settled，v8/v9 的未知 usage 仍保留为 UNKNOWN，完整费用仍不完整。

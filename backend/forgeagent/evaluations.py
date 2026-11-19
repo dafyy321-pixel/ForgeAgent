@@ -161,6 +161,7 @@ def start(s, tenant, actor, body):
         "dataset_digest": dataset.data["digest"],
         "split": dataset.data["split"],
         "model": "fixture@1" if body.model == "fixture" else settings.model_id,
+        "model_profile_digest": digest("fixture@1" if body.model == "fixture" else service.model_profile()),
         "implementation": service.implementation_bindings(),
         "runs": [x["id"] for x in entries],
         "entries": entries,
@@ -173,6 +174,43 @@ def start(s, tenant, actor, body):
 def percentile(values, q):
     values = sorted(values)
     return values[min(len(values) - 1, math.floor((len(values) - 1) * q))] if values else None
+
+
+def compare_profiles(reports):
+    """Compare independently executed profiles on the same fixed, repeated trials."""
+    if len(reports) < 2:
+        raise Fault("PROFILE_COMPARISON", "At least two different model profiles are required", 422)
+    fields = ("dataset_digest", "configurations", "repetitions", "seed", "implementation", "cost_assumptions")
+    baseline = reports[0]
+    profiles, seen = [], set()
+    keys = None
+    for result in reports:
+        profile = result.get("model_profile_digest")
+        if not profile or profile in seen:
+            raise Fault("PROFILE_COMPARISON", "Each experiment must bind a distinct model profile", 422)
+        seen.add(profile)
+        if result.get("kind") != "paired" or result.get("status") not in {"completed", "awaiting_reconciliation"}:
+            raise Fault("PROFILE_COMPARISON", "A finished paired experiment is required", 422)
+        if any(key not in result or result[key] != baseline[key] for key in fields):
+            raise Fault("PROFILE_COMPARISON", "Experiments must use the same dataset and comparison protocol", 422)
+        rows = result["results"]
+        trials = {(r["config"], r["case_id"], r["repeat"]) for r in rows}
+        expected = {(c["name"], case, i) for c in result["configurations"]
+                    for case in {r["case_id"] for r in rows} for i in range(result["repetitions"])}
+        if not trials or len(trials) != len(rows) or trials != expected or (keys is not None and trials != keys):
+            raise Fault("PROFILE_COMPARISON", "All repeated trials must be present and matched", 422)
+        keys = trials
+        harnesses = {}
+        for name, summary in result["summaries"].items():
+            passes = sum(r["status"] == "SUCCEEDED" and r["verdict"] == "PASS" for r in rows if r["config"] == name)
+            total = summary["research"]["full_cost_usd"]
+            harnesses[name] = {**summary, "verified_passes": passes,
+                "known_model_cost_per_pass_usd": summary["all_attempts_cost_usd"] / passes if passes else None,
+                "full_cost_per_pass_usd": total / passes if passes and total is not None else None}
+        profiles.append({"model": result["model"], "model_profile_digest": profile, "experiment": result["id"],
+                         "status": result["status"], "harnesses": harnesses, "comparisons": result["comparisons"]})
+    return {"dataset_digest": baseline["dataset_digest"], "matched_trials_per_profile": len(keys or ()),
+            "profiles": profiles}
 
 
 def cluster_interval(values, seed):

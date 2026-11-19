@@ -41,6 +41,7 @@ async def test_paired_experiment_is_durable_and_not_independent_repeats(client, 
         if not await Worker().once(tenant):
             break
     result = client.get(f"/v1/evaluations/{id}").json()
+    assert result["model_profile_digest"] == digest("fixture@1")
     assert result["status"] == "completed" and result["successes"] == 2
     assert result["independent_cases"] == 1
     assert result["comparisons"]["candidate"]["cluster_95_ci"] is None
