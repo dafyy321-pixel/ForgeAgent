@@ -61,8 +61,7 @@ def test_worker_quarantines_unjournaled_projection_changes(tenant, make_run):
         assert json.dumps(rebuild(s, tenant, run_id))
 
 
-@pytest.mark.parametrize("failure", ["CHECKPOINT_CORRUPT", "OBJECT_UNAVAILABLE"])
-def test_unreadable_history_does_not_starve_the_next_run(tenant, make_run, monkeypatch, failure):
+def test_temporary_history_failure_retries_without_starving_next_run(tenant, make_run, monkeypatch):
     worker = Worker()
     broken = make_run()
     _, epoch = worker.claim(tenant)
@@ -71,7 +70,7 @@ def test_unreadable_history_does_not_starve_the_next_run(tenant, make_run, monke
 
     def fail_one(s, tenant_id, run_id, *args, **kwargs):
         if run_id == broken:
-            raise Fault(failure, "read failed", retryable=failure == "OBJECT_UNAVAILABLE")
+            raise Fault("OBJECT_UNAVAILABLE", "read failed", retryable=True)
         return rebuild(s, tenant_id, run_id, *args, **kwargs)
 
     monkeypatch.setattr(reducer, "rebuild", fail_one)
@@ -80,17 +79,11 @@ def test_unreadable_history_does_not_starve_the_next_run(tenant, make_run, monke
     with db.transaction(tenant) as s:
         job = db.get(s, db.Job, tenant, broken)
         run = db.get(s, db.Run, tenant, broken)
-        assert job.data["replay_error"] == failure and run.epoch == epoch
-        if failure == "CHECKPOINT_CORRUPT":
-            assert job.status == "QUARANTINED"
-            alert = next(a for a in operations.health(s, tenant)["alerts"] if a["code"] == "REPLAY_QUARANTINED")
-            assert broken in alert["resource_ids"]
-        else:
-            assert job.status == "READY" and run.available_at > db.clock(s)
-            run.available_at = db.clock(s) - timedelta(seconds=1)
+        assert job.data["replay_error"] == "OBJECT_UNAVAILABLE" and run.epoch == epoch
+        assert job.status == "READY" and run.available_at > db.clock(s)
+        run.available_at = db.clock(s) - timedelta(seconds=1)
     monkeypatch.setattr(reducer, "rebuild", rebuild)
-    if failure == "OBJECT_UNAVAILABLE":
-        assert worker.claim(tenant)[0] == broken
+    assert worker.claim(tenant)[0] == broken
 
 
 def test_invalid_persisted_checkpoint_is_isolated_from_other_jobs(tenant, make_run):
@@ -106,3 +99,5 @@ def test_invalid_persisted_checkpoint_is_isolated_from_other_jobs(tenant, make_r
     with db.transaction(tenant) as s:
         job = db.get(s, db.Job, tenant, broken)
         assert job.status == "QUARANTINED" and job.data["replay_error"] == "CHECKPOINT_CORRUPT"
+        alert = next(a for a in operations.health(s, tenant)["alerts"] if a["code"] == "REPLAY_QUARANTINED")
+        assert broken in alert["resource_ids"]

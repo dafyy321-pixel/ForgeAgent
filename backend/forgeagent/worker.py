@@ -105,7 +105,7 @@ class Worker:
             job = db.get(s, db.Job, tenant, r.id, True)
             try:
                 recovered = rebuild(s, tenant, r.id)
-            except (Fault, KeyError, ValueError, TypeError) as exc:
+            except (Fault, KeyError, ValueError, TypeError, AttributeError) as exc:
                 # This queue record is independent of the unreadable event chain.
                 # Emitting an event or checkpoint here would try the same replay.
                 code = exc.code if isinstance(exc, Fault) else "REPLAY_INVALID"

@@ -8,7 +8,7 @@ from datetime import timedelta
 from urllib.parse import urlsplit
 
 import httpx
-from sqlalchemy import literal_column, select
+from sqlalchemy import literal_column, select, update
 
 from . import db, service
 from .config import settings
@@ -380,10 +380,11 @@ async def poll_remote(tenant, run_id, action_id, owner, epoch):
                 db.emit(s, run, "REMOTE_CANCEL_UNKNOWN", "Interrupted cancellation is not repeated; query task status", outbox_id=cancel_key)
             cancel = bool(cancel_job and cancel_job.status == "pending" and run.cancel_requested)
             inputs = outbox_for_action(tenant, action_id).where(db.Outbox.data["kind"].as_string().is_distinct_from("cancel"))
-            uncertain_inputs = list(s.scalars(inputs.where(db.Outbox.status.in_(["dispatching", "unknown"]))))
-            if uncertain_inputs:
-                for job in uncertain_inputs:
-                    job.status = "unknown"
+            input_ids = inputs.with_only_columns(db.Outbox.id)
+            if s.scalar(input_ids.where(db.Outbox.status.in_(["dispatching", "unknown"])).limit(1)) is not None:
+                s.execute(update(db.Outbox).where(db.Outbox.tenant_id == tenant,
+                    db.Outbox.id.in_(input_ids.where(db.Outbox.status == "dispatching")))
+                    .values(status="unknown").execution_options(synchronize_session=False))
                 action.status = "UNKNOWN"
                 db.emit(s, run, "REMOTE_INPUT_UNKNOWN", "Interrupted remote input delivery requires reconciliation")
                 return None

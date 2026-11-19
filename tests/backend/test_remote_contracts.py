@@ -172,6 +172,25 @@ async def test_remote_poll_does_not_load_other_actions_or_consumed_messages(tena
     assert loaded == ["new-hint"]
 
 
+async def test_callback_backlog_continues_in_the_next_quantum_before_poll(tenant, make_run, monkeypatch):
+    run_id = make_run()
+    action_id = pending_remote(tenant, run_id)
+    with db.transaction(tenant) as s:
+        s.add_all(db.Inbox(tenant_id=tenant, status="received", data={"payload": {"action_id": action_id}})
+                  for _ in range(101))
+    rpc = AsyncMock(return_value={"taskId": "task-1", "status": "working"})
+    monkeypatch.setattr(remote, "rpc", rpc)
+    worker = Worker(target_run=run_id)
+    assert await worker.once(tenant)
+    rpc.assert_not_awaited()
+    with db.transaction(tenant) as s:
+        assert len(db.rows(s, db.Inbox, tenant, status="received")) == 1
+    assert await worker.once(tenant)
+    rpc.assert_awaited_once()
+    with db.transaction(tenant) as s:
+        assert not db.rows(s, db.Inbox, tenant, status="received")
+
+
 async def test_native_remote_intent_runs_through_worker_receipt_and_continuation(tenant, make_run, monkeypatch):
     connection_id = registered(tenant)
     run_id = make_run(model="configured", connections=[connection_id], capabilities=["external.read"])

@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from copy import deepcopy
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import (
     JSON,
@@ -301,6 +301,8 @@ def fence(s, tenant, id, owner, epoch):
 
 
 def schedule(s, run, seconds=0, *, at=None):
+    if at is not None and run.state.get("deadline"):
+        at = min(at, datetime.fromisoformat(run.state["deadline"]))
     run.available_at = at if at is not None else clock(s) + timedelta(seconds=seconds)
     job = s.get(Job, (run.tenant_id, run.id))
     if not job:
