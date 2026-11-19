@@ -28,7 +28,7 @@ jobs:
           POSTGRES_PASSWORD: test-admin
         ports: ['55432:5432']
         options: >-
-          --health-cmd 'pg_isready -U postgres'
+          --health-cmd "pg_isready -U postgres"
           --health-interval 3s --health-timeout 3s --health-retries 20
     env:
       FORGE_DATABASE_URL: postgresql+psycopg://forge:forge-local@127.0.0.1:55432/forge
@@ -61,4 +61,6 @@ jobs:
         with:
           name: scheduler-performance-${{ github.sha }}-${{ github.run_attempt }}
           path: .forge/performance-*.json
+          include-hidden-files: true
+          if-no-files-found: error
           retention-days: 90
