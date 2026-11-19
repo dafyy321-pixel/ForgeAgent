@@ -117,6 +117,17 @@ def discussion_plan_digest(run):
     return digest({"task": run.state["task"], "dialogue": run.state.get("dialogue", [])})
 
 
+def plan_ready(run):
+    state = run.state
+    if not state.get("plan_ready"):
+        return False
+    if "plan_input_revision" in state:
+        return state["plan_input_revision"] == state.get("input_revision", 0)
+    # Older proposals recorded the assistant turn but did not bind an input revision.
+    dialogue = state.get("dialogue", [])
+    return dialogue[-1].get("role") == "assistant" if dialogue else state.get("input_revision", 0) == 0
+
+
 def authorization(s, run, capability=None):
     current = db.get(s, db.Authorization, run.tenant_id, run.actor)
     if current.status != "active":

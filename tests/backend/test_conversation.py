@@ -59,6 +59,41 @@ def test_discussion_rejects_write_capabilities_and_fixture_model(make_run):
         make_run(task=Task(mode="discuss", goal="Inspect"), capabilities=["repo.read"])
 
 
+@pytest.mark.parametrize("endpoint", ["input", "messages"])
+async def test_every_reply_invalidates_the_proposal_until_a_new_model_turn(tenant, make_run, client, endpoint):
+    run_id = discussion(make_run)
+
+    async def model(*args):
+        return json.dumps({"kind": "propose_completion", "summary": "Reviewed proposal"}), {
+            "input_tokens": 1, "output_tokens": 1}, {}, "local-test"
+
+    worker = Worker(model=model, target_run=run_id)
+    await worker.once(tenant)
+    path = f"/v1/runs/{run_id}"
+    history = client.get(path + "/conversation").json()
+    assert history["plan_ready"]
+    reply = client.post(f"{path}/{endpoint}", json={"expected_version": history["version"], "content": "Revise scope"},
+                        headers={"Idempotency-Key": "follow-up"})
+    assert reply.status_code == 200, reply.text
+    changed = client.get(path + "/conversation").json()
+    assert not changed["plan_ready"] and not reply.json()["planReady"]
+    spec = {"project_id": "runtime-lab", "model": "fixture", "task": {"goal": "Fix add"}}
+    def confirm(snapshot):
+        return client.post(path + "/execute", json={"expected_version": snapshot["version"],
+                           "plan_digest": snapshot["plan_digest"], "spec": spec}, headers={"Idempotency-Key": "execute"})
+    assert confirm(changed).status_code == 409
+    if endpoint == "input":
+        with db.transaction(tenant) as s:
+            service.control(s, tenant, run_id, "resume", changed["version"], "Consider the new input")
+    await worker.once(tenant)
+    updated = client.get(path + "/conversation").json()
+    assert updated["plan_ready"]
+    assert confirm(updated).status_code == 202
+    closed = client.get(path + "/conversation").json()
+    assert client.post(f"{path}/{endpoint}", json={"expected_version": closed["version"], "content": "One more"},
+                       headers={"Idempotency-Key": "closed"}).status_code == 409
+
+
 async def test_discussion_model_cannot_write_before_confirmation(tenant, make_run):
     run_id = discussion(make_run)
 

@@ -783,7 +783,8 @@ class Worker:
                 service.append_message(s, r, "assistant", decision.summary)
                 r.status, r.wait_reason, r.phase = "PAUSED", None, "DISCUSSING"
                 r.state = {**r.state, "reason": "等待确认方案" if decision.kind == "propose_completion" else "等待你的回复",
-                           "input_required": True, "plan_ready": decision.kind == "propose_completion"}
+                           "input_required": True, "plan_ready": decision.kind == "propose_completion",
+                           "plan_input_revision": state.get("input_revision", 0)}
             elif decision.kind == "request_input":
                 service.append_message(s, r, "assistant", decision.summary)
                 r.status, r.wait_reason = "PAUSED", None

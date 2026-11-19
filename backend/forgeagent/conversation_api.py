@@ -20,6 +20,22 @@ class UserInput(Control):
     content: str = Field(min_length=1, max_length=10000)
 
 
+def accept_input(s, run, content, key=None):
+    from .recovery import invalidate
+
+    if run.state.get("execution_id"):
+        raise Fault("DISCUSSION_CLOSED", "This plan has started; send follow-up input to its execution task")
+    invalidate(s, run)
+    run.state = {**run.state, "input": content, "input_required": False, "completion": None,
+                 "plan_ready": False, "verification": None, "input_revision": run.state.get("input_revision", 0) + 1,
+                 "artifact_version": run.state["artifact_version"] + 1}
+    for artifact in db.rows(s, db.Artifact, run.tenant_id, run_id=run.id):
+        artifact.verified = False
+    if key is None:
+        db.emit(s, run, "USER_INPUT", content)
+    service.append_message(s, run, "user", content, key)
+
+
 @router.post("/v1/runs/{id}/input")
 def user_input(id: str, body: UserInput, actor: Actor):
     with db.transaction(actor.tenant) as s:
@@ -28,16 +44,7 @@ def user_input(id: str, body: UserInput, actor: Actor):
             raise Fault("INPUT_CONFLICT", "Input requires the current paused task version")
         if r.cancel_requested:
             raise Fault("INPUT_CONFLICT", "A cancelling task cannot accept new input")
-        from .recovery import invalidate
-
-        invalidate(s, r)
-        r.state = {**r.state, "input": body.content, "input_required": False, "completion": None,
-                   "verification": None, "input_revision": r.state.get("input_revision", 0) + 1,
-                   "artifact_version": r.state["artifact_version"] + 1}
-        for artifact in db.rows(s, db.Artifact, actor.tenant, run_id=id):
-            artifact.verified = False
-        db.emit(s, r, "USER_INPUT", body.content)
-        service.append_message(s, r, "user", body.content)
+        accept_input(s, r, body.content)
         return presenters.run_view(s, r)
 
 
@@ -47,7 +54,7 @@ def conversation(id: str, actor: Actor):
         r = db.get(s, db.Run, actor.tenant, id)
         return {"messages": [{k: v for k, v in m.items() if k != "key"} for m in r.state.get("dialogue", [])],
                 "initial": r.state["task"]["goal"], "mode": r.state["task"].get("mode", "execute"),
-                "plan_ready": bool(r.state.get("plan_ready")), "execution_id": r.state.get("execution_id"),
+                "plan_ready": service.plan_ready(r), "execution_id": r.state.get("execution_id"),
                 "version": r.version, "plan_digest": service.discussion_plan_digest(r)}
 
 
@@ -65,18 +72,8 @@ def conversation_message(id: str, body: UserInput, actor: Actor, idempotency_key
             return presenters.run_view(s, r)
         if r.version != body.expected_version or r.status != "PAUSED" or r.cancel_requested:
             raise Fault("INPUT_CONFLICT", "Reply requires the current paused task; pause running work first")
-        if r.state.get("execution_id"):
-            raise Fault("DISCUSSION_CLOSED", "This plan has started; send follow-up input to its execution task")
         service.require_settled_usage(s, r)
-        from .recovery import invalidate
-
-        invalidate(s, r)
-        r.state = {**r.state, "input": body.content, "input_required": False, "completion": None,
-                   "plan_ready": False, "verification": None, "input_revision": r.state.get("input_revision", 0) + 1,
-                   "artifact_version": r.state["artifact_version"] + 1}
-        for artifact in db.rows(s, db.Artifact, actor.tenant, run_id=id):
-            artifact.verified = False
-        service.append_message(s, r, "user", body.content, key)
+        accept_input(s, r, body.content, key)
         service.control(s, actor.tenant, id, "resume", r.version, "用户发送对话消息")
         return presenters.run_view(s, r)
 
@@ -137,7 +134,7 @@ def execute_plan(id: str, body: ConfirmExecution, actor: Actor, idempotency_key:
             return presenters.run_view(s, execution)
         if (r.version != body.expected_version or body.plan_digest != service.discussion_plan_digest(r)
             or r.status != "PAUSED" or r.cancel_requested
-            or r.state["task"].get("mode") != "discuss" or not r.state.get("plan_ready")):
+            or r.state["task"].get("mode") != "discuss" or not service.plan_ready(r)):
             raise Fault("PLAN_CONFLICT", "Confirm the current completed discussion plan before execution")
         if body.spec.project_id != r.project_id or body.spec.task.mode != "execute":
             raise Fault("PLAN_SCOPE", "Execution must use the discussed project", 422)

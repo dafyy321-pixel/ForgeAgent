@@ -1,5 +1,7 @@
 """User-facing task status, kept separate from machine phases and diagnostics."""
 
+from .service import plan_ready
+
 
 def presentation(run):
     reason = run.state.get("reason") or ""
@@ -26,7 +28,7 @@ def presentation(run):
             action = {"label": label, "href": href}
         elif run.state.get("execution_id"):
             message = "方案已确认，执行任务已创建"
-        elif run.state.get("plan_ready"):
+        elif plan_ready(run):
             message = "方案已整理好，等待你确认"
         elif run.state.get("input_required"):
             message = "等待你的回复"
