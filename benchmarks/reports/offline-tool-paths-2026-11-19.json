@@ -1,0 +1,102 @@
+{
+  "kind": "authored-offline-comparison",
+  "tokenizer": "o200k_base",
+  "repeats": 25,
+  "native_requests": [
+    {
+      "remote_tools": 2,
+      "query": "lookup_001",
+      "eager_one_request": {
+        "canonical_json_bytes": 6588,
+        "local_bpe_tokens": 1479
+      },
+      "deferred_first_request": {
+        "canonical_json_bytes": 6525,
+        "local_bpe_tokens": 1454
+      },
+      "deferred_after_exact_discovery": {
+        "canonical_json_bytes": 7112,
+        "local_bpe_tokens": 1621
+      },
+      "deferred_two_requests": {
+        "canonical_json_bytes": 13637,
+        "local_bpe_tokens": 3075
+      }
+    },
+    {
+      "remote_tools": 64,
+      "query": "lookup_063",
+      "eager_one_request": {
+        "canonical_json_bytes": 21150,
+        "local_bpe_tokens": 5242
+      },
+      "deferred_first_request": {
+        "canonical_json_bytes": 6525,
+        "local_bpe_tokens": 1454
+      },
+      "deferred_after_exact_discovery": {
+        "canonical_json_bytes": 7114,
+        "local_bpe_tokens": 1627
+      },
+      "deferred_two_requests": {
+        "canonical_json_bytes": 13639,
+        "local_bpe_tokens": 3081
+      }
+    }
+  ],
+  "symbol_location": [
+    {
+      "files": 1,
+      "matched_symbols": 3,
+      "fused_range_reads": {
+        "dependency_stages": 2,
+        "primitive_calls": 4,
+        "raw_receipts": {
+          "canonical_json_bytes": 1248,
+          "local_bpe_tokens": 465
+        },
+        "located_digest": "sha256:5e96cc14c3338acb4982392e9841a403913e68e1fa01979afec9d61517cc894c",
+        "local_tool_path_p95_ms": 6.543
+      },
+      "inspect_symbol": {
+        "dependency_stages": 1,
+        "primitive_calls": 4,
+        "raw_receipts": {
+          "canonical_json_bytes": 1229,
+          "local_bpe_tokens": 513
+        },
+        "located_digest": "sha256:5e96cc14c3338acb4982392e9841a403913e68e1fa01979afec9d61517cc894c",
+        "local_tool_path_p95_ms": 6.724
+      }
+    },
+    {
+      "files": 32,
+      "matched_symbols": 3,
+      "fused_range_reads": {
+        "dependency_stages": 3,
+        "primitive_calls": 5,
+        "raw_receipts": {
+          "canonical_json_bytes": 1546,
+          "local_bpe_tokens": 579
+        },
+        "located_digest": "sha256:5e96cc14c3338acb4982392e9841a403913e68e1fa01979afec9d61517cc894c",
+        "local_tool_path_p95_ms": 134.127
+      },
+      "inspect_symbol": {
+        "dependency_stages": 2,
+        "primitive_calls": 5,
+        "raw_receipts": {
+          "canonical_json_bytes": 1527,
+          "local_bpe_tokens": 627
+        },
+        "located_digest": "sha256:5e96cc14c3338acb4982392e9841a403913e68e1fa01979afec9d61517cc894c",
+        "local_tool_path_p95_ms": 134.467
+      }
+    }
+  ],
+  "provider_input_tokens": null,
+  "provider_bill_usd": null,
+  "model_selection_accuracy": null,
+  "end_to_end_verification": null,
+  "limits": "Exact operation query and authored location plan. Canonical JSON bytes and local BPE estimates exclude HTTP framing, SDK continuation and provider billing. P95 measures only local tool execution on a warm filesystem. Multi-file paths include a common repository search."
+}
