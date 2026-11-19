@@ -1,6 +1,5 @@
 import asyncio
 import ssl
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address
 from threading import BoundedSemaphore
@@ -50,28 +49,32 @@ async def test_manager_uses_one_local_slot_without_database(monkeypatch, tmp_pat
     assert (await sandbox_manager.run_execution(request))["exit_code"] == 0
 
 
-async def test_shared_worker_holds_database_slot_during_manager_call(monkeypatch, tmp_path):
+async def test_shared_workers_share_one_database_slot_during_manager_calls(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "sandbox_manager_url", "https://manager.example")
-    occupied = False
+    monkeypatch.setattr(settings, "sandbox_concurrency", 1)
+    entered, finish = asyncio.Event(), asyncio.Event()
+    calls = []
 
-    @asynccontextmanager
-    async def admission(resource, limit):
-        nonlocal occupied
-        assert resource == "sandbox"
-        occupied = True
-        try:
-            yield True
-        finally:
-            occupied = False
-
-    async def execute(*args):
-        assert occupied
+    async def execute(root, *args):
+        calls.append(root)
+        entered.set()
+        await finish.wait()
         return {"exit_code": 0}
 
-    monkeypatch.setattr(concurrency, "admission", admission)
     monkeypatch.setattr(sandbox_manager, "remote_execute", execute)
-    result = await sandbox.execute(tmp_path, ["pytest"], "image")
-    assert result["exit_code"] == 0 and not occupied
+    first_root, second_root = tmp_path / "first", tmp_path / "second"
+    first = asyncio.create_task(sandbox.execute(first_root, ["pytest"], "image"))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        with pytest.raises(Fault) as busy:
+            await sandbox.execute(second_root, ["pytest"], "image")
+        assert busy.value.code == "SANDBOX_BACKPRESSURE" and busy.value.retryable
+        assert calls == [first_root]
+    finally:
+        finish.set()
+        assert (await first)["exit_code"] == 0
+    assert (await sandbox.execute(second_root, ["pytest"], "image"))["exit_code"] == 0
+    assert calls == [first_root, second_root]
 
 
 async def test_manager_clients_load_dedicated_ca(monkeypatch, tmp_path):
