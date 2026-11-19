@@ -61,11 +61,8 @@ jobs:
           umask 077
           name="forge-manager-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           docker build --target manager -t "$name" .
+          bash scripts/manager-test-tls.sh "$RELEASE_TLS_DIR"
           cd "$RELEASE_TLS_DIR"
-          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=ForgeReleaseCA -keyout ca.key -out ca.crt
-          openssl req -new -newkey rsa:2048 -nodes -subj /CN=forge-manager -keyout manager.key -out manager.csr
-          printf '%s\n' 'subjectAltName=IP:127.0.0.1' 'extendedKeyUsage=serverAuth' > manager.ext
-          openssl x509 -req -in manager.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 1 -extfile manager.ext -out manager.crt
           docker run -d --name "$name" --user "$(id -u):$(id -g)" --group-add "$(stat -c %g /var/run/docker.sock)" \
             --read-only --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:size=128m \
             -p 127.0.0.1:18099:8443 -v /var/run/docker.sock:/var/run/docker.sock \

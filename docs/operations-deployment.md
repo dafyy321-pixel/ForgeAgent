@@ -43,6 +43,8 @@ OIDC 使用现有组织身份提供方；JWT 必须含 tenant_id、sub、exp、�
 
 Worker 在调用 manager 之前通过 PostgreSQL 获取全局沙箱配额。每个 manager 进程还执行本机并发限制。部署清单向客户端单独挂载 CA，并通过 `FORGE_SANDBOX_MANAGER_CA_FILE` 验证 manager；manager 与 web 各自只挂载自己的服务证书和私钥。更换证书后重建对应容器，使单文件挂载读取新文件。发布门禁使用临时 CA 签发的 HTTPS 证书运行当前提交构建的 manager 镜像，独立环境仅传入沙箱配置与签名密钥。
 
+普通分支与 PR 的 Runtime Contracts 在 GitHub 托管 Ubuntu 上安装固定版本的 gVisor `20261116.0`，下载包按官方 SHA-512 校验。脚本以独立 Compose 项目运行部署清单中的 PostgreSQL、manager 和一次性 Worker 客户端。Worker 通过真实数据库并发配额调用 HTTPS manager，容器内核对非 root 用户和只读挂载标志、读取随机标记，再以无关 CA 重试并检查证书校验失败。数据库密码和签名密钥均在作业内生成。此项结果可在对应提交的 Runtime Contracts 日志中核对。[gVisor 安装说明](https://gvisor.dev/docs/user_guide/install/) · [官方校验和](https://storage.googleapis.com/gvisor/releases/release/20261116.0/x86_64/gvisor.tar.zstd.sha512)
+
 启用 `--profile s3` 时，MinIO 私有环境必须有 root credentials 与 `MINIO_KMS_SECRET_KEY`（SSE-S3 所需 KMS；保存在私有 secret 文件）。bootstrap 环境含 `MC_HOST_forge=http://<root-user>:<root-password>@minio:9000` 及独立应用 S3 access/secret；bootstrap 创建 bucket、版本化、未完成上传清理和仅 forgeagent bucket 的应用策略。runtime 使用应用账户而非 root。也可直接接入组织的 S3 和 KMS；外部 S3、实际镜像/gVisor 必须真实联调，模拟测试不替代。
 
 升级：先备份并完成隔离恢复演练；记录上一组镜像摘要与迁移号；停止写入/领取并等待持久边界；拉取新摘要，单独执行 migrate；确认 readiness 的 schema 版本后启动 API/Worker/maintenance，再做小范围任务与遥测检查。新增约束和擦除迁移不支持 downgrade。回退必须使用同数据库版本兼容的旧镜像；不兼容时停止所有写入，从联合备份恢复到新实例，经外部效果对账后切换。不要让旧代码直接写新 schema。

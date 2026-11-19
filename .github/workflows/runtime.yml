@@ -48,6 +48,19 @@ jobs:
           uv run --no-project --isolated --with .forge/dist/forgeagent-0.2.0-py3-none-any.whl python -c "from forgeagent.sdk import Client; from forgeagent.contracts import RunView; from forgeagent.cli import app"
           uv run --no-project --isolated --with .forge/dist/forgeagent-0.2.0-py3-none-any.whl forge --help
       - run: docker build -t forgeagent-sandbox:local sandbox
+      - name: Install verified gVisor runtime on the hosted runner
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsS --retry 3 -o gvisor.tar.zstd \
+            https://storage.googleapis.com/gvisor/releases/release/20261116.0/x86_64/gvisor.tar.zstd
+          printf '%s  %s\n' 'a34261504066142b6c1cc4d1813bb2d092761675416e350edc98c4cc66469b63b6f41acdeed09681b6c717c00e80e437f5f2f9c8d37705b8a9260632867c2b7d' gvisor.tar.zstd | sha512sum --check
+          sudo tar --zstd -xf gvisor.tar.zstd -C /usr/local/bin
+          sudo /usr/local/bin/runsc install
+          sudo systemctl reload docker
+          /usr/local/bin/runsc --version
+      - name: Exercise the shared Compose worker and HTTPS manager with runsc
+        timeout-minutes: 15
+        run: bash scripts/deploy-manager-smoke.sh
       - run: uv run pytest tests/backend -q
         env:
           FORGE_TEST_DOCKER: "1"
