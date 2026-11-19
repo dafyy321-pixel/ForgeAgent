@@ -122,13 +122,16 @@ async def test_cancel_takeover_billing_reconciliation_wakes_worker(client, tenan
     with db.transaction(tenant) as s:
         run = db.get(s, db.Run, tenant, run_id)
         assert run.status == "CANCELLING" and run.wait_reason == "RECONCILIATION"
-        assert db.get(s, db.Job, tenant, run_id).status == "READY"
+        assert db.get(s, db.Job, tenant, run_id).status == "BLOCKED"
         version = run.version
+    assert not await worker.once(tenant)
     response = client.post(f"/v1/runs/{run_id}/budget/{call_id}/reconcile", json={
         "expected_version": version, "actual_micros": 20, "actual_tokens": 5,
         "evidence": "provider confirms the original request bill"})
     assert response.status_code == 200
-    await worker.once(tenant)
+    with db.transaction(tenant) as s:
+        assert db.get(s, db.Job, tenant, run_id).status == "READY"
+    assert await worker.once(tenant)
     with db.transaction(tenant) as s:
         assert db.get(s, db.Run, tenant, run_id).status == "CANCELLED"
         account = db.get(s, db.BudgetAccount, tenant, run_id)
